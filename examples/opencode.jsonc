@@ -1,0 +1,22 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "provider": {
+    "jev": {
+      "npm": "@ai-sdk/openai",
+      "name": "Jev adaptive Astra",
+      "options": {
+        "apiKey": "{env:CLIPROXY_KEY}",
+        "baseURL": "http://127.0.0.1:4320/v1"
+      },
+      "models": {
+        "astra": {
+          "name": "GPT-6 Astra with adaptive effort",
+          "reasoning": true,
+          "options": {
+            "useResponses": true
+          }
+        }
+      }
+    }
+  }
+}
