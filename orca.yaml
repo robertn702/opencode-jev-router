@@ -1,0 +1,5 @@
+setupAgentStartupPolicy: wait-for-setup
+
+scripts:
+  setup: |
+    ./scripts/setup.sh

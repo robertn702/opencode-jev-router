@@ -1,6 +1,8 @@
 node_modules/
 dist/
 scratch/
+.scratch/
+AGENTS.local.md
 .env
 .env.*
 !.env.example
