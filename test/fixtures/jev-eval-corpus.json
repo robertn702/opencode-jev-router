@@ -1,0 +1,353 @@
+{
+  "scenarios": [
+    {
+      "id": "trivial-echo",
+      "tier": "trivial",
+      "band": "low-medium",
+      "state": {
+        "recent_user_text": "Reply with exactly: ok",
+        "assistant_progress": "",
+        "tool_results": [],
+        "failure_state": { "failed_count": 0, "last_failure_excerpt": "" }
+      }
+    },
+    {
+      "id": "trivial-add",
+      "tier": "trivial",
+      "band": "low-medium",
+      "state": {
+        "recent_user_text": "What is 2 + 2? Reply with just the number.",
+        "assistant_progress": "",
+        "tool_results": [],
+        "failure_state": { "failed_count": 0, "last_failure_excerpt": "" }
+      }
+    },
+    {
+      "id": "trivial-repeat",
+      "tier": "trivial",
+      "band": "low-medium",
+      "state": {
+        "recent_user_text": "Repeat the word: quokka. Reply with just that word.",
+        "assistant_progress": "",
+        "tool_results": [],
+        "failure_state": { "failed_count": 0, "last_failure_excerpt": "" }
+      }
+    },
+    {
+      "id": "simple-temp",
+      "tier": "simple",
+      "band": "low-medium",
+      "state": {
+        "recent_user_text": "Convert 72 degrees Fahrenheit to Celsius. Reply with the formula and the result in one line.",
+        "assistant_progress": "",
+        "tool_results": [],
+        "failure_state": { "failed_count": 0, "last_failure_excerpt": "" }
+      }
+    },
+    {
+      "id": "simple-bullets",
+      "tier": "simple",
+      "band": "low-medium",
+      "state": {
+        "recent_user_text": "List three benefits of unit testing, one short line each.",
+        "assistant_progress": "",
+        "tool_results": [],
+        "failure_state": { "failed_count": 0, "last_failure_excerpt": "" }
+      }
+    },
+    {
+      "id": "simple-pairA-clean",
+      "tier": "simple",
+      "band": "low-medium",
+      "pair": { "id": "A", "role": "clean" },
+      "state": {
+        "recent_user_text": "A log line says 'connection reset by peer after 3 retries'. In one sentence, what does it mean?",
+        "assistant_progress": "Checking the log context.",
+        "tool_results": [
+          { "name": "read", "ok": true, "excerpt": "tail of app.log: connection reset by peer after 3 retries" }
+        ],
+        "failure_state": { "failed_count": 0, "last_failure_excerpt": "" }
+      }
+    },
+    {
+      "id": "simple-pairA-failed",
+      "tier": "simple",
+      "band": "low-medium",
+      "pair": { "id": "A", "role": "failed" },
+      "state": {
+        "recent_user_text": "A log line says 'connection reset by peer after 3 retries'. In one sentence, what does it mean?",
+        "assistant_progress": "Checking the log context.",
+        "tool_results": [
+          { "name": "read", "ok": false, "excerpt": "EACCES: permission denied /var/log/app.log" },
+          { "name": "bash", "ok": false, "excerpt": "tail: command timed out after 30s" }
+        ],
+        "failure_state": {
+          "failed_count": 2,
+          "last_failure_excerpt": "tail: command timed out after 30s"
+        }
+      }
+    },
+    {
+      "id": "medium-debounce",
+      "tier": "medium",
+      "band": "low-medium",
+      "state": {
+        "recent_user_text": "Write a TypeScript function debounce(fn, waitMs) that delays a callback, and add one sentence explaining when to use it.",
+        "assistant_progress": "",
+        "tool_results": [],
+        "failure_state": { "failed_count": 0, "last_failure_excerpt": "" }
+      }
+    },
+    {
+      "id": "medium-kvparse",
+      "tier": "medium",
+      "band": "low-medium",
+      "state": {
+        "recent_user_text": "Write a small function that parses 'key=value' lines into a record, supporting double-quoted values, and add one sentence noting its main edge case.",
+        "assistant_progress": "",
+        "tool_results": [],
+        "failure_state": { "failed_count": 0, "last_failure_excerpt": "" }
+      }
+    },
+    {
+      "id": "medium-review",
+      "tier": "medium",
+      "band": "low-medium",
+      "state": {
+        "recent_user_text": "Here is a six-line function: function avg(xs) { return xs.reduce((a, b) => a + b, 0) / xs.length }. Point out its edge-case bugs in one or two sentences.",
+        "assistant_progress": "",
+        "tool_results": [],
+        "failure_state": { "failed_count": 0, "last_failure_excerpt": "" }
+      }
+    },
+    {
+      "id": "hard-oom",
+      "tier": "hard",
+      "band": "high-max",
+      "state": {
+        "recent_user_text": "CI fails with OOM only when the test runners are parallelized, while local runs always pass. Diagnose the likely root cause and state the minimal fix in at most three sentences.",
+        "assistant_progress": "",
+        "tool_results": [],
+        "failure_state": { "failed_count": 0, "last_failure_excerpt": "" }
+      }
+    },
+    {
+      "id": "hard-pairB-clean",
+      "tier": "hard",
+      "band": "low-medium",
+      "note": "Calibrated after live runs: with a clean trace excerpt in state, this bounded diagnosis lands at medium; the matched failed variant (hard-pairB-failed) rises to high, which is the pair effect the corpus exists to observe.",
+      "pair": { "id": "B", "role": "clean" },
+      "state": {
+        "recent_user_text": "The indexer falls behind by hours when a tenant uploads a large CSV. Diagnose the likely bottleneck and state the minimal fix in at most three sentences.",
+        "assistant_progress": "Looking at the profiler output.",
+        "tool_results": [
+          { "name": "trace", "ok": true, "excerpt": "3 pipeline stages observed; wall-time split roughly even; iowait elevated but not extreme" }
+        ],
+        "failure_state": { "failed_count": 0, "last_failure_excerpt": "" }
+      }
+    },
+    {
+      "id": "hard-pairB-failed",
+      "tier": "hard",
+      "band": "high-max",
+      "pair": { "id": "B", "role": "failed" },
+      "state": {
+        "recent_user_text": "The indexer falls behind by hours when a tenant uploads a large CSV. Diagnose the likely bottleneck and state the minimal fix in at most three sentences.",
+        "assistant_progress": "Looking at the profiler output.",
+        "tool_results": [
+          { "name": "flamegraph", "ok": false, "excerpt": "profiler daemon refused connection" },
+          { "name": "read", "ok": false, "excerpt": "ENOENT /var/log/indexer-perf.log" },
+          { "name": "trace", "ok": false, "excerpt": "strace: operation not permitted" }
+        ],
+        "failure_state": {
+          "failed_count": 3,
+          "last_failure_excerpt": "strace: operation not permitted"
+        }
+      }
+    },
+    {
+      "id": "very-hard-isolation",
+      "tier": "very-hard",
+      "band": "high-max",
+      "state": {
+        "recent_user_text": "Under concurrent multi-region writes with leader flaps, our distributed database occasionally violates snapshot isolation. Diagnose the likely root cause and state the minimal fix in at most three sentences.",
+        "assistant_progress": "",
+        "tool_results": [],
+        "failure_state": { "failed_count": 0, "last_failure_excerpt": "" }
+      }
+    },
+    {
+      "id": "very-hard-raft",
+      "tier": "very-hard",
+      "band": "high-max",
+      "state": {
+        "recent_user_text": "A Raft leader can acknowledge a write before quorum persistence in one rare interleaving during leader flaps, so committed entries may later be lost. State the minimal protocol change that restores the commit invariant and the single performance tradeoff it costs, in at most four sentences.",
+        "assistant_progress": "",
+        "tool_results": [],
+        "failure_state": { "failed_count": 0, "last_failure_excerpt": "" }
+      }
+    },
+    {
+      "id": "very-hard-pairC-clean",
+      "tier": "very-hard",
+      "band": "high-max",
+      "pair": { "id": "C", "role": "clean" },
+      "state": {
+        "recent_user_text": "Our billing job double-charges customers only when the leader pod restarts mid-batch. Diagnose the likely root cause and state the minimal correctness-preserving fix in at most three sentences.",
+        "assistant_progress": "Reading the retry journal.",
+        "tool_results": [
+          { "name": "read", "ok": true, "excerpt": "journal shows retries re-enqueue the batch with a fresh idempotency key after failover" }
+        ],
+        "failure_state": { "failed_count": 0, "last_failure_excerpt": "" }
+      }
+    },
+    {
+      "id": "very-hard-pairC-failed",
+      "tier": "very-hard",
+      "band": "high-max",
+      "pair": { "id": "C", "role": "failed" },
+      "state": {
+        "recent_user_text": "Our billing job double-charges customers only when the leader pod restarts mid-batch. Diagnose the likely root cause and state the minimal correctness-preserving fix in at most three sentences.",
+        "assistant_progress": "Reading the retry journal.",
+        "tool_results": [
+          { "name": "read", "ok": false, "excerpt": "journal archived past retention" },
+          { "name": "query", "ok": false, "excerpt": "replica lag exceeded query timeout" }
+        ],
+        "failure_state": {
+          "failed_count": 2,
+          "last_failure_excerpt": "replica lag exceeded query timeout"
+        }
+      }
+    }
+  ],
+  "conversations": [
+    {
+      "id": "conv-hard-to-easy",
+      "expect_above": [{ "higher": 0, "lower": 1 }, { "higher": 0, "lower": 2 }],
+      "expect_change": true,
+      "turns": [
+        {
+          "id": "t1-diagnose",
+          "band": "high-max",
+          "append": [
+            {
+              "role": "user",
+              "content": "Under concurrent multi-region writes with leader flaps, our distributed database occasionally violates snapshot isolation. Diagnose the likely root cause and state the minimal fix in at most three sentences."
+            }
+          ]
+        },
+        {
+          "id": "t2-ack",
+          "band": "low-medium",
+          "append": [
+            {
+              "role": "assistant",
+              "content": "The leader acked writes before quorum persistence; the fix is to wait for quorum before acking."
+            },
+            { "role": "user", "content": "Thanks! Reply with exactly: ok" }
+          ]
+        },
+        {
+          "id": "t3-wrap",
+          "band": "low-medium",
+          "append": [
+            { "role": "assistant", "content": "ok" },
+            { "role": "user", "content": "Now reply with exactly: done" }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "conv-easy-to-hard",
+      "expect_above": [{ "higher": 1, "lower": 0 }, { "higher": 1, "lower": 2 }],
+      "expect_change": true,
+      "turns": [
+        {
+          "id": "t1-hello",
+          "band": "low-medium",
+          "append": [{ "role": "user", "content": "Reply with exactly: ok" }]
+        },
+        {
+          "id": "t2-raft",
+          "band": "high-max",
+          "append": [
+            { "role": "assistant", "content": "ok" },
+            {
+              "role": "user",
+              "content": "A Raft leader can acknowledge a write before quorum persistence in one rare interleaving during leader flaps, so committed entries may later be lost. State the minimal protocol change that restores the commit invariant and the single performance tradeoff it costs, in at most four sentences."
+            }
+          ]
+        },
+        {
+          "id": "t3-wrap",
+          "band": "low-medium",
+          "append": [
+            {
+              "role": "assistant",
+              "content": "Wait for quorum persistence before acking; costs one round-trip of latency."
+            },
+            { "role": "user", "content": "Great. Reply with exactly: done" }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "conv-tool-failure-shift",
+      "expect_above": [{ "higher": 1, "lower": 0 }, { "higher": 1, "lower": 2 }],
+      "expect_change": true,
+      "turns": [
+        {
+          "id": "t1-hello",
+          "band": "low-medium",
+          "append": [{ "role": "user", "content": "Reply with exactly: ok" }]
+        },
+        {
+          "id": "t2-failed-tools",
+          "band": "high-max",
+          "append": [
+            { "role": "assistant", "content": "Checking the logs." },
+            {
+              "type": "function_call",
+              "call_id": "c1",
+              "name": "read",
+              "arguments": "{\"path\":\"/var/log/app.log\"}"
+            },
+            {
+              "type": "function_call_output",
+              "call_id": "c1",
+              "output": "EACCES: permission denied",
+              "error": "tool failed"
+            },
+            {
+              "type": "function_call",
+              "call_id": "c2",
+              "name": "bash",
+              "arguments": "{\"cmd\":\"tail -n 50 /var/log/app.log\"}"
+            },
+            {
+              "type": "function_call_output",
+              "call_id": "c2",
+              "output": "tail: command timed out after 30s",
+              "status": "failed"
+            },
+            {
+              "role": "user",
+              "content": "Both tool attempts failed. Diagnose the likely root cause of the connection resets and state the minimal fix in at most three sentences."
+            }
+          ]
+        },
+        {
+          "id": "t3-wrap",
+          "band": "low-medium",
+          "append": [
+            {
+              "role": "assistant",
+              "content": "The log is unreadable and the pool likely saturates under bursts; bound the pool and add backoff."
+            },
+            { "role": "user", "content": "Perfect. Reply with exactly: done" }
+          ]
+        }
+      ]
+    }
+  ]
+}
