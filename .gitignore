@@ -1,5 +1,6 @@
 node_modules/
 dist/
+scratch/
 .env
 .env.*
 !.env.example
