@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import {
   createServer,
   type IncomingMessage,
@@ -5,6 +6,7 @@ import {
   type ServerResponse,
 } from "node:http";
 
+import { buildEvidence, type Evidence } from "./evidence.js";
 import { forwardUpstream, type UpstreamOutcome } from "./forward.js";
 import {
   rewriteResponsesRequest,
@@ -29,6 +31,7 @@ export interface AppServerOptions {
   upstreamModel: string;
   baseEffort: Effort;
   selectEffort?: EffortSelector;
+  onEvidence?: (evidence: Evidence) => void;
 }
 
 function writeJson(
@@ -150,14 +153,41 @@ async function handle(
         effort: decision.effort,
       });
 
-      const outcome: UpstreamOutcome = await forwardUpstream(response, {
+      const outboundInput = Array.isArray(rewritten.input) ? rewritten.input : [];
+      const outboundUpdate = outboundInput.at(-1);
+      let outboundEffort: unknown = null;
+      if (typeof outboundUpdate === "object" && outboundUpdate !== null) {
+        const reasoning = (outboundUpdate as { reasoning?: unknown }).reasoning;
+        if (typeof reasoning === "object" && reasoning !== null) {
+          outboundEffort = (reasoning as { effort?: unknown }).effort ?? null;
+        }
+      }
+
+      const onEvidence = options.onEvidence;
+      const emit = (outcome: string): void => {
+        if (onEvidence === undefined) {
+          return;
+        }
+        onEvidence(
+          buildEvidence({
+            requestId: randomUUID(),
+            outboundModel: rewritten.model,
+            outboundEffort,
+            jevLatencyMs: decision.jevLatencyMs,
+            fallback: decision.fallback,
+            outcome,
+          }),
+        );
+      };
+
+      const forwardOutcome: UpstreamOutcome = await forwardUpstream(response, {
         method: "POST",
         url: upstreamUrl(options.upstreamBaseUrl, "responses"),
         authorization: request.headers.authorization,
         body: JSON.stringify(rewritten),
         signal: clientAbort.signal,
       });
-      void outcome;
+      emit(forwardOutcome === "forwarded" ? "completed" : "failed");
       return;
     }
 
