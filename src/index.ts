@@ -1,9 +1,30 @@
+#!/usr/bin/env node
 import { existsSync } from "node:fs";
 
 import { loadConfig } from "./config.js";
 import { formatEvidence } from "./evidence.js";
 import { createJevClassifier } from "./jev.js";
 import { createAppServer } from "./server.js";
+
+if (process.argv.includes("--help") || process.argv.includes("-h")) {
+  console.log(`Usage: opencode-jev-router [--help]
+
+Start the local Jev-powered Responses API proxy.
+
+Environment:
+  TYPESAFE_API_KEY   Required Jev API key
+  JEV_PROXY_PORT     Listening port (default: 4320)
+  UPSTREAM_BASE_URL  CLIProxyAPI base URL (default: http://127.0.0.1:8317/v1)
+  UPSTREAM_MODEL     Execution model (default: gpt-6-astra)
+  BASE_EFFORT        Base reasoning effort (default: medium)
+  JEV_TIMEOUT_MS     Jev timeout in milliseconds (default: 4000)`);
+  process.exit(0);
+}
+
+if (process.argv.length > 2) {
+  console.error(`Unknown argument: ${process.argv[2]}. Run with --help for usage.`);
+  process.exit(1);
+}
 
 if (existsSync(".env")) {
   process.loadEnvFile(".env");

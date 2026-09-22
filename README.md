@@ -26,12 +26,41 @@ does not prove.
   `gpt-6-astra` access
 - A TypeSafe API key for Jev (`TYPESAFE_API_KEY`)
 
-## Setup
+## Install and run
+
+The npm package is `@robertn702/opencode-jev-router`; the command is
+`opencode-jev-router`. Install Node.js 24.x and configure CLIProxyAPI first.
+
+Choose one installation method:
 
 ```bash
-npm install
+npm install -g @robertn702/opencode-jev-router
+opencode-jev-router --help
+opencode-jev-router
+```
+
+```bash
+npx --yes @robertn702/opencode-jev-router --help
+npx --yes @robertn702/opencode-jev-router
+```
+
+```bash
+npm install @robertn702/opencode-jev-router
+npx opencode-jev-router
+```
+
+Set `TYPESAFE_API_KEY` in the environment or put it in a `.env` file in the
+working directory before starting the proxy. The CLI listens on
+`http://127.0.0.1:4320` by default; check `curl http://127.0.0.1:4320/health`.
+Run `opencode-jev-router --help` for environment options.
+
+### Develop from source
+
+```bash
+npm ci
 cp .env.example .env   # then fill in TYPESAFE_API_KEY
 npm run check          # typecheck + tests
+npm run build          # compile the CLI to dist/
 npm start              # http://127.0.0.1:4320
 curl http://127.0.0.1:4320/health
 ```
@@ -178,6 +207,31 @@ npm run check   # both, on Node 24.x
 ```
 
 Tests use fake upstreams and a mocked Jev fetch — no API keys or paid requests.
+`npm run smoke:package` packs the package, installs it with production dependencies
+in a clean temporary directory, and starts the installed executable.
+
+### Releasing to npm
+
+Version tags drive publishing. CI checks pull requests and pushes to `main` on
+Node 24. The publish workflow checks the tag against `package.json`, runs the
+same checks, packs once, tests the **exact tarball**, then publishes that tarball
+with npm provenance. Dependency update PRs are opened weekly by Dependabot.
+
+The unscoped `opencode-jev-router` name belongs to another npm maintainer. The
+package therefore uses the `@robertn702` scope; publishing requires ownership
+of that npm scope. Configure npm trusted publishing for the GitHub repository
+`robertn702/opencode-jev-router` and workflow `publish.yml` (no GitHub environment)
+before pushing a release tag. For a first publication, bootstrap the package
+under that scope through an authorized npm account if npm requires the package
+to exist before trusted publishing can be configured. The workflow needs npm
+CLI 11.5.1 or later for OIDC and uses no long-lived npm token.
+
+For each release, add user-facing changes to `CHANGELOG.md`, update the version
+with `npm version patch|minor|major --no-git-tag-version`, review the lockfile,
+and merge the version/changelog change to `main`. Then create and push the
+matching tag on that commit, for example `git tag v0.1.0` followed by
+`git push origin v0.1.0`. The tag workflow validates, dry-runs, and publishes;
+do not publish an unreviewed tag.
 
 ## Prior art
 

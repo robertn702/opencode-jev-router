@@ -1,0 +1,31 @@
+name: Publish npm package
+
+on:
+  push:
+    tags: ['v[0-9]*']
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          registry-url: https://registry.npmjs.org
+      - name: Use npm 11 for trusted publishing
+        run: npm install -g npm@11
+      - name: Check tag matches package version
+        run: node -e "if (process.env.GITHUB_REF_NAME !== 'v' + require('./package.json').version) process.exit(1)"
+      - run: npm ci
+      - run: npm run check
+      - name: Pack release artifact
+        run: echo "TARBALL=$RUNNER_TEMP/$(npm --silent pack --pack-destination "$RUNNER_TEMP")" >> "$GITHUB_ENV"
+      - name: Smoke-test release artifact
+        run: npm run smoke:package -- "$TARBALL"
+      - run: npm publish --dry-run "$TARBALL"
+      - run: npm publish --provenance --access public "$TARBALL"
