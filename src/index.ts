@@ -1,7 +1,13 @@
+import { existsSync } from "node:fs";
+
 import { loadConfig } from "./config.js";
 import { formatEvidence } from "./evidence.js";
 import { createJevClassifier } from "./jev.js";
 import { createAppServer } from "./server.js";
+
+if (existsSync(".env")) {
+  process.loadEnvFile(".env");
+}
 
 const config = loadConfig(process.env);
 

@@ -1,31 +1,183 @@
 # opencode-jev-router
 
-Adaptive reasoning effort for OpenCode while keeping execution on one model and one cache lineage.
-
-This repository is an initial scaffold. The planned request path is:
+Adaptive reasoning effort for OpenCode with one fixed execution model.
 
 ```text
-OpenCode -> opencode-jev-router -> CLIProxyAPI -> GPT-6 Astra
+OpenCode -> opencode-jev-router -> CLIProxyAPI -> GPT-6 Astra (Codex subscription)
 ```
 
-`opencode-jev-router` will inspect each OpenAI Responses request, ask [Jev](https://typesafe.ai/) for the appropriate reasoning effort, pin execution to `gpt-6-astra`, and append an Astra `configuration_update` item before forwarding the request.
+`opencode-jev-router` is a small Responses API proxy. For each `POST /v1/responses`
+it asks [Jev](https://typesafe.ai/) how much reasoning the next step needs, pins
+execution to `gpt-6-astra`, and appends an Astra `configuration_update` item that
+carries the selected effort. The request-level `reasoning.effort` stays at a stable
+base (`medium` by default) so the response's reported effort is always the base
+setting, not the update-selected value.
 
-The first version targets [CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI) so OpenCode can continue using a Codex subscription. Direct API authentication and other upstreams can be added later.
+## Status
 
-## Current status
+Verified spike. The checks recorded below were run on Node 24.x during
+implementation; see [Verified behavior](#verified-behavior) for what that does and
+does not prove.
 
-The scaffold has a local HTTP server, a health endpoint, TypeScript configuration, and tests. Adaptive request handling is not implemented yet. The implementation plan is in [`scratch/plan.md`](scratch/plan.md).
+## Requirements
 
-## Development
+- Node.js 24.x (runtime and development)
+- [CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI) with Codex OAuth and
+  `gpt-6-astra` access
+- A TypeSafe API key for Jev (`TYPESAFE_API_KEY`)
 
-Requires Node.js 20 or newer.
+## Setup
 
 ```bash
 npm install
-npm run check
-npm start
+cp .env.example .env   # then fill in TYPESAFE_API_KEY
+npm run check          # typecheck + tests
+npm start              # http://127.0.0.1:4320
 curl http://127.0.0.1:4320/health
 ```
+
+`.env` is git-ignored; the proxy loads it at startup via `process.loadEnvFile()`.
+See [`.env.example`](.env.example) for `UPSTREAM_BASE_URL`, `UPSTREAM_MODEL`,
+`BASE_EFFORT`, and `JEV_TIMEOUT_MS`.
+
+### OpenCode configuration
+
+Add the provider below (also in [`examples/opencode.jsonc`](examples/opencode.jsonc))
+and select `jev/astra`. `CLIPROXY_KEY` must be set in the OpenCode process; the
+proxy forwards that bearer credential to CLIProxyAPI without logging it.
+
+```jsonc
+{
+  "provider": {
+    "jev": {
+      "npm": "@ai-sdk/openai",
+      "name": "Jev adaptive Astra",
+      "options": {
+        "apiKey": "{env:CLIPROXY_KEY}",
+        "baseURL": "http://127.0.0.1:4320/v1"
+      },
+      "models": {
+        "astra": {
+          "name": "GPT-6 Astra with adaptive effort",
+          "reasoning": true,
+          "options": { "useResponses": true }
+        }
+      }
+    }
+  }
+}
+```
+
+## Behavior
+
+### Scope
+
+- Astra **standard, single-agent mode only**. Requests with `reasoning.mode` other
+  than `standard` (pro, multi-agent, etc.), pro model slugs, or `truncation: "auto"`
+  are rejected with a local `400` before classification or generation. OpenCode
+  reasoning-effort variants are ignored for this provider.
+- Array-form Responses `input` as emitted by OpenCode is supported, including tool
+  continuations (`function_call` / `function_call_output`). Other input shapes are
+  rejected with a local `400`.
+
+### Effort updates (no cache lineage)
+
+Every execution request is rewritten to `model: gpt-6-astra` with a stable
+request-level `reasoning.effort` (`BASE_EFFORT`, default `medium`). Existing
+reasoning `configuration_update` items are stripped from the input and exactly one
+current update is appended at the end:
+
+```json
+{ "type": "configuration_update", "reasoning": { "effort": "high" } }
+```
+
+Other input items keep their order. This strip/append policy does **not** replay
+updates at their original historical positions and promises **no cache lineage,
+hits, or savings**. Historical update replay and cache-prefix preservation are
+deferred; [OpenAI's guidance](https://developers.openai.com/api/docs/guides/reasoning#change-reasoning-mid-conversation)
+requires retaining original update positions when replaying history manually.
+
+### Classification
+
+- Bounded Jev state (recent user text, assistant progress, up to 8 tool results
+  with names and error flags, failure summary) with excerpt caps.
+- One Jev question selecting `low`, `medium`, `high`, `xhigh`, or `max`.
+- `@typesafe-ai/sdk` is configured with `retry: { maxRetries: 0 }` and
+  `logLevel: "off"` explicitly (SDK logging is suppressed even when
+  `TYPESAFE_LOG_LEVEL` is inherited as `debug`).
+- One aborting total deadline (`JEV_TIMEOUT_MS`, default `4000` ms) covers the
+  whole classifier call through body consumption. There is no promise race that
+  leaves the request running and no retry loop.
+- On timeout (`jev_timeout`), error (`jev_error`), or invalid output
+  (`jev_invalid_output`), the previous validated effort for the same usable
+  `prompt_cache_key` is reused; otherwise `medium`. The in-memory previous-effort
+  map is minimal and is not a history or cache-preservation store.
+- Client cancellation is separate from classifier failure: a disconnect aborts
+  classification and any upstream request and never fails open into generation,
+  including at the timeout-to-fallback boundary. Late classifier results cannot
+  change a settled fallback or start duplicate generation.
+
+### Evidence
+
+Per accepted execution request the proxy emits one metadata record with only:
+proxy-generated request ID, outbound pinned model, validated selected effort
+(from the rewritten outbound request), Jev latency, a fixed fallback code, and a
+fixed completion/failure outcome. Prompt content, tool content, credentials,
+cache keys, raw SDK errors, and bodies are never logged.
+
+### Forwarding
+
+- `POST /v1/responses` and `GET /v1/models` on localhost; the client's bearer
+  credential is forwarded to CLIProxyAPI and never logged.
+- Upstream HTTP statuses and bodies pass through unchanged, including errors.
+- SSE streams incrementally with write/drain backpressure: a slow client pauses
+  upstream reads instead of buffering the completed response.
+- Pre-header connection failures return a fixed local `502`
+  (`{"error":"upstream_unavailable"}`); after headers are forwarded, a mid-stream
+  failure destroys the stream without appended output or a replacement status.
+- Response headers are limited to `content-type`, `cache-control`, `retry-after`,
+  and `x-request-id`, minus anything nominated by the upstream `Connection`
+  header. Hop-by-hop headers (`connection`, `keep-alive`, `transfer-encoding`,
+  `te`, `trailer`, `upgrade`) and stale framing headers (`content-length`,
+  `content-encoding`, `etag`) are omitted; Node generates framing for the body
+  actually sent. Upstream request framing is rebuilt for the rewritten JSON body
+  (`Content-Length`/`Transfer-Encoding` from the incoming request are never
+  reused).
+- Native Node HTTP/fetch and stream primitives only — no proxy framework, no
+  upstream retries.
+
+## Verified behavior
+
+Ran on Node 24.x (`npm run check`: 51 tests) with **OpenCode 1.18.32** and
+**CLIProxyAPI 7.2.151**:
+
+1. The actual OpenCode client emits array-form `POST /v1/responses` input and
+   performs tool continuations through the proxy (shape-verified against a capture
+   upstream, no prompts or credentials retained).
+2. A live CLIProxyAPI/Codex request in Astra standard, single-agent mode accepted
+   the strip/append `configuration_update` placement and completed a real tool
+   continuation.
+3. A full-path OpenCode -> proxy -> CLIProxyAPI -> Codex tool task completed with
+   Jev enabled (tool executed, task finished).
+4. Two live requests selected **different** Jev efforts (`low` and `high`) while
+   the outbound model stayed `gpt-6-astra` and the top-level effort stayed
+   `medium` in both.
+
+What this proves: protocol compatibility of the strip/append policy, outbound
+model/effort selection, and completed tool-using tasks. The response's
+`reasoning.effort` reports the stable request-level setting, **not** the
+update-selected effort; there is no visibility into the model's internally applied
+effort.
+
+## Development
+
+```bash
+npm run typecheck
+npm test
+npm run check   # both, on Node 24.x
+```
+
+Tests use fake upstreams and a mocked Jev fetch — no API keys or paid requests.
 
 ## Prior art
 
