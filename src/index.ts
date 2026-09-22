@@ -1,12 +1,16 @@
+import { loadConfig } from "./config.js";
 import { createAppServer } from "./server.js";
 
-const port = Number.parseInt(process.env.JEV_PROXY_PORT ?? "4320", 10);
+const config = loadConfig(process.env);
 
-if (!Number.isInteger(port) || port < 1 || port > 65_535) {
-  throw new Error("JEV_PROXY_PORT must be an integer between 1 and 65535");
-}
+const server = createAppServer({
+  upstreamBaseUrl: config.upstreamBaseUrl,
+  upstreamModel: config.upstreamModel,
+  baseEffort: config.baseEffort,
+});
 
-const server = createAppServer();
-server.listen(port, "127.0.0.1", () => {
-  console.log(`opencode-jev-router scaffold listening on http://127.0.0.1:${port}`);
+server.listen(config.port, "127.0.0.1", () => {
+  console.log(
+    `opencode-jev-router listening on http://127.0.0.1:${config.port}`,
+  );
 });
