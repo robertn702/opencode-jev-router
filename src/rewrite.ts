@@ -1,13 +1,13 @@
+import {
+  UnsupportedInputError,
+  validateResponsesRequest,
+} from "./validate.js";
+
+export { UnsupportedInputError };
+
 export type Effort = "low" | "medium" | "high" | "xhigh" | "max";
 
 const CONFIGURATION_UPDATE = "configuration_update";
-
-export class UnsupportedInputError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = "UnsupportedInputError";
-  }
-}
 
 export interface RewriteOptions {
   upstreamModel: string;
@@ -31,24 +31,20 @@ export function rewriteResponsesRequest(
   body: unknown,
   options: RewriteOptions,
 ): Record<string, unknown> {
-  if (!isRecord(body)) {
-    throw new UnsupportedInputError("request body must be a JSON object");
-  }
+  const record = validateResponsesRequest(body);
 
-  const input = body.input;
-  if (!Array.isArray(input)) {
-    throw new UnsupportedInputError(
-      "request.input must be an array of Responses input items",
-    );
-  }
+  const input = record.input as unknown[];
 
   const retained = input.filter((item) => !isReasoningUpdate(item));
   const baseEffort = options.baseEffort;
 
   return {
-    ...body,
+    ...record,
     model: options.upstreamModel,
-    reasoning: { ...(isRecord(body.reasoning) ? body.reasoning : {}), effort: baseEffort },
+    reasoning: {
+      ...(isRecord(record.reasoning) ? record.reasoning : {}),
+      effort: baseEffort,
+    },
     input: [
       ...retained,
       {

@@ -73,6 +73,27 @@ describe("rewriteResponsesRequest", () => {
     ]);
   });
 
+  it("yields exactly one update when several reasoning updates arrive", () => {
+    const result = rewriteResponsesRequest(
+      {
+        input: [
+          userMessage("hi"),
+          { type: "configuration_update", reasoning: { effort: "low" } },
+          userMessage("more"),
+          { type: "configuration_update", reasoning: { effort: "max" } },
+        ],
+      },
+      options,
+    );
+    const input = result.input as Record<string, unknown>[];
+
+    expect(input).toEqual([
+      userMessage("hi"),
+      userMessage("more"),
+      { type: "configuration_update", reasoning: { effort: "high" } },
+    ]);
+  });
+
   it("preserves unrelated input items and other configuration updates", () => {
     const tool = { type: "function_call_output", call_id: "c1", output: "ok" };
     const other = { type: "configuration_update", temperature: 0.2 };
