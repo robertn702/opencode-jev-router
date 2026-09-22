@@ -20,6 +20,7 @@ async function listen(
   await once(server, "listening");
   const { port } = server.address() as AddressInfo;
   cleanups.push(async () => {
+    server.closeAllConnections();
     server.close();
     await once(server, "close");
   });
@@ -326,10 +327,13 @@ describe("forwarding lifecycle", () => {
       method: "POST",
       body: simpleInput,
       signal: controller.signal,
-    });
+    }).then(
+      () => null,
+      (error: unknown) => error,
+    );
     await new Promise((resolve) => setTimeout(resolve, 50));
     controller.abort();
-    await expect(pending).rejects.toThrow();
+    await expect(pending).resolves.toBeInstanceOf(Error);
 
     await new Promise((resolve) => setTimeout(resolve, 100));
     expect(upstreamClosed).toBe(true);
@@ -354,7 +358,14 @@ describe("forwarding lifecycle", () => {
     });
     const reader = response.body!.getReader();
     await reader.read();
+    const drained = (async () => {
+      for (;;) {
+        const part = await reader.read().catch(() => ({ done: true, value: undefined }) as const);
+        if (part.done) break;
+      }
+    })();
     controller.abort();
+    await drained;
 
     await new Promise((resolve) => setTimeout(resolve, 100));
     expect(upstreamClosed).toBe(true);
@@ -386,5 +397,114 @@ describe("forwarding lifecycle", () => {
 
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toEqual({ ok: true });
+  });
+
+  it("aborts classification and starts no generation when the client disconnects", async () => {
+    let classifierAborted = false;
+    const upstream = await startUpstream((_request, response) => {
+      response.end("{}");
+    });
+    const app = await startApp(upstream.url, ({ signal }) =>
+      new Promise((_resolve, reject) => {
+        signal.addEventListener(
+          "abort",
+          () => {
+            classifierAborted = true;
+            reject(new Error("cancelled"));
+          },
+          { once: true },
+        );
+      }),
+    );
+
+    const controller = new AbortController();
+    const pending = fetch(`${app}/v1/responses`, {
+      method: "POST",
+      body: simpleInput,
+      signal: controller.signal,
+    }).then(
+      () => null,
+      (error: unknown) => error,
+    );
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    controller.abort();
+    await expect(pending).resolves.toBeInstanceOf(Error);
+
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(classifierAborted).toBe(true);
+    expect(upstream.requests).toHaveLength(0);
+  });
+
+  it("never fails open into generation at the timeout-to-fallback boundary", async () => {
+    const upstream = await startUpstream((_request, response) => {
+      response.end("{}");
+    });
+    let resolveFallback!: (decision: {
+      effort: "medium";
+      jevLatencyMs: number;
+      fallback: "jev_timeout";
+    }) => void;
+    const fallbackReady = new Promise<{
+      effort: "medium";
+      jevLatencyMs: number;
+      fallback: "jev_timeout";
+    }>((resolve) => {
+      resolveFallback = resolve;
+    });
+    const app = await startApp(upstream.url, () => fallbackReady);
+
+    const controller = new AbortController();
+    const pending = fetch(`${app}/v1/responses`, {
+      method: "POST",
+      body: simpleInput,
+      signal: controller.signal,
+    }).then(
+      () => null,
+      (error: unknown) => error,
+    );
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    // The classifier falls back right as the client disconnects: the fallback
+    // result lands after the disconnect is observable.
+    controller.abort();
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    resolveFallback({ effort: "medium", jevLatencyMs: 4000, fallback: "jev_timeout" });
+    await expect(pending).resolves.toBeInstanceOf(Error);
+
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(upstream.requests).toHaveLength(0);
+  });
+
+  it("starts no generation when the client is already gone before forwarding", async () => {
+    let connected = false;
+    const deadServer = await startUpstream(() => {
+      connected = true;
+    });
+    const deadUrl = deadServer.url;
+    deadServer.requests.length = 0;
+    const controller = new AbortController();
+    controller.abort();
+
+    const { forwardUpstream } = await import("../src/forward.js");
+    const stubResponse = {
+      writableEnded: false,
+      destroyed: false,
+      destroy() {
+        stubResponse.destroyed = true;
+      },
+    };
+    const response = stubResponse as unknown as Parameters<typeof forwardUpstream>[0];
+
+    const outcome = await forwardUpstream(response, {
+      method: "POST",
+      url: new URL("responses", `${deadUrl}/`),
+      authorization: "Bearer x",
+      body: "{}",
+      signal: controller.signal,
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(outcome).toBe("client_disconnected");
+    expect(connected).toBe(false);
   });
 });

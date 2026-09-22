@@ -30,6 +30,14 @@ export function forwardUpstream(
   call: UpstreamCall,
 ): Promise<UpstreamOutcome> {
   return new Promise((resolve) => {
+    if (call.signal.aborted) {
+      if (!response.writableEnded) {
+        response.destroy();
+      }
+      resolve("client_disconnected");
+      return;
+    }
+
     let settled = false;
     let upstreamComplete = false;
     let headersForwarded = false;
