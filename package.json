@@ -1,5 +1,5 @@
 {
-  "name": "opencode-jev",
+  "name": "opencode-jev-router",
   "version": "0.0.0",
   "description": "Adaptive reasoning effort for OpenCode with a fixed Astra model",
   "type": "module",

@@ -8,5 +8,5 @@ if (!Number.isInteger(port) || port < 1 || port > 65_535) {
 
 const server = createAppServer();
 server.listen(port, "127.0.0.1", () => {
-  console.log(`opencode-jev scaffold listening on http://127.0.0.1:${port}`);
+  console.log(`opencode-jev-router scaffold listening on http://127.0.0.1:${port}`);
 });

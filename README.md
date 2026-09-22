@@ -1,14 +1,14 @@
-# opencode-jev
+# opencode-jev-router
 
 Adaptive reasoning effort for OpenCode while keeping execution on one model and one cache lineage.
 
 This repository is an initial scaffold. The planned request path is:
 
 ```text
-OpenCode -> opencode-jev -> CLIProxyAPI -> GPT-6 Astra
+OpenCode -> opencode-jev-router -> CLIProxyAPI -> GPT-6 Astra
 ```
 
-`opencode-jev` will inspect each OpenAI Responses request, ask [Jev](https://typesafe.ai/) for the appropriate reasoning effort, pin execution to `gpt-6-astra`, and append an Astra `configuration_update` item before forwarding the request.
+`opencode-jev-router` will inspect each OpenAI Responses request, ask [Jev](https://typesafe.ai/) for the appropriate reasoning effort, pin execution to `gpt-6-astra`, and append an Astra `configuration_update` item before forwarding the request.
 
 The first version targets [CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI) so OpenCode can continue using a Codex subscription. Direct API authentication and other upstreams can be added later.
 
