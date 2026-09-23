@@ -5,7 +5,7 @@ const EFFORTS: readonly string[] = ["low", "medium", "high", "xhigh", "max"];
 export interface AppConfig {
   port: number;
   upstreamBaseUrl: string;
-  upstreamAuth: { mode: "cliproxy" } | { mode: "openai"; apiKey: string };
+  upstreamAuth: { mode: "cliproxyapi" } | { mode: "openai"; apiKey: string };
   upstreamModel: string;
   baseEffort: Effort;
   jevTimeoutMs: number;
@@ -50,9 +50,9 @@ function parseEffort(raw: string | undefined): Effort {
 }
 
 export function loadConfig(env: Record<string, string | undefined>): AppConfig {
-  const mode = env.UPSTREAM_MODE ?? "cliproxy";
-  if (mode !== "cliproxy" && mode !== "openai") {
-    throw new Error("UPSTREAM_MODE must be openai or cliproxy");
+  const mode = env.UPSTREAM_MODE ?? "cliproxyapi";
+  if (mode !== "cliproxyapi" && mode !== "openai") {
+    throw new Error("UPSTREAM_MODE must be openai or cliproxyapi");
   }
   if (mode === "openai" && !env.OPENAI_API_KEY?.trim()) {
     throw new Error("OPENAI_API_KEY is required when UPSTREAM_MODE=openai");
@@ -75,8 +75,8 @@ export function loadConfig(env: Record<string, string | undefined>): AppConfig {
   if (mode === "openai" && url.href !== "https://api.openai.com/v1") {
     throw new Error("UPSTREAM_MODE=openai requires UPSTREAM_BASE_URL=https://api.openai.com/v1");
   }
-  if (mode === "cliproxy" && url.hostname === "api.openai.com") {
-    throw new Error("UPSTREAM_MODE=cliproxy cannot use api.openai.com");
+  if (mode === "cliproxyapi" && url.hostname === "api.openai.com") {
+    throw new Error("UPSTREAM_MODE=cliproxyapi cannot use api.openai.com");
   }
 
   return {

@@ -212,7 +212,7 @@ describe("Jev classifier", () => {
 
     const app = createAppServer({
       upstreamBaseUrl: `http://127.0.0.1:${stubPort}/v1`,
-      upstreamAuth: { mode: "cliproxy" },
+      upstreamAuth: { mode: "cliproxyapi" },
       upstreamModel: "gpt-6-astra",
       baseEffort: "medium",
       selectEffort: select,
@@ -432,7 +432,7 @@ describe("evidence privacy under inherited debug logging", () => {
 
     const app = createAppServer({
       upstreamBaseUrl: `http://127.0.0.1:${upstreamPort}/v1`,
-      upstreamAuth: { mode: "cliproxy" },
+      upstreamAuth: { mode: "cliproxyapi" },
       upstreamModel: "gpt-6-astra",
       baseEffort: "medium",
       selectEffort: select,

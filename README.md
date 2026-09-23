@@ -54,7 +54,7 @@ working directory before starting the proxy. Choose one upstream:
 
 ```dotenv
 # CLIProxyAPI (default; existing configurations work without UPSTREAM_MODE)
-UPSTREAM_MODE=cliproxy
+UPSTREAM_MODE=cliproxyapi
 UPSTREAM_BASE_URL=http://127.0.0.1:8317/v1
 ```
 
@@ -67,7 +67,7 @@ UPSTREAM_BASE_URL=https://api.openai.com/v1
 
 In `openai` mode, the router uses only `OPENAI_API_KEY` for upstream
 `Authorization`, regardless of any OpenCode bearer token. The OpenAI URL is
-restricted to the official HTTPS API base; `cliproxy` mode rejects
+restricted to the official HTTPS API base; `cliproxyapi` mode rejects
 `api.openai.com` as its base URL. Missing keys, unknown modes, or mismatched
 URLs fail at startup before the server listens. The CLI listens on
 `http://127.0.0.1:4320` by default; check `curl http://127.0.0.1:4320/health`.
@@ -90,7 +90,7 @@ See [`.env.example`](.env.example) for all limits and connection settings.
 ### OpenCode configuration
 
 Add the provider below (also in [`examples/opencode.jsonc`](examples/opencode.jsonc))
-and select `jev/astra`. In `cliproxy` mode, `CLIPROXY_KEY` must be set in the
+and select `jev/astra`. In `cliproxyapi` mode, `CLIPROXY_KEY` must be set in the
 OpenCode process; the proxy forwards that bearer credential to CLIProxyAPI.
 In `openai` mode, set `CLIPROXY_KEY` to a non-secret placeholder such as
 `local-router` in the OpenCode process; OpenCode sends it locally, but the router
