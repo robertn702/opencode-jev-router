@@ -119,13 +119,14 @@ try {
   const upstreamPort = await listen(upstream);
   const fake = await fakeJevProxy(ca, observed);
   ({ proxy, tls } = fake);
+  const jevKeyFile = join(temp, "jev-key");
+  await writeFile(jevKeyFile, "fake-jev-key");
 
   await writeFile(join(temp, "opencode.json"), JSON.stringify({
-    plugin: [[pluginPath, { jevApiKey: "fake-jev-key" }]],
+    plugin: [[pluginPath, { jevApiKey: `{file:${jevKeyFile}}`, upstreamBaseURL: `http://127.0.0.1:${upstreamPort}/v1`, upstreamApiKey: "{env:SMOKE_UPSTREAM_KEY}" }]],
     enabled_providers: ["jev-router"],
     autoupdate: false,
     share: "disabled",
-    provider: { "jev-router": { options: { apiKey: "{env:SMOKE_UPSTREAM_KEY}", baseURL: `http://127.0.0.1:${upstreamPort}/v1` }, models: { "gpt-6-astra": { name: "Smoke Astra", reasoning: true, options: { useResponses: true } } } } },
   }, null, 2));
 
   const env = {
@@ -155,7 +156,7 @@ try {
   assert.equal(observed.upstream.headers["x-jev-turn-id"], undefined);
   assert.equal(observed.upstream.headers.authorization, "Bearer fake-upstream-key");
   assert.ok(!(await exists(join(data, "opencode", "auth.json"))), "smoke must not create an auth.json credential store");
-  console.log("PASS OpenCode 1.18.32 isolated plugin smoke: loader/config hook, fake Jev, rewritten Responses SSE, and no auth.json.");
+  console.log("PASS OpenCode 1.18.32 minimal plugin smoke: generated model, file/env options, fake Jev, rewritten Responses SSE, and no auth.json.");
 } finally {
   if (child && child.exitCode === null) child.kill("SIGTERM");
   if (child && child.exitCode === null) await Promise.race([new Promise((resolve) => child.once("exit", resolve)), sleep(2_000)]);

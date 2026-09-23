@@ -128,26 +128,24 @@ See [`.env.example`](.env.example) for all limits and connection settings.
 ### In-process plugin (opt-in)
 
 The standalone proxy remains supported. Alternatively, install this package in
-your OpenCode project and add the plugin below. The plugin registers only the
-dedicated `jev-router` provider and installs its fetch adapter during OpenCode's
-configuration hook; it does not patch global fetch. Point `baseURL` at the
-actual Responses upstream (not the old localhost proxy) and keep the upstream
-credential in OpenCode's provider options. Keep the separate Jev key in the
-plugin tuple or `JEV_API_KEY`.
+your OpenCode project and add the plugin below. It registers the dedicated
+`jev-router` provider, its Astra/Luna/Sol catalog, and the Responses fetch
+adapter during OpenCode's configuration hook; it does not patch global fetch.
+Point `upstreamBaseURL` at the actual Responses upstream (not the old localhost
+proxy). It must be HTTPS unless it is loopback. `jevApiKey` is used only for
+classification; an optional `upstreamApiKey` is used only by the upstream. When
+it is omitted, OpenCode can resolve the provider credential through its normal
+auth/environment handling. OpenCode expands `{env:NAME}` and `{file:path}`
+values in plugin options before the plugin receives them.
 
 ```jsonc
 {
-  "plugin": [["@robertn702/opencode-jev-router@0.1.0", { "jevApiKey": "{env:JEV_API_KEY}" }]],
-  "provider": {
-    "jev-router": {
-      "npm": "@ai-sdk/openai",
-      "name": "Jev Router",
-      "options": { "apiKey": "{env:UPSTREAM_API_KEY}", "baseURL": "https://api.openai.com/v1" },
-      "models": {
-        "gpt-6-astra": { "name": "GPT-6 Astra", "reasoning": true, "options": { "useResponses": true } }
-      }
-    }
-  }
+  "plugin": [["@robertn702/opencode-jev-router@0.1.0", {
+    "jevApiKey": "{file:~/.config/jev-router/api-key}",
+    "upstreamBaseURL": "http://127.0.0.1:8317/v1",
+    "upstreamApiKey": "{env:CLIPROXY_KEY}"
+  }]],
+  "model": "jev-router/gpt-6-astra"
 }
 ```
 
@@ -158,43 +156,26 @@ SSE, and independent `./server` import resolution against that runtime. This
 does not test an npm-registry installation or real services. Restart OpenCode
 after changing its configuration.
 
-Add the provider below (also in [`examples/opencode.jsonc`](examples/opencode.jsonc))
-and select `jev-router/gpt-6-astra`, `jev-router/gpt-6-luna`, or
-`jev-router/gpt-6-sol`. Restart OpenCode after changing its configuration.
-With `UPSTREAM_AUTH=forward`,
-`CLIPROXY_KEY` must be set in the OpenCode process; the proxy forwards that
-bearer credential to CLIProxyAPI. With `UPSTREAM_AUTH=bearer`, set
-`CLIPROXY_KEY` to a non-secret placeholder such as
-`local-router` in the OpenCode process; OpenCode sends it locally, but the router
-ignores it and substitutes its own `UPSTREAM_API_KEY` upstream. Never put
-`UPSTREAM_API_KEY` in the OpenCode provider configuration. OpenCode does not
-currently provide a declarative cross-provider alias that can point this model
-at another provider's model while performing per-request Jev classification and
-`configuration_update` insertion; the router is the wire-level rewrite boundary.
+Select `jev-router/gpt-6-astra`, `jev-router/gpt-6-luna`, or
+`jev-router/gpt-6-sol`, then restart OpenCode after changing its configuration.
+The plugin-generated model metadata marks all three models as reasoning-capable
+and enables `useResponses: true`.
 
-```jsonc
-{
-  "provider": {
-    "jev-router": {
-      "npm": "@ai-sdk/openai",
-      "name": "Jev Router",
-      "options": {
-        "apiKey": "{env:CLIPROXY_KEY}",
-        "baseURL": "http://127.0.0.1:4320/v1"
-      },
-      "models": {
-        "gpt-6-astra": {
-          "name": "GPT-6 Astra",
-          "reasoning": true,
-          "options": { "useResponses": true }
-        },
-        "gpt-6-luna": { "name": "GPT-6 Luna", "reasoning": true, "options": { "useResponses": true } },
-        "gpt-6-sol": { "name": "GPT-6 Sol", "reasoning": true, "options": { "useResponses": true } }
-      }
-    }
-  }
-}
-```
+Existing `provider["jev-router"]` and model entries remain supported for
+advanced customization. Explicit provider `options.baseURL` / `options.apiKey`
+override plugin `upstreamBaseURL` / `upstreamApiKey`; explicit provider name and
+model metadata override generated defaults. Missing values are generated or
+filled from plugin options. An upstream API key is optional to preserve
+OpenCode's normal provider credential resolution. The plugin always supplies `npm:
+"@ai-sdk/openai"`, the fetch adapter, and `useResponses: true`: conflicting
+provider SDK, provider/model fetch, model `provider.npm`, or `useResponses: false`
+configuration fails startup rather than bypassing Jev routing.
+
+To migrate, move the old provider `options.baseURL` and `options.apiKey` to the
+plugin tuple and delete the provider block. Keep a provider/model block only for
+intentional metadata overrides; do not use it to select another SDK, endpoint
+adapter, or Chat Completions mode. See
+[`examples/opencode.jsonc`](examples/opencode.jsonc) for the minimal setup.
 
 ## Behavior
 
