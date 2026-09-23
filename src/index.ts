@@ -1,10 +1,11 @@
 #!/usr/bin/env node
 import { existsSync } from "node:fs";
+import { connect } from "node:net";
 
 import { loadConfig } from "./config.js";
 import { formatEvidence } from "./evidence.js";
 import { createJevClassifier } from "./jev.js";
-import { createAppServer } from "./server.js";
+import { createAppServer, shutdownAppServer } from "./server.js";
 
 if (process.argv.includes("--help") || process.argv.includes("-h")) {
   console.log(`Usage: opencode-jev-router [--help]
@@ -25,7 +26,8 @@ Environment:
   UPSTREAM_HEADER_TIMEOUT_MS  Upstream header deadline (default: 10000)
   UPSTREAM_IDLE_TIMEOUT_MS    Upstream response idle deadline (default: 60000)
   EFFORT_CACHE_ENTRIES        Previous-effort cache capacity (default: 256)
-  EFFORT_CACHE_TTL_MS         Previous-effort expiry (default: 600000)`);
+  EFFORT_CACHE_TTL_MS         Previous-effort expiry (default: 600000)
+  SHUTDOWN_GRACE_MS           Drain deadline (default: 30000)`);
   process.exit(0);
 }
 
@@ -38,11 +40,18 @@ if (existsSync(".env")) {
   process.loadEnvFile(".env");
 }
 
-const config = loadConfig(process.env);
+let config: ReturnType<typeof loadConfig>;
+try {
+  config = loadConfig(process.env);
+} catch {
+  console.error(JSON.stringify({ event: "startup_failed", reason: "invalid_configuration" }));
+  process.exit(1);
+}
 
 const apiKey = process.env.TYPESAFE_API_KEY;
 if (apiKey === undefined || apiKey.trim() === "") {
-  throw new Error("TYPESAFE_API_KEY is required for Jev effort selection");
+  console.error(JSON.stringify({ event: "startup_failed", reason: "missing_configuration" }));
+  process.exit(1);
 }
 
 const classifier = createJevClassifier({
@@ -61,11 +70,41 @@ const server = createAppServer({
   maxInFlight: config.maxInFlight,
   upstreamHeaderTimeoutMs: config.upstreamHeaderTimeoutMs,
   upstreamIdleTimeoutMs: config.upstreamIdleTimeoutMs,
+  probeDependency: (signal) => new Promise<boolean>((resolve) => {
+    const url = new URL(config.upstreamBaseUrl);
+    const socket = connect({ host: url.hostname, port: Number(url.port) || (url.protocol === "https:" ? 443 : 80) });
+    const finish = (available: boolean): void => { socket.destroy(); resolve(available); };
+    socket.once("connect", () => finish(true));
+    socket.once("error", () => finish(false));
+    signal.addEventListener("abort", () => finish(false), { once: true });
+  }),
   selectEffort: classifier.select,
   onEvidence: (evidence) => {
     console.log(formatEvidence(evidence));
   },
 });
+
+server.on("error", () => {
+  console.error(JSON.stringify({ event: "startup_failed" }));
+  process.exitCode = 1;
+});
+
+let stopping = false;
+const stop = (): void => {
+  if (stopping) return;
+  stopping = true;
+  console.log(JSON.stringify({ event: "shutdown_started" }));
+  void shutdownAppServer(server, config.shutdownGraceMs, () => {
+    console.log(JSON.stringify({ event: "shutdown_deadline" }));
+  }).then(() => {
+    console.log(JSON.stringify({ event: "shutdown_complete" }));
+  }, () => {
+    console.error(JSON.stringify({ event: "shutdown_failed" }));
+    process.exitCode = 1;
+  });
+};
+process.on("SIGINT", stop);
+process.on("SIGTERM", stop);
 
 server.listen(config.port, "127.0.0.1", () => {
   console.log(

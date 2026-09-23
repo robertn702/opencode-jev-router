@@ -37,6 +37,39 @@ export interface AppServerOptions {
   maxInFlight?: number;
   upstreamHeaderTimeoutMs?: number;
   upstreamIdleTimeoutMs?: number;
+  configurationValid?: boolean;
+  probeDependency?: (signal: AbortSignal) => Promise<boolean>;
+}
+
+interface Lifecycle {
+  draining: boolean;
+  controllers: Set<AbortController>;
+  responses: Set<ServerResponse>;
+  shutdown?: Promise<void>;
+}
+
+const lifecycles = new WeakMap<Server, Lifecycle>();
+
+export function shutdownAppServer(server: Server, graceMs: number, onDeadline?: () => void): Promise<void> {
+  const state = lifecycles.get(server);
+  if (!state) throw new Error("unknown app server");
+  if (state.shutdown) return state.shutdown;
+  state.draining = true;
+  state.shutdown = new Promise<void>((resolve, reject) => {
+    const deadline = setTimeout(() => {
+      onDeadline?.();
+      for (const controller of state.controllers) controller.abort();
+      for (const response of state.responses) response.destroy();
+      server.closeAllConnections();
+    }, graceMs);
+    server.close((error) => {
+      clearTimeout(deadline);
+      if (error && (error as NodeJS.ErrnoException).code !== "ERR_SERVER_NOT_RUNNING") reject(error);
+      else resolve();
+    });
+    server.closeIdleConnections();
+  });
+  return state.shutdown;
 }
 
 class BodyTooLargeError extends Error {}
@@ -96,6 +129,29 @@ function upstreamAuthorization(
 
 export function createAppServer(options: AppServerOptions): Server {
   let inFlight = 0;
+  const state: Lifecycle = { draining: false, controllers: new Set(), responses: new Set() };
+  let dependencyResult: boolean | undefined;
+  let dependencyCheckedAt = 0;
+  let pendingProbe: Promise<boolean> | undefined;
+  const dependencyReady = (): Promise<boolean> => {
+    if (!options.probeDependency) return Promise.resolve(true);
+    if (dependencyResult !== undefined && Date.now() - dependencyCheckedAt < 2_000) return Promise.resolve(dependencyResult);
+    if (pendingProbe) return pendingProbe;
+    const controller = new AbortController();
+    let timeout: NodeJS.Timeout;
+    pendingProbe = Promise.race([
+      Promise.resolve().then(() => options.probeDependency!(controller.signal)).then((result) => result === true, () => false),
+      new Promise<boolean>((resolve) => {
+        timeout = setTimeout(() => { controller.abort(); resolve(false); }, 500);
+      }),
+    ])
+      .then((result) => {
+        dependencyResult = result;
+        dependencyCheckedAt = Date.now();
+        return result;
+      }).finally(() => { clearTimeout(timeout); pendingProbe = undefined; });
+    return pendingProbe;
+  };
   const selectEffort: EffortSelector =
     options.selectEffort ??
     (async () => ({
@@ -104,14 +160,23 @@ export function createAppServer(options: AppServerOptions): Server {
       fallback: null,
     }));
 
-  return createServer((request, response) => {
+  const server = createServer((request, response) => {
+    if (state.draining && request.url !== "/health" && request.url !== "/ready") {
+      request.pause();
+      response.setHeader("connection", "close");
+      writeJson(response, 503, { error: "draining" });
+      return;
+    }
     const clientAbort = new AbortController();
+    state.controllers.add(clientAbort);
+    state.responses.add(response);
     const onClose = (): void => {
       if (!response.writableEnded) {
         clientAbort.abort();
       }
     };
     response.on("close", onClose);
+    response.once("close", () => { state.controllers.delete(clientAbort); state.responses.delete(response); });
 
     const proxied = (request.method === "POST" && request.url === "/v1/responses") ||
       (request.method === "GET" && request.url === "/v1/models");
@@ -132,8 +197,16 @@ export function createAppServer(options: AppServerOptions): Server {
     };
     response.once("close", release);
 
-    void handle(request, response, clientAbort, selectEffort, options).finally(release);
+    void handle(request, response, clientAbort, selectEffort, options, async () => {
+      if (options.configurationValid === false) return "missing_configuration";
+      if (state.draining || !server.listening) return state.draining ? "draining" : "starting";
+      const available = await dependencyReady();
+      if (state.draining) return "draining";
+      return available ? null : "dependency_unavailable";
+    }).finally(release);
   });
+  lifecycles.set(server, state);
+  return server;
 }
 
 async function handle(
@@ -142,10 +215,18 @@ async function handle(
   clientAbort: AbortController,
   selectEffort: EffortSelector,
   options: AppServerOptions,
+  readinessReason: () => Promise<string | null>,
 ): Promise<void> {
   try {
     if (request.method === "GET" && request.url === "/health") {
       writeJson(response, 200, { status: "ok" });
+      return;
+    }
+
+    if (request.method === "GET" && request.url === "/ready") {
+      const reason = await readinessReason();
+      writeJson(response, reason === null ? 200 : 503,
+        reason === null ? { status: "ready" } : { status: "not_ready", reason });
       return;
     }
 

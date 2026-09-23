@@ -71,6 +71,7 @@ restricted to the official HTTPS API base; `cliproxyapi` mode rejects
 `api.openai.com` as its base URL. Missing keys, unknown modes, or mismatched
 URLs fail at startup before the server listens. The CLI listens on
 `http://127.0.0.1:4320` by default; check `curl http://127.0.0.1:4320/health`.
+Use `curl --fail http://127.0.0.1:4320/ready` to check readiness.
 Run `opencode-jev-router --help` for environment options.
 
 ### Develop from source
@@ -199,10 +200,48 @@ All limits are positive integers configured through environment variables:
 | `UPSTREAM_IDLE_TIMEOUT_MS` | 60000 | Maximum gap between upstream response chunks after headers; resets on each chunk and pauses while downstream backpressure pauses upstream reads. No total stream deadline is imposed. |
 | `EFFORT_CACHE_ENTRIES` | 256 | Maximum stored previous efforts (LRU). |
 | `EFFORT_CACHE_TTL_MS` | 600000 (10 min) | Previous-effort expiry from the last successful selection for the key. |
+| `SHUTDOWN_GRACE_MS` | 30000 (30 sec) | Time for active requests and SSE streams to finish after SIGINT/SIGTERM before remaining classifier and upstream work is aborted. |
 
 An upstream deadline before headers returns `504` with
 `{"error":"upstream_timeout"}`. After headers, the client stream closes
 without injecting a replacement response.
+
+### Shutdown and probes
+
+`SIGINT` and `SIGTERM` start the same idempotent drain: readiness turns false,
+new connections stop, idle keep-alive connections close, and accepted requests
+and streams can finish until `SHUTDOWN_GRACE_MS` expires. At the deadline,
+remaining work is aborted and connections close. A completed intentional
+shutdown exits cleanly; invalid configuration and listener startup failures exit
+non-zero. Fixed lifecycle events (`shutdown_started`, `shutdown_deadline`,
+`shutdown_complete`, `shutdown_failed`, `startup_failed`) contain no request data.
+
+`GET /health` returns `200 {"status":"ok"}` while the HTTP loop responds, without
+checking dependencies. `GET /ready` returns `200 {"status":"ready"}` only while
+listening, configured, not draining, and the upstream TCP port is reachable.
+Otherwise it returns `503 {"status":"not_ready","reason":"..."}` with one of
+`starting`, `missing_configuration`, `draining`, or `dependency_unavailable`.
+The upstream probe is bounded to 500 ms and cached for two seconds; it sends no
+model or Jev requests. The CLI validates configuration (including the required
+Jev key) before listening, so missing configuration normally prevents startup
+rather than serving an endpoint. The TCP check verifies connectivity, not
+upstream authentication or model availability.
+
+For a container orchestrator, use `/health` for liveness and `/ready` for
+readiness, for example:
+
+```yaml
+livenessProbe:
+  httpGet: { path: /health, port: 4320 }
+readinessProbe:
+  httpGet: { path: /ready, port: 4320 }
+terminationGracePeriodSeconds: 35 # longer than SHUTDOWN_GRACE_MS
+```
+
+For a systemd service, use `ExecStartPost=/usr/bin/curl --fail
+http://127.0.0.1:4320/ready` as a startup check, `Restart=on-failure`, and
+`TimeoutStopSec=35` (longer than the configured drain deadline). Monitor
+`/health` separately for liveness; systemd sends SIGTERM on stop by default.
 
 ### Forwarding
 

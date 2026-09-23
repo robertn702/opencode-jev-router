@@ -15,6 +15,7 @@ export interface AppConfig {
   upstreamIdleTimeoutMs: number;
   effortCacheEntries: number;
   effortCacheTtlMs: number;
+  shutdownGraceMs: number;
 }
 
 function positiveInteger(raw: string | undefined, fallback: number, name: string): number {
@@ -49,6 +50,12 @@ function parseEffort(raw: string | undefined): Effort {
   return value as Effort;
 }
 
+function upstreamModel(raw: string | undefined): string {
+  const value = raw ?? "gpt-6-astra";
+  if (!value.trim()) throw new Error("UPSTREAM_MODEL must not be empty");
+  return value;
+}
+
 export function loadConfig(env: Record<string, string | undefined>): AppConfig {
   const mode = env.UPSTREAM_MODE ?? "cliproxyapi";
   if (mode !== "cliproxyapi" && mode !== "openai") {
@@ -67,7 +74,7 @@ export function loadConfig(env: Record<string, string | undefined>): AppConfig {
     throw new Error("UPSTREAM_BASE_URL must be a valid HTTP(S) URL");
   }
   if (
-    !["http:", "https:"].includes(url.protocol) ||
+    !["http:", "https:"].includes(url.protocol) || !url.hostname ||
     url.username || url.password || url.search || url.hash
   ) {
     throw new Error("UPSTREAM_BASE_URL must be an HTTP(S) URL without credentials, query, or fragment");
@@ -85,7 +92,7 @@ export function loadConfig(env: Record<string, string | undefined>): AppConfig {
     upstreamAuth: mode === "openai"
       ? { mode, apiKey: env.OPENAI_API_KEY!.trim() }
       : { mode },
-    upstreamModel: env.UPSTREAM_MODEL ?? "gpt-6-astra",
+    upstreamModel: upstreamModel(env.UPSTREAM_MODEL),
     baseEffort: parseEffort(env.BASE_EFFORT),
     jevTimeoutMs: parseTimeout(env.JEV_TIMEOUT_MS),
     maxRequestBytes: positiveInteger(env.MAX_REQUEST_BYTES, 1_048_576, "MAX_REQUEST_BYTES"),
@@ -94,5 +101,6 @@ export function loadConfig(env: Record<string, string | undefined>): AppConfig {
     upstreamIdleTimeoutMs: positiveInteger(env.UPSTREAM_IDLE_TIMEOUT_MS, 60_000, "UPSTREAM_IDLE_TIMEOUT_MS"),
     effortCacheEntries: positiveInteger(env.EFFORT_CACHE_ENTRIES, 256, "EFFORT_CACHE_ENTRIES"),
     effortCacheTtlMs: positiveInteger(env.EFFORT_CACHE_TTL_MS, 600_000, "EFFORT_CACHE_TTL_MS"),
+    shutdownGraceMs: positiveInteger(env.SHUTDOWN_GRACE_MS, 30_000, "SHUTDOWN_GRACE_MS"),
   };
 }
