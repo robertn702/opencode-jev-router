@@ -240,7 +240,7 @@ describe("Jev classifier", () => {
     const forwarded = JSON.parse(upstreamRequests[0]!) as {
       input: Array<{ reasoning?: { effort?: string } }>;
     };
-    expect(forwarded.input.at(-1)?.reasoning?.effort).toBe("medium");
+    expect(forwarded.input.find((item) => item.reasoning?.effort === "medium")?.reasoning?.effort).toBe("medium");
     expect(attempts).toBe(1);
 
     // The late result must not have been stored as a prior effort.

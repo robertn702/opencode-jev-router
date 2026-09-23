@@ -120,14 +120,14 @@ describe("forwarding lifecycle", () => {
       const body = JSON.parse(request.body);
       expect(request.headers.authorization).toBe(policy === "forward" ? "Bearer client-secret" : "Bearer router-secret");
       expect(body.reasoning.effort).toBe("medium");
-      expect(body.input.at(-1).reasoning.effort).toBe(body.model === models[0] ? "high" : "none");
+      expect(body.input.find((item: { reasoning?: { effort?: string } }) => item.reasoning?.effort === (body.model === models[0] ? "high" : "none"))).toBeDefined();
       expect(body.prompt_cache_key).toBe("private-key");
     }
     const logs = JSON.stringify(evidence);
     for (const model of models) expect(logs).toContain(model);
     for (const secret of ["private-key", "private-prompt", "private-output", "client-secret", "router-secret"]) expect(logs).not.toContain(secret);
   });
-  it("strips prior updates across effort changes and records request usage", async () => {
+  it("replays prior updates across effort changes and records request usage", async () => {
     const upstream = await startUpstream((_request, response) => {
       response.writeHead(200, { "content-type": "text/event-stream" });
       response.end('data: {"type":"response.completed","response":{"usage":{"input_tokens":4000,"input_tokens_details":{"cached_tokens":3072},"output_tokens":12}}}\n\n');
@@ -145,9 +145,37 @@ describe("forwarding lifecycle", () => {
     }
     const first = JSON.parse(upstream.requests[0]!.body);
     const second = JSON.parse(upstream.requests[1]!.body);
-    expect(first.input.at(-1)).toEqual({ type: "configuration_update", reasoning: { effort: "low" } });
-    expect(second.input).toEqual([...initial, { role: "assistant", content: "hello" }, { role: "user", content: "continue" }, { type: "configuration_update", reasoning: { effort: "high" } }]);
-    expect(records[1]).toMatchObject({ effort: "high", previous_effort: null, lineage_status: null, history_updates_replayed: 0, input_tokens: 4000, cached_input_tokens: 3072, output_tokens: 12 });
+    expect(first.input).toEqual([{ type: "configuration_update", reasoning: { effort: "low" } }, ...initial]);
+    expect(second.input).toEqual([
+      { type: "configuration_update", reasoning: { effort: "low" } },
+      ...initial,
+      { type: "configuration_update", reasoning: { effort: "low" } },
+      { role: "assistant", content: "hello" },
+      { type: "configuration_update", reasoning: { effort: "high" } },
+      { role: "user", content: "continue" },
+    ]);
+    expect(records[1]).toMatchObject({ effort: "high", previous_effort: "low", lineage_status: "preserved", history_updates_replayed: 1, input_tokens: 4000, cached_input_tokens: 3072, output_tokens: 12 });
+  });
+
+  it("does not commit lineage when the upstream rejects a request", async () => {
+    let calls = 0;
+    const evidence: Array<{ lineage_status: string | null; history_updates_replayed: number }> = [];
+    const upstream = await startUpstream((_request, response) => {
+      calls++;
+      response.writeHead(calls === 1 ? 400 : 200, { "content-type": "application/json" });
+      response.end("{}");
+    });
+    const app = await startLimitedApp(upstream.url, {
+      selectEffort: async () => ({ effort: "low", jevLatencyMs: 0, fallback: null }),
+      onEvidence: (item) => evidence.push(item),
+    });
+    const first = await fetch(`${app}/v1/responses`, { method: "POST", body: JSON.stringify({ model: "gpt-6-astra", prompt_cache_key: "lineage", input: [{ role: "user", content: "one" }] }) });
+    expect(first.status).toBe(400);
+    await first.text();
+    const second = await fetch(`${app}/v1/responses`, { method: "POST", body: JSON.stringify({ model: "gpt-6-astra", prompt_cache_key: "lineage", input: [{ role: "user", content: "one" }, { role: "assistant", content: "no" }, { role: "user", content: "two" }] }) });
+    expect(second.status).toBe(200);
+    await second.text();
+    expect(evidence[1]).toMatchObject({ lineage_status: "new", history_updates_replayed: 0 });
   });
 
   it("logs validated session and turn IDs without forwarding correlation headers", async () => {
@@ -331,8 +359,8 @@ describe("forwarding lifecycle", () => {
     const { seen } = await response.json() as { seen: { model: string; reasoning: { effort: string }; input: unknown[] } };
     expect(seen.model).toBe("gpt-6-astra");
     expect(seen.reasoning.effort).toBe("medium");
-    expect(seen.input.at(-2)).toEqual({ type: "function_call_output", call_id: "c1", output: "done" });
     expect(seen.input.at(-1)).toEqual({ type: "configuration_update", reasoning: { effort: "high" } });
+    expect(seen.input.at(-2)).toEqual({ type: "function_call_output", call_id: "c1", output: "done" });
   });
 
   it("streams SSE under the bearer policy without client authorization", async () => {

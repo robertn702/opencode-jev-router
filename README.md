@@ -8,8 +8,8 @@ OpenCode selects Astra/Luna/Sol -> one opencode-jev-router -> one Responses upst
 
 `opencode-jev-router` is a small Responses API proxy. For each `POST /v1/responses`
 it asks [Jev](https://typesafe.ai/) how much reasoning the next step needs, pins
-execution to the resolved request model, and appends a `configuration_update` item that
-carries the selected effort. The request-level `reasoning.effort` stays at a stable
+execution to the resolved request model, and inserts a `configuration_update` item that
+carries the selected effort before the next user message. The request-level `reasoning.effort` stays at a stable
 base (`medium` by default) so the response's reported effort is always the base
 setting, not the update-selected value.
 
@@ -157,30 +157,32 @@ at another provider's model while performing per-request Jev classification and
   supported; arbitrary cross-model encrypted reasoning or response-ID replay is
   not guaranteed.
 
-### Effort updates (no cache lineage)
+### Effort updates and cache lineage
 
 Every execution request uses its resolved model with a stable request-level
 `reasoning.effort` (profile default `medium`). Optional `BASE_EFFORT` must be
 supported by every registered profile; fallback remains independently `medium`.
 Astra supports `low`, `medium`, `high`, `xhigh`, and `max`; Luna and Sol also
 support `none`. Existing
-reasoning `configuration_update` items are stripped from the input and exactly one
-current update is appended at the end:
+reasoning `configuration_update` items in history are preserved in their original
+positions. Exactly one current update is inserted before the next user message
+(never adjacent to another update):
 
 ```json
 { "type": "configuration_update", "reasoning": { "effort": "high" } }
 ```
 
-Other input items keep their order. This strip/append policy does not replay
-updates at their original historical positions and promises no cache lineage,
-hits, or savings. The fallback-effort cache is independent of prompt caching.
+Other input items keep their order. This follows the
+[reasoning guide](https://developers.openai.com/api/docs/guides/reasoning#change-reasoning-mid-conversation): preserve updates with `previous_response_id`, or replay them in their original positions. It aims to preserve an eligible reusable prefix, but cannot promise upstream cache availability, hits, or savings. The fallback-effort cache is independent of prompt caching.
+
+Run the repeatable metadata-only comparison before drawing a cache conclusion;
+see [Cache validation](docs/cache-validation.md). Prefix byte/item measurements
+are eligibility measurements, not rendered-token counts or cache-hit claims.
 
 Decision telemetry includes `input_tokens`, `cached_input_tokens`, and
 `output_tokens` from upstream JSON or SSE usage, plus `previous_effort`,
 `lineage_status`, and `history_updates_replayed`. Missing or oversized usage
-events yield null counts, not zero. Previous effort and lineage status remain
-null, and replayed update count is zero, because this router does not replay
-history. These are request-level counters, not
+events yield null counts, not zero. These are request-level counters, not
 OpenCode's turn aggregates. The observer never logs response content.
 
 ### Classification
@@ -333,16 +335,20 @@ Ran on Node 24.x (`npm run check`: 51 tests) with **OpenCode 1.18.32** and
    performs tool continuations through the proxy (shape-verified against a capture
    upstream, no prompts or credentials retained).
 2. A live CLIProxyAPI/Codex request in Astra standard, single-agent mode accepted
-   the strip/append `configuration_update` placement and completed a real tool
-   continuation.
+   the historical strip/append placement and completed a real tool continuation.
 3. A full-path OpenCode -> proxy -> CLIProxyAPI -> Codex tool task completed with
    Jev enabled (tool executed, task finished).
 4. Two live requests selected **different** Jev efforts (`low` and `high`) while
    the outbound model stayed `gpt-6-astra` and the top-level effort stayed
    `medium` in both.
 
-What this proves: protocol compatibility of the strip/append policy, outbound
-model/effort selection, and completed tool-using tasks. The response's
+What this proves: historical protocol compatibility, outbound model/effort
+selection, and completed tool-using tasks. An effort update is needed when the
+selected effort changes, before the next user message or tail tool continuation;
+consecutive same-effort turns do not need another update. Cache-preservation
+evidence under the current replay placement is measured in
+[`docs/cache-validation.md`](docs/cache-validation.md).
+The response's
 `reasoning.effort` reports the stable request-level setting, **not** the
 update-selected effort; there is no visibility into the model's internally applied
 effort.

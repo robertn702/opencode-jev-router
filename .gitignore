@@ -9,3 +9,4 @@ AGENTS.local.md
 *.log
 .DS_Store
 openspec/
+docs/cache-results/

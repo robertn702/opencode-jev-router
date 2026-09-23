@@ -34,7 +34,7 @@ describe("rewriteResponsesRequest", () => {
     }
   });
 
-  it("appends exactly one configuration update with the selected effort", () => {
+  it("places a new-user update before the user message", () => {
     const result = rewriteResponsesRequest(
       { model: "gpt-6-astra", input: [userMessage("hi")] },
       options,
@@ -49,10 +49,10 @@ describe("rewriteResponsesRequest", () => {
       type: "configuration_update",
       reasoning: { effort: "high" },
     });
-    expect(input.at(-1)).toBe(updates[0]);
+    expect(input[0]).toBe(updates[0]);
   });
 
-  it("removes an incoming reasoning update before appending the current one", () => {
+  it("preserves incoming reasoning updates without moving them", () => {
     const result = rewriteResponsesRequest(
       {
         model: "gpt-6-astra",
@@ -66,12 +66,13 @@ describe("rewriteResponsesRequest", () => {
     const input = result.input as Record<string, unknown>[];
 
     expect(input).toEqual([
-      userMessage("hi"),
       { type: "configuration_update", reasoning: { effort: "high" } },
+      userMessage("hi"),
+      { type: "configuration_update", reasoning: { effort: "low" } },
     ]);
   });
 
-  it("yields exactly one update when several reasoning updates arrive", () => {
+  it("preserves several historical updates", () => {
     const result = rewriteResponsesRequest(
       {
         model: "gpt-6-astra",
@@ -87,26 +88,21 @@ describe("rewriteResponsesRequest", () => {
     const input = result.input as Record<string, unknown>[];
 
     expect(input).toEqual([
-      userMessage("hi"),
-      userMessage("more"),
       { type: "configuration_update", reasoning: { effort: "high" } },
+      userMessage("hi"),
+      { type: "configuration_update", reasoning: { effort: "low" } },
+      userMessage("more"),
+      { type: "configuration_update", reasoning: { effort: "max" } },
     ]);
   });
 
-  it("preserves unrelated input items and other configuration updates", () => {
+  it("rejects unsupported configuration updates", () => {
     const tool = { type: "function_call_output", call_id: "c1", output: "ok" };
     const other = { type: "configuration_update", temperature: 0.2 };
-    const result = rewriteResponsesRequest(
+    expect(() => rewriteResponsesRequest(
       { model: "gpt-6-astra", input: [userMessage("hi"), tool, other] },
       options,
-    );
-
-    expect(result.input).toEqual([
-      userMessage("hi"),
-      tool,
-      other,
-      { type: "configuration_update", reasoning: { effort: "high" } },
-    ]);
+    )).toThrow(UnsupportedInputError);
   });
 
   it("preserves unrelated top-level fields and reasoning options", () => {

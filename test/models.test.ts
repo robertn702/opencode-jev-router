@@ -17,7 +17,7 @@ describe("registered model isolation", () => {
       const items = [{ role: "user", content: "test" }, { type: "function_call_output", call_id: "c", output: "ok" }];
       const body = { model: model.id, prompt_cache_key: "unchanged", input: [items[0], { type: "configuration_update", reasoning: { effort: "low" } }, items[1]] };
       const result = rewriteResponsesRequest(body, { model, baseEffort: "medium", effort: "high" });
-      expect(result).toMatchObject({ model: model.id, prompt_cache_key: "unchanged", reasoning: { effort: "medium" }, input: [...items, { type: "configuration_update", reasoning: { effort: "high" } }] });
+      expect(result).toMatchObject({ model: model.id, prompt_cache_key: "unchanged", reasoning: { effort: "medium" }, input: [{ type: "configuration_update", reasoning: { effort: "high" } }, items[0], { type: "configuration_update", reasoning: { effort: "low" } }, items[1]] });
     }
   });
   it("uses model-specific choices and globally bounded model-local fallback history", async () => {
