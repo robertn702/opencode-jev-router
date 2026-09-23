@@ -48,7 +48,7 @@ Responses upstream and a Vercel AI Gateway key for Jev classification:
 
 ```jsonc
 {
-  "plugin": [["@robertn702/opencode-jev-router@0.1.0", {
+  "plugin": [["@robertn702/opencode-jev-router@0.2.0", {
     "jevApiKey": "{env:JEV_API_KEY}",
     "jevBaseUrl": "https://ai-gateway.vercel.sh/typesafe",
     "upstreamBaseURL": "http://127.0.0.1:8317/v1",
@@ -526,21 +526,11 @@ Version tags drive subsequent publishing. CI checks pull requests and pushes to
 packs once, tests the **exact tarball**, and publishes it with npm provenance.
 Dependency update PRs are opened weekly by Dependabot.
 
-The first publication requires an npm account with access to the `@robertn702`
-scope: npm cannot configure a trusted publisher until the package exists. After
-reviewing and merging the `0.1.0` release commit to `main`, log in to npm and
-publish its packed artifact with `npm publish --access public <tarball>`.
-Configure the package's npm trusted publisher for GitHub repository
-`robertn702/opencode-jev-router`, workflow filename `publish.yml`, and permission
-to run `npm publish`. Then push `v0.1.0` on the same commit; the tag workflow
-checks that its tarball matches the already-published bootstrap artifact. The
-first manual publish does not have GitHub Actions provenance.
-
-For later releases, add user-facing changes to `CHANGELOG.md`, update the version
-with `npm version patch|minor|major --no-git-tag-version`, review the lockfile,
-and merge the version/changelog change to `main`. Create and push the matching
-tag on that commit. The tag workflow validates, dry-runs, and publishes; do not
-publish an unreviewed tag.
+For each release, add user-facing changes to `CHANGELOG.md`, update the version
+in `package.json`, `package-lock.json`, and the plugin example above, and merge
+the reviewed release change to `main`. Create and push the matching `v<version>`
+tag on that commit. The tag workflow validates, smoke-tests, and publishes the
+artifact with npm provenance using trusted publishing.
 
 ## Prior art
 
