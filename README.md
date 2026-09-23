@@ -3,7 +3,7 @@
 Adaptive reasoning effort for OpenCode with one fixed execution model.
 
 ```text
-OpenCode -> opencode-jev-router -> CLIProxyAPI -> GPT-6 Astra (Codex subscription)
+OpenCode -> opencode-jev-router -> CLIProxyAPI (Codex subscription) or OpenAI API (API key)
 ```
 
 `opencode-jev-router` is a small Responses API proxy. For each `POST /v1/responses`
@@ -22,14 +22,14 @@ does not prove.
 ## Requirements
 
 - Node.js 24.x (runtime and development)
-- [CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI) with Codex OAuth and
-  `gpt-6-astra` access
+- Either [CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI) with Codex OAuth
+  or an OpenAI API key with access to `gpt-6-astra`
 - A TypeSafe API key for Jev (`TYPESAFE_API_KEY`)
 
 ## Install and run
 
 The npm package is `@robertn702/opencode-jev-router`; the command is
-`opencode-jev-router`. Install Node.js 24.x and configure CLIProxyAPI first.
+`opencode-jev-router`. Install Node.js 24.x and choose an upstream mode below.
 
 Choose one installation method:
 
@@ -50,7 +50,26 @@ npx opencode-jev-router
 ```
 
 Set `TYPESAFE_API_KEY` in the environment or put it in a `.env` file in the
-working directory before starting the proxy. The CLI listens on
+working directory before starting the proxy. Choose one upstream:
+
+```dotenv
+# CLIProxyAPI (default; existing configurations work without UPSTREAM_MODE)
+UPSTREAM_MODE=cliproxy
+UPSTREAM_BASE_URL=http://127.0.0.1:8317/v1
+```
+
+```dotenv
+# Direct OpenAI (billed to your API account, independent of a Codex subscription)
+UPSTREAM_MODE=openai
+OPENAI_API_KEY=sk-...
+UPSTREAM_BASE_URL=https://api.openai.com/v1
+```
+
+In `openai` mode, the router uses only `OPENAI_API_KEY` for upstream
+`Authorization`, regardless of any OpenCode bearer token. The OpenAI URL is
+restricted to the official HTTPS API base; `cliproxy` mode rejects
+`api.openai.com` as its base URL. Missing keys, unknown modes, or mismatched
+URLs fail at startup before the server listens. The CLI listens on
 `http://127.0.0.1:4320` by default; check `curl http://127.0.0.1:4320/health`.
 Run `opencode-jev-router --help` for environment options.
 
@@ -71,8 +90,12 @@ See [`.env.example`](.env.example) for all limits and connection settings.
 ### OpenCode configuration
 
 Add the provider below (also in [`examples/opencode.jsonc`](examples/opencode.jsonc))
-and select `jev/astra`. `CLIPROXY_KEY` must be set in the OpenCode process; the
-proxy forwards that bearer credential to CLIProxyAPI without logging it.
+and select `jev/astra`. In `cliproxy` mode, `CLIPROXY_KEY` must be set in the
+OpenCode process; the proxy forwards that bearer credential to CLIProxyAPI.
+In `openai` mode, set `CLIPROXY_KEY` to a non-secret placeholder such as
+`local-router` in the OpenCode process; OpenCode sends it locally, but the router
+ignores it and substitutes its own `OPENAI_API_KEY` upstream. Never put
+`OPENAI_API_KEY` in the OpenCode provider configuration.
 
 ```jsonc
 {
@@ -100,13 +123,21 @@ proxy forwards that bearer credential to CLIProxyAPI without logging it.
 
 ### Scope
 
-- Astra **standard, single-agent mode only**. Requests with `reasoning.mode` other
-  than `standard` (pro, multi-agent, etc.), pro model slugs, or `truncation: "auto"`
-  are rejected with a local `400` before classification or generation. OpenCode
-  reasoning-effort variants are ignored for this provider.
+- Astra **standard, single-agent mode only** in either upstream mode. Requests
+  with `reasoning.mode` other than `standard` (pro, multi-agent, etc.), pro model
+  slugs, or `truncation: "auto"` are rejected with a local `400` before
+  classification or generation. OpenCode reasoning-effort variants are ignored
+  for this provider.
 - Array-form Responses `input` as emitted by OpenCode is supported, including tool
   continuations (`function_call` / `function_call_output`). Other input shapes are
   rejected with a local `400`.
+- `UPSTREAM_MODEL` pins the outbound model (default `gpt-6-astra`). Direct API
+  access requires that model to be available to your API organization; a Codex
+  subscription or CLIProxyAPI alias does not grant API access. Check the
+  [OpenAI model documentation](https://developers.openai.com/api/docs/models/gpt-6-astra)
+  for API availability and supported efforts. `configuration_update` is supported
+  for the GPT-6 family in standard, single-agent mode; choosing a different model
+  can cause the API to reject this router's update item.
 
 ### Effort updates (no cache lineage)
 
@@ -176,7 +207,8 @@ without injecting a replacement response.
 ### Forwarding
 
 - `POST /v1/responses` and `GET /v1/models` on localhost; the client's bearer
-  credential is forwarded to CLIProxyAPI and never logged.
+  credential is forwarded only in CLIProxyAPI mode. In OpenAI mode, the router
+  sends its own API key instead. Neither credential is logged.
 - Upstream HTTP statuses and bodies pass through unchanged, including errors.
 - SSE streams incrementally with write/drain backpressure: a slow client pauses
   upstream reads instead of buffering the completed response.
@@ -216,6 +248,11 @@ model/effort selection, and completed tool-using tasks. The response's
 `reasoning.effort` reports the stable request-level setting, **not** the
 update-selected effort; there is no visibility into the model's internally applied
 effort.
+
+Direct OpenAI mode is covered by offline fake-upstream tests for non-streaming,
+streaming SSE, tool continuations, and authorization routing. A live direct
+OpenAI request has not yet been verified; it requires an `OPENAI_API_KEY` with
+API access to `gpt-6-astra`.
 
 ## Development
 

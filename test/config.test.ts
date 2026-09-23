@@ -22,3 +22,34 @@ describe("resource limit configuration", () => {
     }
   });
 });
+
+describe("upstream configuration", () => {
+  it("keeps CLIProxyAPI defaults even when an OpenAI key is present", () => {
+    const config = loadConfig({ OPENAI_API_KEY: "unused" });
+    expect(config.upstreamAuth).toEqual({ mode: "cliproxy" });
+    expect(config.upstreamBaseUrl).toBe("http://127.0.0.1:8317/v1");
+  });
+
+  it("uses the official OpenAI URL only when explicitly selected", () => {
+    const config = loadConfig({ UPSTREAM_MODE: "openai", OPENAI_API_KEY: "test-key" });
+    expect(config.upstreamAuth).toEqual({ mode: "openai", apiKey: "test-key" });
+    expect(config.upstreamBaseUrl).toBe("https://api.openai.com/v1");
+  });
+
+  it("rejects invalid modes, missing credentials, and credential misrouting", () => {
+    expect(() => loadConfig({ UPSTREAM_MODE: "other", OPENAI_API_KEY: "test-key" }))
+      .toThrow("UPSTREAM_MODE must be openai or cliproxy");
+    expect(() => loadConfig({ UPSTREAM_MODE: "openai" }))
+      .toThrow("OPENAI_API_KEY is required when UPSTREAM_MODE=openai");
+    expect(() => loadConfig({ UPSTREAM_MODE: "openai", OPENAI_API_KEY: "  " }))
+      .toThrow("OPENAI_API_KEY is required when UPSTREAM_MODE=openai");
+    expect(() => loadConfig({ UPSTREAM_MODE: "openai", OPENAI_API_KEY: "test-key", UPSTREAM_BASE_URL: "http://localhost:8317/v1" }))
+      .toThrow("UPSTREAM_MODE=openai requires UPSTREAM_BASE_URL=https://api.openai.com/v1");
+    expect(() => loadConfig({ UPSTREAM_MODE: "cliproxy", UPSTREAM_BASE_URL: "https://api.openai.com/v1" }))
+      .toThrow("UPSTREAM_MODE=cliproxy cannot use api.openai.com");
+    expect(() => loadConfig({ UPSTREAM_BASE_URL: "https://user:pass@proxy.example/v1" }))
+      .toThrow("UPSTREAM_BASE_URL must be an HTTP(S) URL without credentials, query, or fragment");
+    expect(() => loadConfig({ UPSTREAM_BASE_URL: "no-url" }))
+      .toThrow("UPSTREAM_BASE_URL must be a valid HTTP(S) URL");
+  });
+});

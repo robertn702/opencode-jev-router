@@ -60,9 +60,10 @@ async function startUpstream(
   return { url, requests };
 }
 
-function startApp(upstreamBaseUrl: string, selectEffort?: Parameters<typeof createAppServer>[0]["selectEffort"]) {
+function startApp(upstreamBaseUrl: string, selectEffort?: Parameters<typeof createAppServer>[0]["selectEffort"], upstreamAuth: Parameters<typeof createAppServer>[0]["upstreamAuth"] = { mode: "cliproxy" }) {
   const server = createAppServer({
     upstreamBaseUrl,
+    upstreamAuth,
     upstreamModel: "gpt-6-astra",
     baseEffort: "medium",
     selectEffort,
@@ -72,7 +73,7 @@ function startApp(upstreamBaseUrl: string, selectEffort?: Parameters<typeof crea
 
 function startLimitedApp(upstreamBaseUrl: string, limits: Partial<Parameters<typeof createAppServer>[0]>) {
   return listen(createAppServer({
-    upstreamBaseUrl, upstreamModel: "gpt-6-astra", baseEffort: "medium", ...limits,
+    upstreamBaseUrl, upstreamAuth: { mode: "cliproxy" }, upstreamModel: "gpt-6-astra", baseEffort: "medium", ...limits,
   }));
 }
 
@@ -166,6 +167,79 @@ describe("forwarding lifecycle", () => {
     expect(new TextDecoder().decode((await reader.read()).value)).toContain("two");
     await expect(reader.read()).rejects.toThrow();
   });
+  it("uses only the configured API key in OpenAI mode for responses and models", async () => {
+    const upstream = await startUpstream((_request, response) => {
+      response.writeHead(200, { "content-type": "application/json" });
+      response.end("{}");
+    });
+    const app = await startApp(upstream.url, undefined, { mode: "openai", apiKey: "server-test-key" });
+
+    for (const [method, path, body] of [["POST", "responses", simpleInput], ["GET", "models", undefined]] as const) {
+      const response = await fetch(`${app}/v1/${path}`, {
+        method,
+        headers: { authorization: "Bearer client-secret" },
+        body,
+      });
+      expect(response.status).toBe(200);
+      await response.text();
+    }
+    expect(upstream.requests.map(({ headers }) => headers.authorization))
+      .toEqual(["Bearer server-test-key", "Bearer server-test-key"]);
+
+    const response = await fetch(`${app}/v1/responses`, { method: "POST", body: simpleInput });
+    expect(response.status).toBe(200);
+    await response.text();
+    expect(upstream.requests[2]!.headers.authorization).toBe("Bearer server-test-key");
+  });
+
+  it("forwards the client's bearer credential in CLIProxyAPI mode", async () => {
+    const upstream = await startUpstream((_request, response) => response.end("{}"));
+    const app = await startApp(upstream.url);
+    const response = await fetch(`${app}/v1/responses`, {
+      method: "POST",
+      headers: { authorization: "Bearer client-test-key" },
+      body: simpleInput,
+    });
+    expect(response.status).toBe(200);
+    await response.text();
+    expect(upstream.requests[0]!.headers.authorization).toBe("Bearer client-test-key");
+  });
+
+  it("proxies a direct-mode tool continuation with the selected effort", async () => {
+    const upstream = await startUpstream((_request, response, recorded) => {
+      response.writeHead(200, { "content-type": "application/json" });
+      response.end(JSON.stringify({ ok: true, seen: JSON.parse(recorded.body) }));
+    });
+    const app = await startApp(upstream.url, async () => ({ effort: "high", jevLatencyMs: 1, fallback: null }), { mode: "openai", apiKey: "server-test-key" });
+    const response = await fetch(`${app}/v1/responses`, {
+      method: "POST",
+      body: JSON.stringify({ model: "client-model", input: [
+        { role: "user", content: "call tool" },
+        { type: "function_call", call_id: "c1", name: "read", arguments: "{}" },
+        { type: "function_call_output", call_id: "c1", output: "done" },
+      ] }),
+    });
+    expect(response.status).toBe(200);
+    const { seen } = await response.json() as { seen: { model: string; reasoning: { effort: string }; input: unknown[] } };
+    expect(seen.model).toBe("gpt-6-astra");
+    expect(seen.reasoning.effort).toBe("medium");
+    expect(seen.input.at(-2)).toEqual({ type: "function_call_output", call_id: "c1", output: "done" });
+    expect(seen.input.at(-1)).toEqual({ type: "configuration_update", reasoning: { effort: "high" } });
+  });
+
+  it("streams SSE in direct mode without client authorization", async () => {
+    const upstream = await startUpstream((_request, response) => {
+      response.writeHead(200, { "content-type": "text/event-stream" });
+      response.write("data: first\n\n");
+      setTimeout(() => response.end("data: second\n\n"), 10);
+    });
+    const app = await startApp(upstream.url, undefined, { mode: "openai", apiKey: "server-test-key" });
+    const response = await fetch(`${app}/v1/responses`, { method: "POST", body: simpleInput });
+    expect(response.headers.get("content-type")).toBe("text/event-stream");
+    expect(await response.text()).toBe("data: first\n\ndata: second\n\n");
+    expect(upstream.requests[0]!.headers.authorization).toBe("Bearer server-test-key");
+  });
+
   it("rewrites the outbound model to gpt-6-astra with a fresh content-length", async () => {
     const upstream = await startUpstream((_request, response, recorded) => {
       response.writeHead(200, { "content-type": "application/json" });
