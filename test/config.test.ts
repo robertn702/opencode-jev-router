@@ -10,16 +10,22 @@ describe("resource limit configuration", () => {
     expect(defaults.upstreamIdleTimeoutMs).toBe(60_000);
     expect(defaults.effortCacheEntries).toBe(256);
     expect(defaults.effortCacheTtlMs).toBe(600_000);
+    expect(defaults.shutdownGraceMs).toBe(30_000);
+    expect(loadConfig({ SHUTDOWN_GRACE_MS: "50" }).shutdownGraceMs).toBe(50);
     expect(loadConfig({ MAX_IN_FLIGHT: "1" }).maxInFlight).toBe(1);
   });
 
   it("rejects invalid values instead of silently accepting partial integers", () => {
     for (const name of ["MAX_REQUEST_BYTES", "MAX_IN_FLIGHT", "UPSTREAM_HEADER_TIMEOUT_MS",
-      "UPSTREAM_IDLE_TIMEOUT_MS", "EFFORT_CACHE_ENTRIES", "EFFORT_CACHE_TTL_MS"]) {
+      "UPSTREAM_IDLE_TIMEOUT_MS", "EFFORT_CACHE_ENTRIES", "EFFORT_CACHE_TTL_MS", "SHUTDOWN_GRACE_MS"]) {
       for (const value of ["0", "-1", "1.5", "10junk", "Infinity"]) {
         expect(() => loadConfig({ [name]: value })).toThrow(name);
       }
     }
+  });
+  it("validates upstream configuration without exposing credentials", () => {
+    expect(() => loadConfig({ UPSTREAM_BASE_URL: "bad-secret" })).toThrow("UPSTREAM_BASE_URL");
+    expect(() => loadConfig({ UPSTREAM_BASE_URL: "http://user:secret@localhost:8317/v1" })).toThrow("UPSTREAM_BASE_URL");
   });
 });
 
