@@ -16,14 +16,17 @@ Populate `eval/tasks.json` with two tasks, for example:
     "repo": "/absolute/path/to/local/git/repository",
     "commit": "full-40-character-base-commit-sha",
     "prompt": "Task instructions visible to the agent",
-    "grade": ["node", "--test", "test/acceptance.test.mjs"]
+    "grade": ["/absolute/path/to/trusted-grader"]
   }]
 }
 ```
 
-`grade` is an argv array, not a shell command. Its exit code determines success.
-Use a pinned, independent grader; for SWE-bench, an adapter will need to submit
-the saved patch to its container harness rather than run tests in the checkout.
+`grade` is an argv array beginning with an absolute executable outside the task
+repo, not a shell command. It runs outside the agent-writable checkout, with
+`EVAL_PATCH_PATH`, `EVAL_TASK_REPO`, and `EVAL_TASK_COMMIT` in its environment.
+The grader must apply the patch to a fresh checkout and use independent tests;
+never run tests supplied or modified by the agent. For SWE-bench, an adapter
+must submit the saved patch to its container harness.
 Pin the dataset/harness revision and publish the selection rule and task IDs.
 Check the reference solution against the grader before spending model runs.
 
@@ -56,5 +59,7 @@ inspect/redact before publishing. Do not publish keys or complete private tasks.
 efforts, fallback count and summed upstream usage. If any response lacks usage,
 the corresponding total is `null`, not an estimated saving. Model output tokens
 include billed reasoning tokens. Subscription usage is not a dollar-cost claim.
+If router evidence is absent or differs from OpenCode step-finish events, the
+result is marked `evidence_valid: false` and token totals are withheld.
 Two tasks per model × three arms = 12 attempts; this is a harness pilot, not a
 statistically meaningful benchmark score.
