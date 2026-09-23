@@ -64,7 +64,6 @@ function startApp(upstreamBaseUrl: string, selectEffort?: Parameters<typeof crea
   const server = createAppServer({
     upstreamBaseUrl,
     upstreamAuth,
-    upstreamModel: "gpt-6-astra",
     baseEffort: "medium",
     selectEffort,
   });
@@ -73,7 +72,7 @@ function startApp(upstreamBaseUrl: string, selectEffort?: Parameters<typeof crea
 
 function startLimitedApp(upstreamBaseUrl: string, limits: Partial<Parameters<typeof createAppServer>[0]>) {
   return listen(createAppServer({
-    upstreamBaseUrl, upstreamAuth: { policy: "forward" }, upstreamModel: "gpt-6-astra", baseEffort: "medium", ...limits,
+    upstreamBaseUrl, upstreamAuth: { policy: "forward" }, baseEffort: "medium", ...limits,
   }));
 }
 
@@ -83,7 +82,52 @@ const simpleInput = JSON.stringify({
 });
 
 describe("forwarding lifecycle", () => {
-  it("replays the upstream prefix across effort changes and records request usage", async () => {
+  it.each(["forward", "bearer"] as const)("isolates concurrent models and same-model continuations with %s auth", async (policy) => {
+    const models = ["gpt-6-astra", "gpt-6-luna", "gpt-6-sol"];
+    const evidence: unknown[] = [];
+    const upstream = await startUpstream((_request, response, recorded) => {
+      const body = JSON.parse(recorded.body);
+      if (body.stream) {
+        response.writeHead(200, { "content-type": "text/event-stream" });
+        response.write("data: first\n\n");
+        setTimeout(() => response.end("data: last\n\n"), 30);
+      } else response.end(JSON.stringify({ model: body.model, output: [{ type: "function_call", call_id: "c", name: "test", arguments: "{}" }] }));
+    });
+    const completed: string[] = [];
+    const app = await startLimitedApp(upstream.url, {
+      upstreamAuth: policy === "forward" ? { policy } : { policy, apiKey: "router-secret" },
+      onEvidence: (item) => evidence.push(item),
+      selectEffort: async ({ model }) => {
+        await new Promise((resolve) => setTimeout(resolve, (3 - models.indexOf(model.id)) * 30));
+        completed.push(model.id);
+        return { effort: model.id === models[0] ? "high" : "none", jevLatencyMs: 0, fallback: null };
+      },
+    });
+    await Promise.all(models.map(async (model) => {
+      const post = (input: unknown[], stream = false) => fetch(`${app}/v1/responses`, { method: "POST", headers: { authorization: "Bearer client-secret" }, body: JSON.stringify({ model, input, stream, prompt_cache_key: "private-key" }) });
+      const first = await post([{ role: "user", content: "private-prompt" }]);
+      expect(first.status).toBe(200);
+      const result = await first.json() as { model: string; output: unknown[] };
+      expect(result.model).toBe(model);
+      const next = await post([...result.output, { type: "function_call_output", call_id: "c", output: "private-output" }], true);
+      const reader = next.body!.getReader();
+      expect(new TextDecoder().decode((await reader.read()).value)).toBe("data: first\n\n");
+      expect(new TextDecoder().decode((await reader.read()).value)).toBe("data: last\n\n");
+      await reader.read();
+    }));
+    expect(completed[0]).toBe("gpt-6-sol");
+    for (const request of upstream.requests) {
+      const body = JSON.parse(request.body);
+      expect(request.headers.authorization).toBe(policy === "forward" ? "Bearer client-secret" : "Bearer router-secret");
+      expect(body.reasoning.effort).toBe("medium");
+      expect(body.input.at(-1).reasoning.effort).toBe(body.model === models[0] ? "high" : "none");
+      expect(body.prompt_cache_key).toBe("private-key");
+    }
+    const logs = JSON.stringify(evidence);
+    for (const model of models) expect(logs).toContain(model);
+    for (const secret of ["private-key", "private-prompt", "private-output", "client-secret", "router-secret"]) expect(logs).not.toContain(secret);
+  });
+  it("strips prior updates across effort changes and records request usage", async () => {
     const upstream = await startUpstream((_request, response) => {
       response.writeHead(200, { "content-type": "text/event-stream" });
       response.end('data: {"type":"response.completed","response":{"usage":{"input_tokens":4000,"input_tokens_details":{"cached_tokens":3072},"output_tokens":12}}}\n\n');
@@ -95,14 +139,15 @@ describe("forwarding lifecycle", () => {
       onEvidence: (entry) => records.push({ ...entry }),
     });
     const initial = [{ role: "user", content: "hi" }];
-    for (const input of [initial, [...initial, { role: "assistant", content: "hello" }, { role: "user", content: "continue" }]]) {
+    for (const input of [initial, [...initial, { type: "configuration_update", reasoning: { effort: "low" } }, { role: "assistant", content: "hello" }, { role: "user", content: "continue" }]]) {
       const response = await fetch(`${app}/v1/responses`, { method: "POST", body: JSON.stringify({ model: "gpt-6-astra", prompt_cache_key: "test-lineage", input }) });
       expect(await response.text()).toContain('"cached_tokens":3072');
     }
     const first = JSON.parse(upstream.requests[0]!.body);
     const second = JSON.parse(upstream.requests[1]!.body);
-    expect(second.input.slice(0, first.input.length)).toEqual(first.input);
-    expect(records[1]).toMatchObject({ effort: "high", previous_effort: "low", lineage_status: "preserved", history_updates_replayed: 1, input_tokens: 4000, cached_input_tokens: 3072, output_tokens: 12 });
+    expect(first.input.at(-1)).toEqual({ type: "configuration_update", reasoning: { effort: "low" } });
+    expect(second.input).toEqual([...initial, { role: "assistant", content: "hello" }, { role: "user", content: "continue" }, { type: "configuration_update", reasoning: { effort: "high" } }]);
+    expect(records[1]).toMatchObject({ effort: "high", previous_effort: null, lineage_status: null, history_updates_replayed: 0, input_tokens: 4000, cached_input_tokens: 3072, output_tokens: 12 });
   });
 
   it("logs validated session and turn IDs without forwarding correlation headers", async () => {
@@ -366,25 +411,24 @@ describe("forwarding lifecycle", () => {
     expect(upstream.requests).toHaveLength(0);
   });
 
-  it("accepts a configured alternative model only when the request names that same model", async () => {
+  it("accepts registered models through the same endpoint", async () => {
     let calls = 0;
     const upstream = await startUpstream((_request, response, recorded) => response.end(recorded.body));
     const app = await startLimitedApp(upstream.url, {
-      upstreamModel: "custom-astra",
       selectEffort: async () => { calls++; return { effort: "high", jevLatencyMs: 0, fallback: null }; },
     });
     const wrong = await fetch(`${app}/v1/responses`, { method: "POST", body: simpleInput });
-    expect(wrong.status).toBe(400);
-    expect(calls).toBe(0);
-    expect(upstream.requests).toHaveLength(0);
+    expect(wrong.status).toBe(200);
+    expect(calls).toBe(1);
+    expect(upstream.requests).toHaveLength(1);
 
     const right = await fetch(`${app}/v1/responses`, {
       method: "POST",
-      body: JSON.stringify({ model: "custom-astra", input: [{ role: "user", content: "hi" }] }),
+      body: JSON.stringify({ model: "gpt-6-luna", input: [{ role: "user", content: "hi" }] }),
     });
     expect(right.status).toBe(200);
-    expect((await right.json() as { model: string }).model).toBe("custom-astra");
-    expect(calls).toBe(1);
+    expect((await right.json() as { model: string }).model).toBe("gpt-6-luna");
+    expect(calls).toBe(2);
   });
 
   it("keeps genuine upstream HTTP errors, statuses, bodies, and safe headers", async () => {

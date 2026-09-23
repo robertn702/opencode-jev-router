@@ -1,6 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { createJevClassifier, buildJevState } from "../src/jev.js";
+import { createJevClassifier as createClassifier, buildJevState } from "../src/jev.js";
+import { findModel } from "../src/models.js";
+
+function createJevClassifier(options: Parameters<typeof createClassifier>[0]) {
+  const classifier = createClassifier(options);
+  return { ...classifier, select: (args: Omit<Parameters<typeof classifier.select>[0], "model">) =>
+    classifier.select({ ...args, model: findModel(args.body.model ?? "gpt-6-astra")! }) };
+}
 import { createAppServer } from "../src/server.js";
 import { once } from "node:events";
 import type { AddressInfo } from "node:net";
@@ -214,7 +221,6 @@ describe("Jev classifier", () => {
     const app = createAppServer({
       upstreamBaseUrl: `http://127.0.0.1:${stubPort}/v1`,
       upstreamAuth: { policy: "forward" },
-      upstreamModel: "gpt-6-astra",
       baseEffort: "medium",
       selectEffort: select,
     });
@@ -434,7 +440,6 @@ describe("evidence privacy under inherited debug logging", () => {
     const app = createAppServer({
       upstreamBaseUrl: `http://127.0.0.1:${upstreamPort}/v1`,
       upstreamAuth: { policy: "forward" },
-      upstreamModel: "gpt-6-astra",
       baseEffort: "medium",
       selectEffort: select,
       onEvidence: (record) => evidence.push({ ...record }),

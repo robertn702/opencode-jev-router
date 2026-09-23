@@ -2,13 +2,22 @@ import { describe, expect, it } from "vitest";
 
 import {
   UnsupportedInputError,
-  validateResponsesRequest,
+  validateResponsesRequest as validate,
 } from "../src/validate.js";
+import { findModel } from "../src/models.js";
+
+function validateResponsesRequest(body: unknown) {
+  if (body && typeof body === "object" && !Array.isArray(body)) {
+    const record = body as Record<string, unknown>;
+    if (record.model === undefined) record.model = "gpt-6-astra";
+  }
+  return validate(body, findModel("gpt-6-astra")!);
+}
 
 describe("validateResponsesRequest", () => {
   it("accepts the array-form input OpenCode emits, including tool continuations", () => {
     const body = {
-      model: "astra",
+      model: "gpt-6-astra",
       stream: true,
       input: [
         { role: "developer", content: "instructions" },

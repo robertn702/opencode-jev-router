@@ -5,15 +5,15 @@ import {
 
 export { UnsupportedInputError };
 
-export type Effort = "low" | "medium" | "high" | "xhigh" | "max";
+import { supportsEffort, type ModelProfile, type Effort } from "./models.js";
+export type { Effort } from "./models.js";
 
 const CONFIGURATION_UPDATE = "configuration_update";
 
 export interface RewriteOptions {
-  upstreamModel: string;
+  model: ModelProfile;
   baseEffort: Effort;
   effort: Effort;
-  replayedInput?: unknown[];
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -32,7 +32,10 @@ export function rewriteResponsesRequest(
   body: unknown,
   options: RewriteOptions,
 ): Record<string, unknown> {
-  const record = validateResponsesRequest(body, options.upstreamModel);
+  const record = validateResponsesRequest(body, options.model);
+  if (!options.model.supportsConfigurationUpdate || !supportsEffort(options.model, options.baseEffort) || !supportsEffort(options.model, options.effort)) {
+    throw new UnsupportedInputError("unsupported reasoning effort or configuration update");
+  }
 
   const input = record.input as unknown[];
 
@@ -41,12 +44,12 @@ export function rewriteResponsesRequest(
 
   return {
     ...record,
-    model: options.upstreamModel,
+    model: options.model.id,
     reasoning: {
       ...(isRecord(record.reasoning) ? record.reasoning : {}),
       effort: baseEffort,
     },
-    input: options.replayedInput ?? [
+    input: [
       ...retained,
       {
         type: CONFIGURATION_UPDATE,

@@ -7,23 +7,20 @@ import {
 import type { Effort } from "./rewrite.js";
 import type { EffortDecision, EffortSelector } from "./server.js";
 import { EffortCache } from "./effort-cache.js";
-
-const EFFORTS = ["low", "medium", "high", "xhigh", "max"] as const;
-const EFFORT_SET: ReadonlySet<string> = new Set(EFFORTS);
+import { supportsEffort, type ModelProfile } from "./models.js";
 
 const EXCERPT_LIMIT = 1600;
 const USER_TEXT_LIMIT = 2000;
 const ASSISTANT_TEXT_LIMIT = 2000;
 const MAX_TOOL_RESULTS = 8;
 
-const EFFORT_QUESTION = {
-  effort: choice("Select the reasoning effort for the next model call.", {
-    low: "Simple, mechanical, or well-understood work.",
-    medium: "Routine engineering work needing some reasoning.",
-    high: "Hard problems, debugging, or multi-step reasoning.",
-    xhigh: "Deeply complex or ambiguous work.",
-    max: "The hardest work where extra thinking clearly helps.",
-  }),
+const DESCRIPTIONS: Record<Effort, string> = {
+  none: "Mechanical work that does not benefit from reasoning.",
+  low: "Simple, mechanical, or well-understood work.",
+  medium: "Routine engineering work needing some reasoning.",
+  high: "Hard problems, debugging, or multi-step reasoning.",
+  xhigh: "Deeply complex or ambiguous work.",
+  max: "The hardest work where extra thinking clearly helps.",
 };
 
 export class ClassificationCancelledError extends Error {
@@ -170,7 +167,7 @@ export function buildJevState(input: unknown[]): JevState {
   };
 }
 
-function extractEffort(result: unknown): Effort | null {
+function extractEffort(result: unknown, model: ModelProfile): Effort | null {
   if (!isRecord(result) || !isRecord(result.answers)) {
     return null;
   }
@@ -178,7 +175,7 @@ function extractEffort(result: unknown): Effort | null {
   if (!isRecord(answer) || typeof answer.choice !== "string") {
     return null;
   }
-  return EFFORT_SET.has(answer.choice) ? (answer.choice as Effort) : null;
+  return supportsEffort(model, answer.choice) ? answer.choice : null;
 }
 
 function usableCacheKey(value: unknown): string | null {
@@ -197,13 +194,17 @@ export function createJevClassifier(
 
   const previousEfforts = new EffortCache(options.cacheEntries ?? 256, options.cacheTtlMs ?? 600_000);
 
-  const select: EffortSelector = async ({ body, signal }) => {
+  const select: EffortSelector = async ({ body, signal, model }) => {
+    if (signal.aborted) throw new ClassificationCancelledError();
     const startedAt = performance.now();
     const latency = (): number => Math.round(performance.now() - startedAt);
 
-    const cacheKey = usableCacheKey(body.prompt_cache_key);
+    const key = usableCacheKey(body.prompt_cache_key);
+    const cacheKey = key === null ? null : JSON.stringify([model.id, key]);
     const input = Array.isArray(body.input) ? body.input : [];
-    const state = buildJevState(input);
+    const state = { ...buildJevState(input), model: model.id };
+    const questions = { effort: choice("Select the reasoning effort for the next model call.",
+      Object.fromEntries(model.supportedEfforts.map((effort) => [effort, DESCRIPTIONS[effort]]))) };
 
     const deadline = new AbortController();
     let timer: ReturnType<typeof setTimeout> | undefined;
@@ -216,7 +217,7 @@ export function createJevClassifier(
     const combined = AbortSignal.any([signal, deadline.signal]);
 
     const call = client
-      .systemOne({ state, questions: EFFORT_QUESTION }, { signal: combined })
+      .systemOne({ state, questions }, { signal: combined })
       .then(
         (result: unknown) => ({ kind: "result" as const, result }),
         () => ({ kind: "error" as const }),
@@ -232,7 +233,10 @@ export function createJevClassifier(
       const fallback = (
         code: "jev_timeout" | "jev_error" | "jev_invalid_output",
       ): EffortDecision => ({
-        effort: (cacheKey ? previousEfforts.get(cacheKey) : undefined) ?? "medium",
+        effort: (() => {
+          const previous = cacheKey ? previousEfforts.get(cacheKey) : undefined;
+          return supportsEffort(model, previous) ? previous : model.fallbackEffort;
+        })(),
         jevLatencyMs: latency(),
         fallback: code,
       });
@@ -244,7 +248,7 @@ export function createJevClassifier(
         return fallback("jev_error");
       }
 
-      const effort = extractEffort(outcome.result);
+      const effort = extractEffort(outcome.result, model);
       if (effort === null) {
         return fallback("jev_invalid_output");
       }

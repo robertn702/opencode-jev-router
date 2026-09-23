@@ -20,8 +20,7 @@ Environment:
   UPSTREAM_BASE_URL  Responses-compatible base URL (default: http://127.0.0.1:8317/v1)
   UPSTREAM_AUTH      forward (default, loopback only) or bearer
   UPSTREAM_API_KEY   Required for bearer policy; replaces the client's bearer key
-  UPSTREAM_MODEL     Execution model (default: gpt-6-astra)
-  BASE_EFFORT        Base reasoning effort (default: medium)
+  BASE_EFFORT        Optional base effort override supported by every model
   JEV_TIMEOUT_MS     Jev timeout in milliseconds (default: 4000)
   JEV_DECISIONS_LOG_PATH  Optional absolute path for local decision JSONL
   MAX_REQUEST_BYTES  Maximum POST body bytes (default: 1048576)
@@ -46,8 +45,8 @@ if (existsSync(".env")) {
 let config: ReturnType<typeof loadConfig>;
 try {
   config = loadConfig(process.env);
-} catch {
-  console.error(JSON.stringify({ event: "startup_failed", reason: "invalid_configuration" }));
+} catch (error) {
+  console.error(JSON.stringify({ event: "startup_failed", reason: "invalid_configuration", message: error instanceof Error ? error.message : "invalid configuration" }));
   process.exit(1);
 }
 
@@ -67,7 +66,6 @@ const classifier = createJevClassifier({
 const server = createAppServer({
   upstreamBaseUrl: config.upstreamBaseUrl,
   upstreamAuth: config.upstreamAuth,
-  upstreamModel: config.upstreamModel,
   baseEffort: config.baseEffort,
   maxRequestBytes: config.maxRequestBytes,
   maxInFlight: config.maxInFlight,

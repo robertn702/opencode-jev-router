@@ -1,5 +1,4 @@
 import { randomUUID } from "node:crypto";
-import { LineageStore } from "./lineage.js";
 import type { Usage } from "./usage.js";
 import type { UpstreamAuth } from "./config.js";
 import {
@@ -16,7 +15,8 @@ import {
   UnsupportedInputError,
   type Effort,
 } from "./rewrite.js";
-import { validateResponsesRequest } from "./validate.js";
+import { validateResponsesRequest, resolveModel } from "./validate.js";
+import type { ModelProfile } from "./models.js";
 
 export interface EffortDecision {
   effort: Effort;
@@ -25,6 +25,7 @@ export interface EffortDecision {
 }
 
 export type EffortSelector = (args: {
+  model: ModelProfile;
   body: Record<string, unknown>;
   signal: AbortSignal;
 }) => Promise<EffortDecision>;
@@ -32,8 +33,7 @@ export type EffortSelector = (args: {
 export interface AppServerOptions {
   upstreamBaseUrl: string;
   upstreamAuth: UpstreamAuth;
-  upstreamModel: string;
-  baseEffort: Effort;
+  baseEffort?: Effort;
   selectEffort?: EffortSelector;
   onEvidence?: (evidence: Evidence) => void;
   maxRequestBytes?: number;
@@ -135,7 +135,6 @@ function correlationId(value: string | string[] | undefined, pattern: RegExp): s
 }
 
 export function createAppServer(options: AppServerOptions): Server {
-  const lineage = new LineageStore();
   let inFlight = 0;
   const state: Lifecycle = { draining: false, controllers: new Set(), responses: new Set() };
   let dependencyResult: boolean | undefined;
@@ -162,8 +161,8 @@ export function createAppServer(options: AppServerOptions): Server {
   };
   const selectEffort: EffortSelector =
     options.selectEffort ??
-    (async () => ({
-      effort: options.baseEffort,
+    (async ({ model }) => ({
+      effort: model.fallbackEffort,
       jevLatencyMs: 0,
       fallback: null,
     }));
@@ -191,7 +190,7 @@ export function createAppServer(options: AppServerOptions): Server {
     if (proxied && inFlight >= (options.maxInFlight ?? 32)) {
       request.pause();
       response.setHeader("connection", "close");
-      options.onEvidence?.(buildEvidence({ requestId: randomUUID(), outboundModel: options.upstreamModel,
+      options.onEvidence?.(buildEvidence({ requestId: randomUUID(), outboundModel: "",
         outboundEffort: "", jevLatencyMs: 0, fallback: null, outcome: "overloaded" }));
       writeJson(response, 503, { error: "overloaded" });
       return;
@@ -211,7 +210,7 @@ export function createAppServer(options: AppServerOptions): Server {
       const available = await dependencyReady();
       if (state.draining) return "draining";
       return available ? null : "dependency_unavailable";
-    }, lineage).finally(release);
+    }).finally(release);
   });
   lifecycles.set(server, state);
   return server;
@@ -224,7 +223,6 @@ async function handle(
   selectEffort: EffortSelector,
   options: AppServerOptions,
   readinessReason: () => Promise<string | null>,
-  lineage: LineageStore,
 ): Promise<void> {
   try {
     if (request.method === "GET" && request.url === "/health") {
@@ -258,7 +256,7 @@ async function handle(
         request.pause();
         response.setHeader("connection", "close");
         writeJson(response, 413, { error: "request_too_large" });
-        options.onEvidence?.(buildEvidence({ requestId: randomUUID(), outboundModel: options.upstreamModel,
+        options.onEvidence?.(buildEvidence({ requestId: randomUUID(), outboundModel: "",
           outboundEffort: "", jevLatencyMs: 0, fallback: null, outcome: "request_too_large" }));
         return;
       }
@@ -269,7 +267,7 @@ async function handle(
         if (!(error instanceof BodyTooLargeError)) throw error;
         response.setHeader("connection", "close");
         writeJson(response, 413, { error: "request_too_large" });
-        options.onEvidence?.(buildEvidence({ requestId: randomUUID(), outboundModel: options.upstreamModel,
+        options.onEvidence?.(buildEvidence({ requestId: randomUUID(), outboundModel: "",
           outboundEffort: "", jevLatencyMs: 0, fallback: null, outcome: "request_too_large" }));
         return;
       }
@@ -284,8 +282,10 @@ async function handle(
         return;
       }
 
+      let model: ModelProfile;
       try {
-        validateResponsesRequest(parsed, options.upstreamModel);
+        model = resolveModel(parsed);
+        validateResponsesRequest(parsed, model);
       } catch (error) {
         if (error instanceof UnsupportedInputError) {
           writeJson(response, 400, {
@@ -300,6 +300,7 @@ async function handle(
       let decision: EffortDecision;
       try {
         decision = await selectEffort({
+          model,
           body: parsed as Record<string, unknown>,
           signal: clientAbort.signal,
         });
@@ -314,15 +315,10 @@ async function handle(
         return;
       }
 
-      const body = parsed as Record<string, unknown>;
-      const session = correlationId(request.headers["x-jev-session-id"], /^ses_[A-Za-z0-9]{1,128}$/);
-      const cacheKey = typeof body.prompt_cache_key === "string" && body.prompt_cache_key.length > 0 ? body.prompt_cache_key : null;
-      const history = lineage.prepare(body.input as unknown[], session || cacheKey ? [options.upstreamBaseUrl, options.upstreamModel, options.baseEffort, upstreamAuthorization(options, request.headers.authorization) ?? "", session ?? "", cacheKey ?? "", JSON.stringify(body.instructions ?? null), JSON.stringify(body.tools ?? null)] : null, decision.effort);
       const rewritten = rewriteResponsesRequest(parsed, {
-        upstreamModel: options.upstreamModel,
-        baseEffort: options.baseEffort,
+        model,
+        baseEffort: options.baseEffort ?? model.defaultBaseEffort,
         effort: decision.effort,
-        replayedInput: history.input,
       });
 
       const outboundInput = Array.isArray(rewritten.input) ? rewritten.input : [];
@@ -345,9 +341,6 @@ async function handle(
           buildEvidence({
             requestId: randomUUID(),
             usage,
-            previousEffort: history.previousEffort,
-            lineageStatus: history.status,
-            historyUpdatesReplayed: history.replayed,
             session: correlationId(request.headers["x-jev-session-id"], /^ses_[A-Za-z0-9]+$/),
             turnId: correlationId(request.headers["x-jev-turn-id"], /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i),
             outboundModel: rewritten.model,
@@ -369,7 +362,6 @@ async function handle(
         headerTimeoutMs: options.upstreamHeaderTimeoutMs ?? 10_000,
         idleTimeoutMs: options.upstreamIdleTimeoutMs ?? 60_000,
       });
-      if (forwardOutcome === "forwarded") history.commit();
       emit(forwardOutcome === "forwarded" ? "completed" : forwardOutcome === "upstream_timeout" ? "upstream_timeout" : "failed");
       return;
     }

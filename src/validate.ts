@@ -1,3 +1,11 @@
+import { findModel, type ModelProfile } from "./models.js";
+
+export function resolveModel(body: unknown): ModelProfile {
+  const model = isRecord(body) ? findModel(body.model) : undefined;
+  if (!model) throw new UnsupportedInputError("request.model must name an exact registered model");
+  return model;
+}
+
 export class UnsupportedInputError extends Error {
   constructor(message: string) {
     super(message);
@@ -36,28 +44,8 @@ function validateReasoningMode(body: Record<string, unknown>): void {
   }
   if (mode !== "standard") {
     throw new UnsupportedInputError(
-      `request.reasoning.mode ${JSON.stringify(mode)} is not supported; this proxy serves Astra standard, single-agent mode only`,
+      "request.reasoning.mode is not supported; this proxy serves standard, single-agent mode only",
     );
-  }
-}
-
-export function isUnsupportedProModel(model: string): boolean {
-  const normalized = model.toLowerCase();
-  return normalized.includes("astra-pro") || normalized.endsWith("-pro");
-}
-
-function validateModel(model: unknown, expectedModel?: string): void {
-  if (model === undefined && expectedModel === undefined) return;
-  if (typeof model !== "string") {
-    throw new UnsupportedInputError("request.model must be a string matching the configured execution model");
-  }
-  if (isUnsupportedProModel(model)) {
-    throw new UnsupportedInputError(
-      `model ${JSON.stringify(model)} requests pro execution which is not supported; this proxy serves Astra standard, single-agent mode only`,
-    );
-  }
-  if (expectedModel !== undefined && model !== expectedModel) {
-    throw new UnsupportedInputError("request.model does not match the configured execution model");
   }
 }
 
@@ -86,11 +74,11 @@ function validateItem(item: unknown, index: number): void {
   }
 }
 
-export function validateResponsesRequest(body: unknown, expectedModel?: string): Record<string, unknown> {
+export function validateResponsesRequest(body: unknown, model: ModelProfile): Record<string, unknown> {
   if (!isRecord(body)) {
     throw new UnsupportedInputError("request body must be a JSON object");
   }
-  validateModel(body.model, expectedModel);
+  if (body.model !== model.id) throw new UnsupportedInputError("request.model does not match the resolved model");
   validateReasoningMode(body);
   if (body.truncation === "auto") {
     throw new UnsupportedInputError(
