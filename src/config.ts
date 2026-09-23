@@ -5,7 +5,7 @@ const EFFORTS: readonly string[] = ["low", "medium", "high", "xhigh", "max"];
 export interface AppConfig {
   port: number;
   upstreamBaseUrl: string;
-  upstreamAuth: { mode: "cliproxyapi" } | { mode: "openai"; apiKey: string };
+  upstreamAuth: UpstreamAuth;
   upstreamModel: string;
   baseEffort: Effort;
   jevTimeoutMs: number;
@@ -17,6 +17,8 @@ export interface AppConfig {
   effortCacheTtlMs: number;
   shutdownGraceMs: number;
 }
+
+export type UpstreamAuth = { policy: "forward" } | { policy: "bearer"; apiKey: string };
 
 function positiveInteger(raw: string | undefined, fallback: number, name: string): number {
   const value = raw === undefined ? fallback : Number(raw);
@@ -52,21 +54,26 @@ function parseEffort(raw: string | undefined): Effort {
 
 function upstreamModel(raw: string | undefined): string {
   const value = raw ?? "gpt-6-astra";
-  if (!value.trim()) throw new Error("UPSTREAM_MODEL must not be empty");
+  if (!value.trim() || value !== value.trim()) throw new Error("UPSTREAM_MODEL must be a non-empty model ID without surrounding whitespace");
   return value;
 }
 
 export function loadConfig(env: Record<string, string | undefined>): AppConfig {
-  const mode = env.UPSTREAM_MODE ?? "cliproxyapi";
-  if (mode !== "cliproxyapi" && mode !== "openai") {
-    throw new Error("UPSTREAM_MODE must be openai or cliproxyapi");
+  if (env.UPSTREAM_MODE !== undefined || env.OPENAI_API_KEY !== undefined) {
+    throw new Error("UPSTREAM_MODE and OPENAI_API_KEY are unsupported; use UPSTREAM_AUTH and UPSTREAM_API_KEY");
   }
-  if (mode === "openai" && !env.OPENAI_API_KEY?.trim()) {
-    throw new Error("OPENAI_API_KEY is required when UPSTREAM_MODE=openai");
+  const policy = env.UPSTREAM_AUTH ?? "forward";
+  if (policy !== "forward" && policy !== "bearer") {
+    throw new Error("UPSTREAM_AUTH must be forward or bearer");
+  }
+  if (policy === "bearer" && !env.UPSTREAM_API_KEY?.trim()) {
+    throw new Error("UPSTREAM_API_KEY is required when UPSTREAM_AUTH=bearer");
+  }
+  if (policy === "forward" && env.UPSTREAM_API_KEY !== undefined) {
+    throw new Error("UPSTREAM_API_KEY requires UPSTREAM_AUTH=bearer");
   }
 
-  const upstreamBaseUrl = env.UPSTREAM_BASE_URL ??
-    (mode === "openai" ? "https://api.openai.com/v1" : "http://127.0.0.1:8317/v1");
+  const upstreamBaseUrl = env.UPSTREAM_BASE_URL ?? "http://127.0.0.1:8317/v1";
   let url: URL;
   try {
     url = new URL(upstreamBaseUrl);
@@ -79,19 +86,20 @@ export function loadConfig(env: Record<string, string | undefined>): AppConfig {
   ) {
     throw new Error("UPSTREAM_BASE_URL must be an HTTP(S) URL without credentials, query, or fragment");
   }
-  if (mode === "openai" && url.href !== "https://api.openai.com/v1") {
-    throw new Error("UPSTREAM_MODE=openai requires UPSTREAM_BASE_URL=https://api.openai.com/v1");
+  const loopback = ["127.0.0.1", "localhost", "[::1]"].includes(url.hostname);
+  if (policy === "forward" && !loopback) {
+    throw new Error("UPSTREAM_AUTH=forward requires a loopback UPSTREAM_BASE_URL");
   }
-  if (mode === "cliproxyapi" && url.hostname === "api.openai.com") {
-    throw new Error("UPSTREAM_MODE=cliproxyapi cannot use api.openai.com");
+  if (policy === "bearer" && url.protocol !== "https:" && !loopback) {
+    throw new Error("UPSTREAM_AUTH=bearer requires HTTPS except for loopback endpoints");
   }
 
   return {
     port: parsePort(env.JEV_PROXY_PORT),
     upstreamBaseUrl,
-    upstreamAuth: mode === "openai"
-      ? { mode, apiKey: env.OPENAI_API_KEY!.trim() }
-      : { mode },
+    upstreamAuth: policy === "bearer"
+      ? { policy, apiKey: env.UPSTREAM_API_KEY!.trim() }
+      : { policy },
     upstreamModel: upstreamModel(env.UPSTREAM_MODEL),
     baseEffort: parseEffort(env.BASE_EFFORT),
     jevTimeoutMs: parseTimeout(env.JEV_TIMEOUT_MS),

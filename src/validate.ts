@@ -41,18 +41,19 @@ function validateReasoningMode(body: Record<string, unknown>): void {
   }
 }
 
-function validateModel(model: unknown): void {
-  if (model === undefined) {
-    return;
-  }
+function validateModel(model: unknown, expectedModel?: string): void {
+  if (model === undefined && expectedModel === undefined) return;
   if (typeof model !== "string") {
-    throw new UnsupportedInputError("request.model must be a string when present");
+    throw new UnsupportedInputError("request.model must be a string matching the configured execution model");
   }
   const normalized = model.toLowerCase();
   if (normalized.includes("astra-pro") || normalized.endsWith("-pro")) {
     throw new UnsupportedInputError(
       `model ${JSON.stringify(model)} requests pro execution which is not supported; this proxy serves Astra standard, single-agent mode only`,
     );
+  }
+  if (expectedModel !== undefined && model !== expectedModel) {
+    throw new UnsupportedInputError("request.model does not match the configured execution model");
   }
 }
 
@@ -81,11 +82,11 @@ function validateItem(item: unknown, index: number): void {
   }
 }
 
-export function validateResponsesRequest(body: unknown): Record<string, unknown> {
+export function validateResponsesRequest(body: unknown, expectedModel?: string): Record<string, unknown> {
   if (!isRecord(body)) {
     throw new UnsupportedInputError("request body must be a JSON object");
   }
-  validateModel(body.model);
+  validateModel(body.model, expectedModel);
   validateReasoningMode(body);
   if (body.truncation === "auto") {
     throw new UnsupportedInputError(

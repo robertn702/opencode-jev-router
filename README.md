@@ -3,7 +3,7 @@
 Adaptive reasoning effort for OpenCode with one fixed execution model.
 
 ```text
-OpenCode -> opencode-jev-router -> CLIProxyAPI (Codex subscription) or OpenAI API (API key)
+OpenCode (jev-router/gpt-6-astra) -> opencode-jev-router -> configured Responses upstream
 ```
 
 `opencode-jev-router` is a small Responses API proxy. For each `POST /v1/responses`
@@ -29,7 +29,7 @@ does not prove.
 ## Install and run
 
 The npm package is `@robertn702/opencode-jev-router`; the command is
-`opencode-jev-router`. Install Node.js 24.x and choose an upstream mode below.
+`opencode-jev-router`. Install Node.js 24.x and configure an upstream below.
 
 Choose one installation method:
 
@@ -53,23 +53,29 @@ Set `TYPESAFE_API_KEY` in the environment or put it in a `.env` file in the
 working directory before starting the proxy. Choose one upstream:
 
 ```dotenv
-# CLIProxyAPI (default; existing configurations work without UPSTREAM_MODE)
-UPSTREAM_MODE=cliproxyapi
+# CLIProxyAPI (default)
 UPSTREAM_BASE_URL=http://127.0.0.1:8317/v1
+UPSTREAM_AUTH=forward
 ```
 
 ```dotenv
 # Direct OpenAI (billed to your API account, independent of a Codex subscription)
-UPSTREAM_MODE=openai
-OPENAI_API_KEY=sk-...
 UPSTREAM_BASE_URL=https://api.openai.com/v1
+UPSTREAM_AUTH=bearer
+UPSTREAM_API_KEY=sk-...
 ```
 
-In `openai` mode, the router uses only `OPENAI_API_KEY` for upstream
-`Authorization`, regardless of any OpenCode bearer token. The OpenAI URL is
-restricted to the official HTTPS API base; `cliproxyapi` mode rejects
-`api.openai.com` as its base URL. Missing keys, unknown modes, or mismatched
-URLs fail at startup before the server listens. The CLI listens on
+The upstream contract is `UPSTREAM_BASE_URL`, `UPSTREAM_MODEL` (default
+`gpt-6-astra`), and `UPSTREAM_AUTH`. The default `forward` policy passes the
+client Authorization header to a **loopback-only** upstream. The `bearer` policy
+replaces it with `Bearer UPSTREAM_API_KEY`, regardless of the client credential;
+it permits HTTPS upstreams (including direct OpenAI or an external gateway) and
+loopback HTTP for local testing. An external gateway can own account or provider
+selection; the router only chooses effort and rewrites Responses requests.
+Unknown policies, stale `UPSTREAM_MODE`/`OPENAI_API_KEY` settings, missing or
+misplaced keys, and unsafe endpoint/policy pairs fail at startup. Migrate old
+`openai` settings to `UPSTREAM_AUTH=bearer` and `UPSTREAM_API_KEY`; old
+`cliproxyapi` settings to `UPSTREAM_AUTH=forward` (or omit it). The CLI listens on
 `http://127.0.0.1:4320` by default; check `curl http://127.0.0.1:4320/health`.
 Use `curl --fail http://127.0.0.1:4320/ready` to check readiness.
 Run `opencode-jev-router --help` for environment options.
@@ -91,17 +97,21 @@ See [`.env.example`](.env.example) for all limits and connection settings.
 ### OpenCode configuration
 
 Add the provider below (also in [`examples/opencode.jsonc`](examples/opencode.jsonc))
-and select `jev/astra`. In `cliproxyapi` mode, `CLIPROXY_KEY` must be set in the
-OpenCode process; the proxy forwards that bearer credential to CLIProxyAPI.
-In `openai` mode, set `CLIPROXY_KEY` to a non-secret placeholder such as
+and select `jev-router/gpt-6-astra`. With `UPSTREAM_AUTH=forward`,
+`CLIPROXY_KEY` must be set in the OpenCode process; the proxy forwards that
+bearer credential to CLIProxyAPI. With `UPSTREAM_AUTH=bearer`, set
+`CLIPROXY_KEY` to a non-secret placeholder such as
 `local-router` in the OpenCode process; OpenCode sends it locally, but the router
-ignores it and substitutes its own `OPENAI_API_KEY` upstream. Never put
-`OPENAI_API_KEY` in the OpenCode provider configuration.
+ignores it and substitutes its own `UPSTREAM_API_KEY` upstream. Never put
+`UPSTREAM_API_KEY` in the OpenCode provider configuration. OpenCode does not
+currently provide a declarative cross-provider alias that can point this model
+at another provider's model while performing per-request Jev classification and
+`configuration_update` insertion; the router is the wire-level rewrite boundary.
 
 ```jsonc
 {
   "provider": {
-    "jev": {
+    "jev-router": {
       "npm": "@ai-sdk/openai",
       "name": "Jev adaptive Astra",
       "options": {
@@ -109,7 +119,7 @@ ignores it and substitutes its own `OPENAI_API_KEY` upstream. Never put
         "baseURL": "http://127.0.0.1:4320/v1"
       },
       "models": {
-        "astra": {
+        "gpt-6-astra": {
           "name": "GPT-6 Astra with adaptive effort",
           "reasoning": true,
           "options": { "useResponses": true }
@@ -124,16 +134,18 @@ ignores it and substitutes its own `OPENAI_API_KEY` upstream. Never put
 
 ### Scope
 
-- Astra **standard, single-agent mode only** in either upstream mode. Requests
+- Astra **standard, single-agent mode only** with either upstream connection. Requests
   with `reasoning.mode` other than `standard` (pro, multi-agent, etc.), pro model
-  slugs, or `truncation: "auto"` are rejected with a local `400` before
+  slugs, a missing or mismatched `model`, or `truncation: "auto"` are rejected with a local `400` before
   classification or generation. OpenCode reasoning-effort variants are ignored
   for this provider.
 - Array-form Responses `input` as emitted by OpenCode is supported, including tool
   continuations (`function_call` / `function_call_output`). Other input shapes are
   rejected with a local `400`.
-- `UPSTREAM_MODEL` pins the outbound model (default `gpt-6-astra`). Direct API
-  access requires that model to be available to your API organization; a Codex
+- `UPSTREAM_MODEL` pins the outbound model (default `gpt-6-astra`). Incoming
+  `model` must exactly match it. If you configure another execution model, update
+  the OpenCode model entry to the same ID; the router does not silently alias it.
+  Direct API access requires that model to be available to your API organization; a Codex
   subscription or CLIProxyAPI alias does not grant API access. Check the
   [OpenAI model documentation](https://developers.openai.com/api/docs/models/gpt-6-astra)
   for API availability and supported efforts. `configuration_update` is supported
@@ -246,8 +258,9 @@ http://127.0.0.1:4320/ready` as a startup check, `Restart=on-failure`, and
 ### Forwarding
 
 - `POST /v1/responses` and `GET /v1/models` on localhost; the client's bearer
-  credential is forwarded only in CLIProxyAPI mode. In OpenAI mode, the router
-  sends its own API key instead. Neither credential is logged.
+  credential is forwarded only under `UPSTREAM_AUTH=forward`. Under
+  `UPSTREAM_AUTH=bearer`, the router sends its own API key instead. Neither
+  credential is logged.
 - Upstream HTTP statuses and bodies pass through unchanged, including errors.
 - SSE streams incrementally with write/drain backpressure: a slow client pauses
   upstream reads instead of buffering the completed response.
@@ -288,12 +301,12 @@ model/effort selection, and completed tool-using tasks. The response's
 update-selected effort; there is no visibility into the model's internally applied
 effort.
 
-Direct OpenAI mode is covered by offline fake-upstream tests for non-streaming,
+The direct OpenAI connection is covered by offline fake-upstream tests for non-streaming,
 streaming SSE, tool continuations, and authorization routing. A live direct
 OpenAI request through the router with Jev classification completed on
 `gpt-6-astra` (HTTP 200, response status `completed`, one output item). This
 verifies the non-streaming direct path; live SSE and tool continuations in direct
-mode have only fake-upstream test coverage.
+connection have only fake-upstream test coverage.
 
 ## Development
 

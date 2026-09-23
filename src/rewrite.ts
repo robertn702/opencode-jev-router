@@ -31,7 +31,7 @@ export function rewriteResponsesRequest(
   body: unknown,
   options: RewriteOptions,
 ): Record<string, unknown> {
-  const record = validateResponsesRequest(body);
+  const record = validateResponsesRequest(body, options.upstreamModel);
 
   const input = record.input as unknown[];
 

@@ -15,9 +15,9 @@ Start the local Jev-powered Responses API proxy.
 Environment:
   TYPESAFE_API_KEY   Required Jev API key
   JEV_PROXY_PORT     Listening port (default: 4320)
-  UPSTREAM_MODE      cliproxyapi (default) or openai
-  OPENAI_API_KEY     Required in openai mode; never use the client's bearer key
-  UPSTREAM_BASE_URL  Mode-specific base URL (CLIProxyAPI localhost or https://api.openai.com/v1)
+  UPSTREAM_BASE_URL  Responses-compatible base URL (default: http://127.0.0.1:8317/v1)
+  UPSTREAM_AUTH      forward (default, loopback only) or bearer
+  UPSTREAM_API_KEY   Required for bearer policy; replaces the client's bearer key
   UPSTREAM_MODEL     Execution model (default: gpt-6-astra)
   BASE_EFFORT        Base reasoning effort (default: medium)
   JEV_TIMEOUT_MS     Jev timeout in milliseconds (default: 4000)

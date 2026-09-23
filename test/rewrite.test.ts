@@ -17,20 +17,17 @@ function userMessage(text: string): Record<string, unknown> {
 }
 
 describe("rewriteResponsesRequest", () => {
-  it("rewrites any incoming model to the pinned upstream model", () => {
+  it("accepts only the configured execution model", () => {
+    expect(rewriteResponsesRequest({ model: "gpt-6-astra", input: [userMessage("hi")] }, options).model).toBe("gpt-6-astra");
     for (const model of ["gpt-5.1", "claude-sonnet-4", undefined]) {
-      const result = rewriteResponsesRequest(
-        { model, input: [userMessage("hi")] },
-        options,
-      );
-      expect(result.model).toBe("gpt-6-astra");
+      expect(() => rewriteResponsesRequest({ model, input: [userMessage("hi")] }, options)).toThrow(UnsupportedInputError);
     }
   });
 
   it("keeps the top-level reasoning effort constant across selections", () => {
     for (const effort of ["low", "medium", "high", "xhigh", "max"] as const) {
       const result = rewriteResponsesRequest(
-        { input: [userMessage("hi")] },
+        { model: "gpt-6-astra", input: [userMessage("hi")] },
         { ...options, effort },
       );
       expect(result.reasoning).toEqual({ effort: "medium" });
@@ -39,7 +36,7 @@ describe("rewriteResponsesRequest", () => {
 
   it("appends exactly one configuration update with the selected effort", () => {
     const result = rewriteResponsesRequest(
-      { input: [userMessage("hi")] },
+      { model: "gpt-6-astra", input: [userMessage("hi")] },
       options,
     );
     const input = result.input as Record<string, unknown>[];
@@ -58,6 +55,7 @@ describe("rewriteResponsesRequest", () => {
   it("removes an incoming reasoning update before appending the current one", () => {
     const result = rewriteResponsesRequest(
       {
+        model: "gpt-6-astra",
         input: [
           userMessage("hi"),
           { type: "configuration_update", reasoning: { effort: "low" } },
@@ -76,6 +74,7 @@ describe("rewriteResponsesRequest", () => {
   it("yields exactly one update when several reasoning updates arrive", () => {
     const result = rewriteResponsesRequest(
       {
+        model: "gpt-6-astra",
         input: [
           userMessage("hi"),
           { type: "configuration_update", reasoning: { effort: "low" } },
@@ -98,7 +97,7 @@ describe("rewriteResponsesRequest", () => {
     const tool = { type: "function_call_output", call_id: "c1", output: "ok" };
     const other = { type: "configuration_update", temperature: 0.2 };
     const result = rewriteResponsesRequest(
-      { input: [userMessage("hi"), tool, other] },
+      { model: "gpt-6-astra", input: [userMessage("hi"), tool, other] },
       options,
     );
 
@@ -113,7 +112,7 @@ describe("rewriteResponsesRequest", () => {
   it("preserves unrelated top-level fields and reasoning options", () => {
     const result = rewriteResponsesRequest(
       {
-        model: "gpt-5.1",
+        model: "gpt-6-astra",
         input: [userMessage("hi")],
         prompt_cache_key: "abc",
         stream: true,

@@ -40,6 +40,7 @@ function hangingFetch(onAbort: () => void): (input: string, init?: RequestInit) 
 }
 
 const cacheBody = (promptCacheKey: unknown) => ({
+  model: "gpt-6-astra",
   prompt_cache_key: promptCacheKey,
   input: [{ role: "user", content: "hi" }],
 });
@@ -212,7 +213,7 @@ describe("Jev classifier", () => {
 
     const app = createAppServer({
       upstreamBaseUrl: `http://127.0.0.1:${stubPort}/v1`,
-      upstreamAuth: { mode: "cliproxyapi" },
+      upstreamAuth: { policy: "forward" },
       upstreamModel: "gpt-6-astra",
       baseEffort: "medium",
       selectEffort: select,
@@ -432,7 +433,7 @@ describe("evidence privacy under inherited debug logging", () => {
 
     const app = createAppServer({
       upstreamBaseUrl: `http://127.0.0.1:${upstreamPort}/v1`,
-      upstreamAuth: { mode: "cliproxyapi" },
+      upstreamAuth: { policy: "forward" },
       upstreamModel: "gpt-6-astra",
       baseEffort: "medium",
       selectEffort: select,
@@ -445,6 +446,7 @@ describe("evidence privacy under inherited debug logging", () => {
     await fetch(`http://127.0.0.1:${appPort}/v1/responses`, {
       method: "POST",
       body: JSON.stringify({
+        model: "gpt-6-astra",
         prompt_cache_key: `key-${MARKERS[2]}`,
         input: [{ role: "user", content: `please ${MARKERS[0]}` }],
       }),
