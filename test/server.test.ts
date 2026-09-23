@@ -205,6 +205,26 @@ describe("forwarding lifecycle", () => {
     expect(upstream.requests[0]!.headers.authorization).toBe("Bearer client-test-key");
   });
 
+  it("forwards to a bracketed IPv6 loopback upstream", async () => {
+    const upstream = http.createServer((_request, response) => response.end("ipv6-ok"));
+    try {
+      upstream.listen(0, "::1");
+      await once(upstream, "listening");
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "EAFNOSUPPORT" || (error as NodeJS.ErrnoException).code === "EADDRNOTAVAIL") return;
+      throw error;
+    }
+    cleanups.push(async () => {
+      upstream.closeAllConnections();
+      upstream.close();
+      await once(upstream, "close");
+    });
+    const app = await startApp(`http://[::1]:${(upstream.address() as AddressInfo).port}/v1`);
+    const response = await fetch(`${app}/v1/responses`, { method: "POST", body: simpleInput });
+    expect(response.status).toBe(200);
+    expect(await response.text()).toBe("ipv6-ok");
+  });
+
   it("proxies a bearer-policy tool continuation with the selected effort", async () => {
     const upstream = await startUpstream((_request, response, recorded) => {
       response.writeHead(200, { "content-type": "application/json" });

@@ -154,8 +154,9 @@ at another provider's model while performing per-request Jev classification and
 
 ### Effort updates (no cache lineage)
 
-Every execution request is rewritten to `model: gpt-6-astra` with a stable
-request-level `reasoning.effort` (`BASE_EFFORT`, default `medium`). Existing
+Every execution request uses the configured `UPSTREAM_MODEL` (default
+`gpt-6-astra`) with a stable request-level `reasoning.effort` (`BASE_EFFORT`,
+default `medium`). Existing
 reasoning `configuration_update` items are stripped from the input and exactly one
 current update is appended at the end:
 

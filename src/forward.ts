@@ -2,6 +2,7 @@ import http from "node:http";
 import https from "node:https";
 import type { ServerResponse } from "node:http";
 
+import { upstreamHostname } from "./config.js";
 import {
   buildUpstreamRequestHeaders,
   pickResponseHeaders,
@@ -96,7 +97,7 @@ export function forwardUpstream(
     upstreamRequest = transport.request(
       {
         protocol: call.url.protocol,
-        hostname: call.url.hostname,
+        hostname: upstreamHostname(call.url),
         port: call.url.port,
         path: `${call.url.pathname}${call.url.search}`,
         method: call.method,

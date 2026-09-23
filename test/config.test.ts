@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { loadConfig } from "../src/config.js";
+import { loadConfig, upstreamHostname } from "../src/config.js";
 
 describe("resource limit configuration", () => {
   it("uses bounded defaults and accepts positive overrides", () => {
@@ -44,6 +44,9 @@ describe("upstream configuration", () => {
       .toBe("custom-astra");
     expect(loadConfig({ UPSTREAM_BASE_URL: "http://localhost:8317/v1", UPSTREAM_AUTH: "bearer", UPSTREAM_API_KEY: "local-key" }).upstreamAuth)
       .toEqual({ policy: "bearer", apiKey: "local-key" });
+    expect(loadConfig({ UPSTREAM_BASE_URL: "http://[::1]:8317/v1" }).upstreamAuth)
+      .toEqual({ policy: "forward" });
+    expect(upstreamHostname(new URL("http://[::1]:8317/v1"))).toBe("::1");
   });
 
   it("rejects invalid policies, missing credentials, and credential misrouting", () => {
@@ -68,5 +71,6 @@ describe("upstream configuration", () => {
     expect(() => loadConfig({ UPSTREAM_BASE_URL: "no-url" }))
       .toThrow("UPSTREAM_BASE_URL must be a valid HTTP(S) URL");
     expect(() => loadConfig({ UPSTREAM_MODEL: " gpt-6-astra" })).toThrow("UPSTREAM_MODEL");
+    expect(() => loadConfig({ UPSTREAM_MODEL: "gpt-6-astra-pro" })).toThrow("UPSTREAM_MODEL must use standard");
   });
 });
