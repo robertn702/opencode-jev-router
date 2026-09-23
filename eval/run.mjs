@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { readFile, mkdir, writeFile } from "node:fs/promises";
+import { readFile, mkdir, writeFile, chmod } from "node:fs/promises";
 import { resolve, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -19,13 +19,17 @@ const task = manifest.tasks.find((item) => item.id === taskId);
 if (!task || !/^[a-zA-Z0-9_-]+$/.test(task.id) || !/^\w{40}$/.test(task.commit) ||
     typeof task.repo !== "string" || !task.repo.startsWith("/") ||
     typeof task.prompt !== "string" || !task.prompt.trim() ||
-    !Array.isArray(task.grade) || !task.grade.length || !task.grade.every((v) => typeof v === "string" && v.length > 0)) {
-  throw new Error("Task missing or invalid: require pinned repo, commit, prompt, grade argv");
+    !Array.isArray(task.grade) || !task.grade.length || !task.grade.every((v) => typeof v === "string" && v.length > 0) ||
+    !task.grade[0].startsWith("/") || task.grade.some((arg) => arg === task.repo || arg.startsWith(`${task.repo}/`)) ||
+    resolve(task.repo) === root || root.startsWith(`${resolve(task.repo)}/`)) {
+  throw new Error("Task missing or invalid: require pinned repo, commit, prompt, independent absolute grader argv");
 }
 const runId = `${task.id}-${model}-${arm}-${randomUUID()}`;
 const dir = join(root, "eval/runs", runId);
 const worktree = join(dir, "worktree");
-await mkdir(dir, { recursive: true });
+await mkdir(dir, { recursive: true, mode: 0o700 });
+await chmod(dir, 0o700);
+const save = async (name, contents) => writeFile(join(dir, name), contents, { mode: 0o600 });
 const run = (command, argv, opts = {}) => new Promise((done, reject) => {
   const child = spawn(command, argv, { cwd: opts.cwd ?? root, env: opts.env ?? process.env, stdio: ["ignore", "pipe", "pipe"] });
   const stdout = []; const stderr = [];
@@ -50,29 +54,38 @@ try {
       upstreamApiKey: "{env:CLIPROXY_KEY}", decisionsLogPath: join(dir, "decisions.jsonl"),
     }]], model: `jev-router/${model}`,
   };
-  await writeFile(join(dir, "opencode.json"), `${JSON.stringify(config, null, 2)}\n`);
+  await save("opencode.json", `${JSON.stringify(config, null, 2)}\n`);
   result.prepared = true;
   if (!prepareOnly) {
     if (!process.env.CLIPROXY_KEY || (arm === "jev" && !process.env.JEV_API_KEY)) throw new Error("Missing CLIPROXY_KEY or JEV_API_KEY");
+    const home = join(dir, "home");
+    await mkdir(home, { mode: 0o700 });
+    for (const name of ["config", "data", "cache", "state"]) await mkdir(join(home, name), { mode: 0o700 });
     const start = performance.now();
     const oc = await run("opencode", ["run", "--dir", worktree, "--model", `jev-router/${model}`, "--format", "json", task.prompt], {
       cwd: worktree, timeoutMs: 15 * 60_000,
-      env: { ...process.env, OPENCODE_CONFIG: join(dir, "opencode.json"), OPENCODE_DISABLE_PROJECT_CONFIG: "1" },
+      env: { PATH: process.env.PATH, HOME: home, XDG_CONFIG_HOME: join(home, "config"), XDG_DATA_HOME: join(home, "data"), XDG_CACHE_HOME: join(home, "cache"), XDG_STATE_HOME: join(home, "state"),
+        CLIPROXY_KEY: process.env.CLIPROXY_KEY, ...(arm === "jev" ? { JEV_API_KEY: process.env.JEV_API_KEY } : {}),
+        OPENCODE_CONFIG: join(dir, "opencode.json"), OPENCODE_DISABLE_PROJECT_CONFIG: "1", OPENCODE_DISABLE_DEFAULT_PLUGINS: "1" },
     });
     result.elapsed_ms = Math.round(performance.now() - start);
     result.exit_code = oc.code; result.timed_out = oc.timedOut;
-    await writeFile(join(dir, "output.jsonl"), oc.stdout);
-    await writeFile(join(dir, "stderr.log"), oc.stderr);
+    await save("output.jsonl", oc.stdout);
+    await save("stderr.log", oc.stderr);
     // Intent-to-add captures new agent files without staging their contents.
     const added = await git(["add", "-N", "."], worktree);
     if (added.code !== 0) throw new Error(`Failed to capture new files: ${added.stderr}`);
     const patch = await git(["diff", "--binary", "HEAD"], worktree);
     if (patch.code !== 0) throw new Error(`Failed to capture patch: ${patch.stderr}`);
-    await writeFile(join(dir, "patch.diff"), patch.stdout);
+    await save("patch.diff", patch.stdout);
     if (oc.code === 0 && !oc.timedOut) {
-      const grade = await run(task.grade[0], task.grade.slice(1), { cwd: worktree, timeoutMs: 120_000 });
+      // The grader runs outside the agent-writable checkout and receives only
+      // its patch and pinned source. An adapter must apply the patch to a fresh
+      // checkout and use tests that are not taken from agent-modified files.
+      const grade = await run(task.grade[0], task.grade.slice(1), { cwd: dir, timeoutMs: 120_000,
+        env: { PATH: process.env.PATH, HOME: process.env.HOME, EVAL_PATCH_PATH: join(dir, "patch.diff"), EVAL_TASK_REPO: task.repo, EVAL_TASK_COMMIT: task.commit } });
       result.grade_passed = grade.code === 0 && !grade.timedOut;
-      await writeFile(join(dir, "grade.log"), grade.stdout + grade.stderr);
+      await save("grade.log", grade.stdout + grade.stderr);
     } else result.grade_passed = false;
     // Decision logging is asynchronous; allow the queue to flush after OpenCode exits.
     let evidence = ""; let stable = 0;
@@ -91,9 +104,15 @@ try {
     for (const field of ["input_tokens", "cached_input_tokens", "output_tokens"]) {
       if (events.length && events.every((e) => Number.isFinite(e[field]))) result[field] = events.reduce((sum, e) => sum + e[field], 0);
     }
+    const completed = oc.stdout.split("\n").filter(Boolean).flatMap((line) => {
+      try { return [JSON.parse(line)]; } catch { return []; }
+    }).filter((event) => event.type === "step_finish").length;
+    result.evidence_valid = events.length > 0 && events.every((e) => e.model === model && e.outcome === "completed" && (arm === "jev" || e.effort === arm)) &&
+      completed > 0 && events.length === completed;
+    if (!result.evidence_valid) { result.input_tokens = null; result.cached_input_tokens = null; result.output_tokens = null; }
   }
 } finally {
-  await writeFile(join(dir, "result.json"), `${JSON.stringify(result, null, 2)}\n`);
+  await save("result.json", `${JSON.stringify(result, null, 2)}\n`);
   const removed = await git(["-C", task.repo, "worktree", "remove", "--force", worktree]);
   if (removed.code !== 0) console.error(`Worktree cleanup failed: ${removed.stderr}`);
 }
