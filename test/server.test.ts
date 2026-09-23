@@ -70,12 +70,102 @@ function startApp(upstreamBaseUrl: string, selectEffort?: Parameters<typeof crea
   return listen(server);
 }
 
+function startLimitedApp(upstreamBaseUrl: string, limits: Partial<Parameters<typeof createAppServer>[0]>) {
+  return listen(createAppServer({
+    upstreamBaseUrl, upstreamModel: "gpt-6-astra", baseEffort: "medium", ...limits,
+  }));
+}
+
 const simpleInput = JSON.stringify({
   model: "gpt-5.1",
   input: [{ role: "user", content: "hi" }],
 });
 
 describe("forwarding lifecycle", () => {
+  it("accepts the byte boundary and rejects a chunked body beyond it before classification", async () => {
+    let calls = 0;
+    const upstream = await startUpstream((_request, response) => response.end("{}"));
+    const app = await startLimitedApp(upstream.url, {
+      maxRequestBytes: Buffer.byteLength(simpleInput),
+      selectEffort: async () => { calls++; return { effort: "medium", jevLatencyMs: 0, fallback: null }; },
+    });
+    const exact = await fetch(`${app}/v1/responses`, { method: "POST", body: simpleInput });
+    expect(exact.status).toBe(200);
+    await exact.text();
+
+    const oversized = await new Promise<{ status: number; body: string }>((resolve, reject) => {
+      const url = new URL(`${app}/v1/responses`);
+      const request = http.request(url, { method: "POST" }, (response) => {
+        const chunks: Buffer[] = [];
+        response.on("data", (chunk: Buffer) => chunks.push(chunk));
+        response.on("end", () => resolve({ status: response.statusCode!, body: Buffer.concat(chunks).toString() }));
+      });
+      request.on("error", reject);
+      request.write(simpleInput);
+      request.end(" ");
+    });
+    expect(oversized.status).toBe(413);
+    expect(JSON.parse(oversized.body)).toEqual({ error: "request_too_large" });
+    expect(calls).toBe(1);
+    expect(upstream.requests).toHaveLength(1);
+  });
+
+  it("rejects overload before classification and frees the slot after client cancellation", async () => {
+    let calls = 0;
+    let started!: () => void;
+    const entered = new Promise<void>((resolve) => { started = resolve; });
+    const upstream = await startUpstream((_request, response) => response.end("{}"));
+    const app = await startLimitedApp(upstream.url, {
+      maxInFlight: 1,
+      selectEffort: ({ signal }) => {
+        calls++;
+        started();
+        return new Promise((_resolve, reject) => signal.addEventListener("abort", () => reject(new Error("cancelled")), { once: true }));
+      },
+    });
+    const controller = new AbortController();
+    const first = fetch(`${app}/v1/responses`, { method: "POST", body: simpleInput, signal: controller.signal }).catch(() => null);
+    await entered;
+    const rejected = await fetch(`${app}/v1/responses`, { method: "POST", body: simpleInput });
+    expect(rejected.status).toBe(503);
+    await expect(rejected.json()).resolves.toEqual({ error: "overloaded" });
+    expect(calls).toBe(1);
+    controller.abort();
+    await first;
+    const health = await fetch(`${app}/health`);
+    expect(health.status).toBe(200);
+    // Wait for the server-side close event to release the occupied slot.
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    const next = new AbortController();
+    const pending = fetch(`${app}/v1/responses`, { method: "POST", body: simpleInput, signal: next.signal }).catch(() => null);
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    expect(calls).toBe(2);
+    expect(upstream.requests).toHaveLength(0);
+    next.abort();
+    await pending;
+  });
+
+  it("returns 504 when upstream headers stall, without exposing upstream errors", async () => {
+    const upstream = await startUpstream(() => {});
+    const app = await startLimitedApp(upstream.url, { upstreamHeaderTimeoutMs: 40 });
+    const response = await fetch(`${app}/v1/responses`, { method: "POST", body: simpleInput });
+    expect(response.status).toBe(504);
+    await expect(response.json()).resolves.toEqual({ error: "upstream_timeout" });
+  });
+
+  it("keeps a healthy SSE stream alive past the header deadline, then times out on idle", async () => {
+    const upstream = await startUpstream((_request, response) => {
+      response.writeHead(200, { "content-type": "text/event-stream" });
+      response.write("data: one\n\n");
+      setTimeout(() => response.write("data: two\n\n"), 70);
+    });
+    const app = await startLimitedApp(upstream.url, { upstreamHeaderTimeoutMs: 30, upstreamIdleTimeoutMs: 120 });
+    const response = await fetch(`${app}/v1/responses`, { method: "POST", body: simpleInput });
+    const reader = response.body!.getReader();
+    expect(new TextDecoder().decode((await reader.read()).value)).toContain("one");
+    expect(new TextDecoder().decode((await reader.read()).value)).toContain("two");
+    await expect(reader.read()).rejects.toThrow();
+  });
   it("rewrites the outbound model to gpt-6-astra with a fresh content-length", async () => {
     const upstream = await startUpstream((_request, response, recorded) => {
       response.writeHead(200, { "content-type": "application/json" });

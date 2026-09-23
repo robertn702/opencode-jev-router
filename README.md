@@ -66,8 +66,7 @@ curl http://127.0.0.1:4320/health
 ```
 
 `.env` is git-ignored; the proxy loads it at startup via `process.loadEnvFile()`.
-See [`.env.example`](.env.example) for `UPSTREAM_BASE_URL`, `UPSTREAM_MODEL`,
-`BASE_EFFORT`, and `JEV_TIMEOUT_MS`.
+See [`.env.example`](.env.example) for all limits and connection settings.
 
 ### OpenCode configuration
 
@@ -140,7 +139,8 @@ requires retaining original update positions when replaying history manually.
 - On timeout (`jev_timeout`), error (`jev_error`), or invalid output
   (`jev_invalid_output`), the previous validated effort for the same usable
   `prompt_cache_key` is reused; otherwise `medium`. The in-memory previous-effort
-  map is minimal and is not a history or cache-preservation store.
+  cache is limited to 256 entries and 10 minutes by default, with LRU eviction
+  and lazy expiry. It is not a history or cache-preservation store.
 - Client cancellation is separate from classifier failure: a disconnect aborts
   classification and any upstream request and never fails open into generation,
   including at the timeout-to-fallback boundary. Late classifier results cannot
@@ -153,6 +153,25 @@ proxy-generated request ID, outbound pinned model, validated selected effort
 (from the rewritten outbound request), Jev latency, a fixed fallback code, and a
 fixed completion/failure outcome. Prompt content, tool content, credentials,
 cache keys, raw SDK errors, and bodies are never logged.
+Local request-size, overload, and upstream deadline failures use the fixed
+`request_too_large`, `overloaded`, and `upstream_timeout` outcome codes.
+
+### Resource limits
+
+All limits are positive integers configured through environment variables:
+
+| Variable | Default | Behavior |
+| --- | ---: | --- |
+| `MAX_REQUEST_BYTES` | 1048576 (1 MiB) | Maximum JSON request-body bytes; larger `POST /v1/responses` returns `413` with `{"error":"request_too_large"}`. Counts bytes, including chunked uploads. |
+| `MAX_IN_FLIGHT` | 32 | Concurrent `/v1/responses` and `/v1/models` requests, including body reading, classification and forwarding; excess returns `503` with `{"error":"overloaded"}` before Jev/upstream work. |
+| `UPSTREAM_HEADER_TIMEOUT_MS` | 10000 | Deadline from upstream request start until response headers. |
+| `UPSTREAM_IDLE_TIMEOUT_MS` | 60000 | Maximum gap between upstream response chunks after headers; resets on each chunk and pauses while downstream backpressure pauses upstream reads. No total stream deadline is imposed. |
+| `EFFORT_CACHE_ENTRIES` | 256 | Maximum stored previous efforts (LRU). |
+| `EFFORT_CACHE_TTL_MS` | 600000 (10 min) | Previous-effort expiry from the last successful selection for the key. |
+
+An upstream deadline before headers returns `504` with
+`{"error":"upstream_timeout"}`. After headers, the client stream closes
+without injecting a replacement response.
 
 ### Forwarding
 

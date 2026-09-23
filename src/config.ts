@@ -8,6 +8,20 @@ export interface AppConfig {
   upstreamModel: string;
   baseEffort: Effort;
   jevTimeoutMs: number;
+  maxRequestBytes: number;
+  maxInFlight: number;
+  upstreamHeaderTimeoutMs: number;
+  upstreamIdleTimeoutMs: number;
+  effortCacheEntries: number;
+  effortCacheTtlMs: number;
+}
+
+function positiveInteger(raw: string | undefined, fallback: number, name: string): number {
+  const value = raw === undefined ? fallback : Number(raw);
+  if (!Number.isSafeInteger(value) || value < 1) {
+    throw new Error(`${name} must be a positive integer`);
+  }
+  return value;
 }
 
 function parsePort(raw: string | undefined): number {
@@ -41,5 +55,11 @@ export function loadConfig(env: Record<string, string | undefined>): AppConfig {
     upstreamModel: env.UPSTREAM_MODEL ?? "gpt-6-astra",
     baseEffort: parseEffort(env.BASE_EFFORT),
     jevTimeoutMs: parseTimeout(env.JEV_TIMEOUT_MS),
+    maxRequestBytes: positiveInteger(env.MAX_REQUEST_BYTES, 1_048_576, "MAX_REQUEST_BYTES"),
+    maxInFlight: positiveInteger(env.MAX_IN_FLIGHT, 32, "MAX_IN_FLIGHT"),
+    upstreamHeaderTimeoutMs: positiveInteger(env.UPSTREAM_HEADER_TIMEOUT_MS, 10_000, "UPSTREAM_HEADER_TIMEOUT_MS"),
+    upstreamIdleTimeoutMs: positiveInteger(env.UPSTREAM_IDLE_TIMEOUT_MS, 60_000, "UPSTREAM_IDLE_TIMEOUT_MS"),
+    effortCacheEntries: positiveInteger(env.EFFORT_CACHE_ENTRIES, 256, "EFFORT_CACHE_ENTRIES"),
+    effortCacheTtlMs: positiveInteger(env.EFFORT_CACHE_TTL_MS, 600_000, "EFFORT_CACHE_TTL_MS"),
   };
 }
