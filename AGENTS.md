@@ -1,13 +1,45 @@
-# Development
+# Working on this repo
 
-Use Node.js 24.x. Run `npm ci` to install dependencies and `npm run check` to
-typecheck and test the project. `npm run build` produces `dist/`.
+This is a local Responses API proxy: OpenCode sends requests here, Jev selects
+reasoning effort, and CLIProxyAPI runs them on Astra. `README.md` documents the
+wire behavior; `examples/opencode.jsonc` shows the client configuration.
 
-Orca runs `./scripts/setup.sh` from `orca.yaml` and waits for it to finish before
-starting an agent. The script installs dependencies with `npm ci`, copies local
-`.env*` files from the main checkout into a new worktree (excluding
-`.env.example`), and creates `.env` from the example if needed. If present, it
-links `.scratch/shared` and `AGENTS.local.md`. Existing local files are preserved.
-Set `TYPESAFE_API_KEY` in `.env` before running the proxy.
+## Commands
 
-Verify the worktree setup with `node --test scripts/verify-setup.mjs`.
+Use Node.js 24.x from the repo root.
+
+| Task | Command |
+| --- | --- |
+| Install dependencies | `npm ci` |
+| Typecheck and run offline tests | `npm run check` |
+| Run a focused test | `npx vitest run test/rewrite.test.ts` |
+| Build the CLI in `dist/` | `npm run build` |
+| Watch source changes | `npm run dev` |
+
+The tests use a fake upstream and mocked Jev; they need no API keys. To run the
+real proxy, copy `.env.example` to `.env`, set `TYPESAFE_API_KEY`, start
+CLIProxyAPI, then run `npm run build && npm start`. OpenCode needs `CLIPROXY_KEY`.
+`npm run eval:live` calls external services.
+
+## Behavior to preserve
+
+- `src/rewrite.ts`: Pin the outbound model. Keep request-level
+  `reasoning.effort` at `BASE_EFFORT`, remove prior reasoning updates, and append
+  Jev's selected effort as the final `configuration_update` input item. This
+  intentionally does not preserve cache lineage; the reported response effort
+  is not the selected effort.
+- `src/validate.ts` and `src/server.ts`: Reject unsupported modes, truncation,
+  and input shapes with a local 400 before calling Jev or the upstream.
+- `src/jev.ts` and `src/server.ts`: Jev timeout or failure may fall back to a
+  validated effort. Client disconnect must instead abort work without starting
+  upstream generation.
+- `src/forward.ts` and `src/headers.ts`: Preserve upstream status/body passthrough,
+  incremental SSE with backpressure, and header filtering. `src/evidence.ts` logs
+  metadata only: no prompts, tool output, credentials, or raw upstream errors.
+
+## Worktree setup
+
+Orca waits for `scripts/setup.sh` (`orca.yaml`). The script installs dependencies
+and carries local environment files and optional links into a new worktree
+without overwriting existing files. If you change setup behavior, run
+`node --test scripts/verify-setup.mjs`.
