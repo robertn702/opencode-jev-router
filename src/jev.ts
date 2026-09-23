@@ -84,15 +84,17 @@ function excerpt(text: string, limit = EXCERPT_LIMIT): string {
   return `${text.slice(0, head)}${marker}${text.slice(-tail)}`;
 }
 
-function partText(content: unknown): string {
+function partText(content: unknown, allowUntyped = false): string {
   if (typeof content === "string") {
     return content;
   }
   if (Array.isArray(content)) {
     return content
-      .map((part) =>
-        isRecord(part) && typeof part.text === "string" ? part.text : "",
-      )
+      .map((part) => {
+        if (!isRecord(part) || typeof part.text !== "string") return "";
+        return part.type === "input_text" || part.type === "output_text" || part.type === "text" || (allowUntyped && part.type === undefined)
+          ? part.text : "";
+      })
       .filter((text) => text.length > 0)
       .join("\n");
   }
@@ -104,7 +106,7 @@ function outputText(output: unknown): string {
     return output;
   }
   if (Array.isArray(output)) {
-    return partText(output);
+    return partText(output, true);
   }
   if (output === undefined || output === null) {
     return "";
@@ -148,7 +150,9 @@ export function buildJevState(input: unknown[]): JevState {
     if (!isRecord(item)) {
       continue;
     }
-    if (item.type === "message" || item.role !== undefined) {
+    // A typed tool/extension item is opaque even if it carries a role or
+    // content field. Only genuine messages contribute user/assistant text.
+    if (item.type === "message" || item.type === undefined) {
       const text = partText(item.content);
       if (item.role === "user" && text.length > 0) {
         recentUserText = excerpt(text, USER_TEXT_LIMIT);

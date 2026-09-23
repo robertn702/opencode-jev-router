@@ -20,6 +20,25 @@ describe("local shape validation", () => {
     const response = await fetch(`${app}/v1/responses`, { method: "POST", body: JSON.stringify(body) });
     expect(response.status).toBe(400); expect(selected).toBe(0);
   });
+
+  it("returns stable actionable 400s before classification or forwarding for incompatible updates and modes", async () => {
+    let selected = 0;
+    const upstream = await startUpstream((_request, response) => response.end("{}"));
+    const app = await startApp(upstream.url, async () => { selected++; return { effort: "high", jevLatencyMs: 0, fallback: null }; });
+    for (const [patch, error] of [
+      [{ input: [{ type: "configuration_update", reasoning: { effort: "none" } }] }, "request.input[0] configuration_update supports only reasoning.effort valid for request.model"],
+      [{ input: [{ type: "configuration_update", tools: [] }] }, "request.input[0] configuration_update requires reasoning.effort valid for request.model"],
+      [{ input: [{ type: 123 }] }, "request.input[0].type must be a non-empty string"],
+      [{ reasoning: { mode: "pro" } }, "request.reasoning.mode is not supported; this proxy serves standard, single-agent mode only"],
+      [{ truncation: "auto" }, 'request.truncation "auto" is not supported with configuration_update injection'],
+    ] as const) {
+      const response = await fetch(`${app}/v1/responses`, { method: "POST", body: JSON.stringify({ model: "gpt-6-astra", input: [{ role: "user", content: "hi" }], ...patch }) });
+      expect(response.status).toBe(400);
+      expect(await response.json()).toEqual({ error: "invalid_request", message: error });
+    }
+    expect(selected).toBe(0);
+    expect(upstream.requests).toHaveLength(0);
+  });
 });
 
 async function listen(
@@ -91,6 +110,25 @@ const simpleInput = JSON.stringify({
 });
 
 describe("forwarding lifecycle", () => {
+  it("forwards opaque computer, hosted-tool, reference and future items in order with all fields", async () => {
+    const upstream = await startUpstream((_request, response, recorded) => response.end(recorded.body));
+    const app = await startApp(upstream.url, async () => ({ effort: "high", jevLatencyMs: 0, fallback: null }));
+    const items = [
+      { type: "computer_call", id: "cu1", action: { type: "click", x: 12, y: 34 }, status: "completed" },
+      { type: "computer_call_output", call_id: "cu1", output: { type: "computer_screenshot", image_url: "data:image/png;base64,AAAA" }, acknowledged_safety_checks: [] },
+      { type: "web_search_call", id: "ws1", action: { query: "docs" }, status: "completed" },
+      { type: "file_search_call", id: "fs1", queries: ["docs"], results: [{ file_id: "f1" }] },
+      { type: "item_reference", id: "item_123" },
+      { type: "future_tool_result", role: "user", content: "opaque", payload: { nested: [1, null, { field: true }] } },
+      { role: "user", content: "real prompt" },
+    ];
+    const response = await fetch(`${app}/v1/responses`, { method: "POST", body: JSON.stringify({ model: "gpt-6-astra", input: items }) });
+    expect(response.status).toBe(200);
+    const sent = await response.json() as { input: unknown[] };
+    expect(sent.input).toEqual([...items.slice(0, -1), { type: "configuration_update", reasoning: { effort: "high" } }, items.at(-1)]);
+    expect(upstream.requests).toHaveLength(1);
+  });
+
   it.each(["forward", "bearer"] as const)("isolates concurrent models and same-model continuations with %s auth", async (policy) => {
     const models = ["gpt-6-astra", "gpt-6-luna", "gpt-6-sol"];
     const evidence: unknown[] = [];
@@ -427,7 +465,7 @@ describe("forwarding lifecycle", () => {
       JSON.stringify({ model: "gpt-5.1", input: [{ role: "user", content: "x" }] }),
       JSON.stringify({ input: [{ role: "user", content: "x" }] }),
       JSON.stringify({ input: "plain string" }),
-      JSON.stringify({ input: [{ type: "mystery" }] }),
+      JSON.stringify({ model: "gpt-6-astra", input: [{ type: "" }] }),
       JSON.stringify({
         reasoning: { mode: "pro" },
         input: [{ role: "user", content: "x" }],

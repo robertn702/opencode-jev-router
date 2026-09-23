@@ -126,6 +126,41 @@ describe("bounded state builder on gate-1 request shapes", () => {
     expect(logs).not.toContain(MARKERS.user);
   });
 
+  it("ignores opaque typed items and non-text parts even when they mimic messages or tool results", () => {
+    const secret = "OPAQUE_PAYLOAD_MARKER";
+    const state = buildJevState([
+      { type: "message", role: "user", content: [{ type: "input_text", text: "real question" }, { type: "input_image", text: secret }] },
+      { type: "future_tool_result", role: "user", content: secret, output: secret, call_id: "c", name: secret },
+      { type: "web_search_call", role: "assistant", content: [{ type: "output_text", text: secret }], output: secret },
+      { type: "computer_call_output", role: "user", content: secret, output: { text: secret }, status: "failed" },
+      { type: "item_reference", role: "assistant", content: secret, id: "i1" },
+      { type: "function_call", call_id: "c", name: "read", arguments: secret },
+      { type: "function_call_output", call_id: "c", output: "real result" },
+      { type: "message", role: "assistant", content: [{ type: "output_text", text: "real progress" }] },
+    ]);
+    expect(state).toEqual({
+      recent_user_text: "real question",
+      assistant_progress: "real progress",
+      tool_results: [{ name: "read", ok: true, excerpt: "real result" }],
+      failure_state: { failed_count: 0, last_failure_excerpt: "" },
+    });
+    expect(JSON.stringify(state)).not.toContain(secret);
+  });
+
+  it("preserves function and custom tool continuation excerpts, including untyped output text parts", () => {
+    const state = buildJevState([
+      { type: "function_call", call_id: "f", name: "read" },
+      { type: "function_call_output", call_id: "f", output: [{ text: "file contents" }] },
+      { type: "custom_tool_call", call_id: "c", name: "shell" },
+      { type: "custom_tool_call_output", call_id: "c", output: "failed", status: "failed" },
+    ]);
+    expect(state.tool_results).toEqual([
+      { name: "read", ok: true, excerpt: "file contents" },
+      { name: "shell", ok: false, excerpt: "failed" },
+    ]);
+    expect(state.failure_state).toEqual({ failed_count: 1, last_failure_excerpt: "failed" });
+  });
+
   it("treats error-named tool outputs as failures", () => {
     const state = buildJevState([
       { type: "function_call", call_id: "c1", name: "grep", arguments: "{}" },
