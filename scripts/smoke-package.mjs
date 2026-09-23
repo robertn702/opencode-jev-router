@@ -27,7 +27,7 @@ let child;
 try {
   const tarball = process.argv[2] ?? join(temp, JSON.parse(run("npm", ["--silent", "pack", "--json", "--pack-destination", temp]))[0].filename);
   const paths = run("tar", ["-tzf", tarball]).trim().split("\n").map((path) => path.replace(/^package\//, ""));
-  for (const required of ["dist/index.js", "README.md", "LICENSE", "examples/opencode.jsonc"]) {
+  for (const required of ["dist/index.js", "README.md", "LICENSE", "docs/cache-validation.md", "examples/opencode.jsonc"]) {
     assert.ok(paths.includes(required), `package is missing ${required}`);
   }
   assert.ok(paths.every((path) =>
