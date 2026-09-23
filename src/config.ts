@@ -22,6 +22,39 @@ export interface AppConfig {
 
 export type UpstreamAuth = { policy: "forward" } | { policy: "bearer"; apiKey: string };
 
+export interface JevConnection {
+  apiKey: string;
+  baseURL: string;
+  model: string;
+}
+
+export function loadJevConnection(env: Record<string, string | undefined>): JevConnection {
+  if (env.TYPESAFE_API_KEY !== undefined) {
+    throw new Error("TYPESAFE_API_KEY is unsupported; use JEV_API_KEY");
+  }
+  if (!env.JEV_API_KEY?.trim()) {
+    throw new Error("JEV_API_KEY is required for Jev classification");
+  }
+  const raw = env.JEV_BASE_URL ?? "https://api.typesafe.ai";
+  let url: URL;
+  try {
+    url = new URL(raw);
+  } catch {
+    throw new Error("JEV_BASE_URL must be a valid HTTPS URL");
+  }
+  if (url.protocol !== "https:" || !url.hostname || url.username || url.password || url.search || url.hash) {
+    throw new Error("JEV_BASE_URL must be an HTTPS URL without credentials, query, or fragment");
+  }
+  const baseURL = url.href.replace(/\/$/, "");
+  const model = baseURL === "https://api.typesafe.ai" ? "jev-latest"
+    : baseURL === "https://ai-gateway.vercel.sh/typesafe" ? "typesafe-ai/jev"
+      : null;
+  if (model === null) {
+    throw new Error("JEV_BASE_URL supports only the TypeSafe direct and Vercel TypeSafe-compatible endpoints");
+  }
+  return { apiKey: env.JEV_API_KEY.trim(), baseURL, model };
+}
+
 export function upstreamHostname(url: URL): string {
   return url.hostname.startsWith("[") && url.hostname.endsWith("]")
     ? url.hostname.slice(1, -1)

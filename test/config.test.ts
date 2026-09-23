@@ -1,5 +1,38 @@
 import { describe, expect, it } from "vitest";
-import { loadConfig, upstreamHostname } from "../src/config.js";
+import { loadConfig, loadJevConnection, upstreamHostname } from "../src/config.js";
+
+describe("Jev connection", () => {
+  it("uses the direct endpoint and Jev model by default", () => {
+    expect(loadJevConnection({ JEV_API_KEY: " direct-key " })).toEqual({
+      apiKey: "direct-key", baseURL: "https://api.typesafe.ai", model: "jev-latest",
+    });
+  });
+
+  it("selects the Vercel Jev model for its TypeSafe-compatible endpoint", () => {
+    expect(loadJevConnection({ JEV_API_KEY: "gateway-key", JEV_BASE_URL: "https://ai-gateway.vercel.sh/typesafe/" })).toEqual({
+      apiKey: "gateway-key", baseURL: "https://ai-gateway.vercel.sh/typesafe", model: "typesafe-ai/jev",
+    });
+  });
+
+  it("rejects unsupported credentials and endpoints without disclosing values", () => {
+    const cases = [
+      { TYPESAFE_API_KEY: "legacy-secret" },
+      { JEV_API_KEY: " " },
+      { JEV_API_KEY: "secret", TYPESAFE_API_KEY: "legacy-secret" },
+      { JEV_API_KEY: "secret", JEV_BASE_URL: "not-a-url-secret" },
+      { JEV_API_KEY: "secret", JEV_BASE_URL: "http://api.typesafe.ai" },
+      { JEV_API_KEY: "secret", JEV_BASE_URL: "https://user:password@api.typesafe.ai" },
+      { JEV_API_KEY: "secret", JEV_BASE_URL: "https://api.typesafe.ai?token=secret" },
+      { JEV_API_KEY: "secret", JEV_BASE_URL: "https://other.example/typesafe" },
+    ];
+    for (const env of cases) {
+      let message = "";
+      try { loadJevConnection(env); } catch (error) { message = (error as Error).message; }
+      expect(message).not.toBe("");
+      expect(message).not.toMatch(/secret|password/);
+    }
+  });
+});
 
 describe("resource limit configuration", () => {
   it("uses bounded defaults and accepts positive overrides", () => {

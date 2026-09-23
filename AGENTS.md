@@ -17,7 +17,7 @@ Use Node.js 24.x from the repo root.
 | Watch source changes | `npm run dev` |
 
 The tests use a fake upstream and mocked Jev; they need no API keys. To run the
-real proxy, copy `.env.example` to `.env`, set `TYPESAFE_API_KEY`, start
+real proxy, copy `.env.example` to `.env`, set `JEV_API_KEY`, start
 CLIProxyAPI, then run `npm run build && npm start`. OpenCode needs `CLIPROXY_KEY`.
 `npm run eval:live` calls external services.
 

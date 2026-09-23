@@ -1,6 +1,6 @@
 // Metadata-only live smoke. Run after npm run build with Node 24.
 import { once } from "node:events";
-import { loadConfig } from "../dist/config.js";
+import { loadConfig, loadJevConnection } from "../dist/config.js";
 import { createAppServer } from "../dist/server.js";
 import { createJevClassifier } from "../dist/jev.js";
 import { MODELS } from "../dist/models.js";
@@ -10,7 +10,7 @@ try { process.loadEnvFile(".env"); } catch {}
 const env = { ...process.env };
 delete env.UPSTREAM_MODEL;
 const config = loadConfig(env);
-const classifier = createJevClassifier({ apiKey: env.TYPESAFE_API_KEY, timeoutMs: config.jevTimeoutMs });
+const classifier = createJevClassifier({ ...loadJevConnection(env), timeoutMs: config.jevTimeoutMs });
 const server = createAppServer({ ...config, selectEffort: classifier.select });
 server.listen(0, "127.0.0.1");
 await once(server, "listening");

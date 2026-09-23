@@ -3,8 +3,8 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createJevClassifier as createClassifier, buildJevState } from "../src/jev.js";
 import { findModel } from "../src/models.js";
 
-function createJevClassifier(options: Parameters<typeof createClassifier>[0]) {
-  const classifier = createClassifier(options);
+function createJevClassifier(options: Omit<Parameters<typeof createClassifier>[0], "baseURL" | "model"> & Partial<Pick<Parameters<typeof createClassifier>[0], "baseURL" | "model">>) {
+  const classifier = createClassifier({ baseURL: "https://api.typesafe.ai", model: "jev-latest", ...options });
   return { ...classifier, select: (args: Omit<Parameters<typeof classifier.select>[0], "model">) =>
     classifier.select({ ...args, model: findModel(args.body.model ?? "gpt-6-astra")! }) };
 }
@@ -53,13 +53,27 @@ const cacheBody = (promptCacheKey: unknown) => ({
 });
 
 describe("Jev classifier", () => {
+  it("sends the direct TypeSafe model and classifier credential", async () => {
+    let sent: FetchArgs | undefined;
+    const { select } = createJevClassifier({
+      apiKey: "direct-key", timeoutMs: 1000,
+      fetch: async (input, init) => { sent = [input, init]; return okResponse("medium"); },
+    });
+    await select({ body: cacheBody("direct"), signal: new AbortController().signal });
+    expect(sent?.[0]).toBe("https://api.typesafe.ai/v1/systemone");
+    expect(new Headers(sent?.[1]?.headers).get("authorization")).toBe("Bearer direct-key");
+    expect(JSON.parse(String(sent?.[1]?.body)).model).toBe("jev-latest");
+  });
+
   it("returns the validated effort from a successful classification", async () => {
-    const seen: RequestInit[] = [];
+    const seen: FetchArgs[] = [];
     const { select, client } = createJevClassifier({
       apiKey: "k",
+      baseURL: "https://ai-gateway.vercel.sh/typesafe",
+      model: "typesafe-ai/jev",
       timeoutMs: 1000,
-      fetch: async (_input: string, init?: RequestInit) => {
-        seen.push(init ?? {});
+      fetch: async (input: string, init?: RequestInit) => {
+        seen.push([input, init]);
         return okResponse("high");
       },
     });
@@ -77,6 +91,9 @@ describe("Jev classifier", () => {
     expect(client.retry.maxRetries).toBe(0);
     expect(client.logLevel).toBe("off");
     expect(seen).toHaveLength(1);
+    expect(seen[0]![0]).toBe("https://ai-gateway.vercel.sh/typesafe/v1/systemone");
+    expect(new Headers(seen[0]![1]?.headers).get("authorization")).toBe("Bearer k");
+    expect(JSON.parse(String(seen[0]![1]?.body)).model).toBe("typesafe-ai/jev");
   });
 
   it("reuses the previous effort for the same usable cache key on invalid output, errors, and timeout", async () => {
