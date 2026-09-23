@@ -8,3 +8,4 @@ AGENTS.local.md
 !.env.example
 *.log
 .DS_Store
+openspec/
