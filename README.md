@@ -123,8 +123,6 @@ curl http://127.0.0.1:4320/health
 `.env` is git-ignored; the proxy loads it at startup via `process.loadEnvFile()`.
 See [`.env.example`](.env.example) for all limits and connection settings.
 
-### OpenCode configuration
-
 ### In-process plugin (opt-in)
 
 The standalone proxy remains supported. Alternatively, install this package in
@@ -155,6 +153,13 @@ isolated local-file plugin load, configuration hook, rewritten fake Responses
 SSE, and independent `./server` import resolution against that runtime. This
 does not test an npm-registry installation or real services. Restart OpenCode
 after changing its configuration.
+
+The in-process plugin does not emit `JevDecision` events or use
+`JEV_DECISIONS_LOG_PATH`; that logging is implemented by the standalone CLI.
+An OpenCode turn showing provider `jev-router` confirms provider selection,
+but does not by itself reveal Jev's chosen effort or whether classification
+fell back. To inspect per-request decisions, use the standalone proxy with
+decision logging enabled.
 
 Select `jev-router/gpt-6-astra`, `jev-router/gpt-6-luna`, or
 `jev-router/gpt-6-sol`, then restart OpenCode after changing its configuration.
@@ -273,7 +278,7 @@ OpenCode's turn aggregates. The observer never logs response content.
 
 ### Evidence
 
-Per forwarded execution request the proxy emits one metadata record containing:
+Per forwarded execution request the standalone proxy emits one metadata record containing:
 
 - `request_id`, `session`, and `turn_id` for correlation.
 - `model`, `effort`, `jev_latency_ms`, `fallback`, `jev_error_category`, and
