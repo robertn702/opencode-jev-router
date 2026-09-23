@@ -4,7 +4,7 @@ import { connect } from "node:net";
 import { appendFile, mkdir } from "node:fs/promises";
 import { dirname } from "node:path";
 
-import { loadConfig, upstreamHostname } from "./config.js";
+import { loadConfig, loadJevConnection, upstreamHostname } from "./config.js";
 import { formatDecisionEvent, formatEvidence } from "./evidence.js";
 import { createJevClassifier } from "./jev.js";
 import { createAppServer, shutdownAppServer } from "./server.js";
@@ -15,7 +15,9 @@ if (process.argv.includes("--help") || process.argv.includes("-h")) {
 Start the local Jev-powered Responses API proxy.
 
 Environment:
-  TYPESAFE_API_KEY   Required Jev API key
+  JEV_API_KEY        Required Jev classifier key (separate from upstream/client keys)
+  JEV_BASE_URL       Jev API root (default: https://api.typesafe.ai)
+                     Vercel: https://ai-gateway.vercel.sh/typesafe
   JEV_PROXY_PORT     Listening port (default: 4320)
   UPSTREAM_BASE_URL  Responses-compatible base URL (default: http://127.0.0.1:8317/v1)
   UPSTREAM_AUTH      forward (default, loopback only) or bearer
@@ -43,21 +45,17 @@ if (existsSync(".env")) {
 }
 
 let config: ReturnType<typeof loadConfig>;
+let jev: ReturnType<typeof loadJevConnection>;
 try {
   config = loadConfig(process.env);
+  jev = loadJevConnection(process.env);
 } catch (error) {
   console.error(JSON.stringify({ event: "startup_failed", reason: "invalid_configuration", message: error instanceof Error ? error.message : "invalid configuration" }));
   process.exit(1);
 }
 
-const apiKey = process.env.TYPESAFE_API_KEY;
-if (apiKey === undefined || apiKey.trim() === "") {
-  console.error(JSON.stringify({ event: "startup_failed", reason: "missing_configuration" }));
-  process.exit(1);
-}
-
 const classifier = createJevClassifier({
-  apiKey,
+  ...jev,
   timeoutMs: config.jevTimeoutMs,
   cacheEntries: config.effortCacheEntries,
   cacheTtlMs: config.effortCacheTtlMs,

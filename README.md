@@ -33,7 +33,9 @@ and correctness over fixed effort has not yet been established by a task benchma
 - Node.js 24.x (runtime and development)
 - Either [CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI) with Codex OAuth
   or an OpenAI API key with access to the selected GPT-6 model
-- A TypeSafe API key for Jev (`TYPESAFE_API_KEY`)
+- A Jev classifier key (`JEV_API_KEY`). For direct TypeSafe access, use a TypeSafe
+  key. For Vercel, use an AI Gateway key **and** set
+  `JEV_BASE_URL=https://ai-gateway.vercel.sh/typesafe`.
 
 ## Install and run
 
@@ -58,8 +60,26 @@ npm install @robertn702/opencode-jev-router
 npx opencode-jev-router
 ```
 
-Set `TYPESAFE_API_KEY` in the environment or put it in a `.env` file in the
-working directory before starting the proxy. Choose one upstream:
+Set `JEV_API_KEY` in the environment or put it in a `.env` file in the
+working directory before starting the proxy. For direct TypeSafe, no other Jev
+setting is needed: the endpoint is `https://api.typesafe.ai` and the Jev model
+identifier is `jev-latest`.
+
+To classify through [Vercel AI Gateway's TypeSafe-compatible endpoint](https://vercel.com/docs/ai-gateway/sdks-and-apis/typesafe),
+use its AI Gateway key and set:
+
+```dotenv
+JEV_API_KEY=your-ai-gateway-key
+JEV_BASE_URL=https://ai-gateway.vercel.sh/typesafe
+```
+
+The router uses Vercel's `typesafe-ai/jev` identifier automatically. Only these
+two Jev endpoints are supported. `TYPESAFE_API_KEY` is no longer accepted;
+rename it to `JEV_API_KEY` for direct TypeSafe access. The Jev key is used only
+for classification; it is never reused as `UPSTREAM_API_KEY` or OpenCode's
+`CLIPROXY_KEY`.
+
+Choose one Responses upstream independently:
 
 ```dotenv
 # CLIProxyAPI (default)
@@ -93,7 +113,7 @@ Run `opencode-jev-router --help` for environment options.
 
 ```bash
 npm ci
-cp .env.example .env   # then fill in TYPESAFE_API_KEY
+cp .env.example .env   # then fill in JEV_API_KEY
 npm run check          # typecheck + tests
 npm run build          # compile the CLI to dist/
 npm start              # http://127.0.0.1:4320

@@ -47,9 +47,9 @@ test('copies local environment files without overwriting existing files or copyi
 
 test('creates .env from the example when the main checkout has no .env', (t) => {
   const { worktree, run } = fixture(t);
-  writeFileSync(join(worktree, '.env.example'), 'TYPESAFE_API_KEY=\n');
+  writeFileSync(join(worktree, '.env.example'), 'JEV_API_KEY=\n');
   assert.equal(run().status, 0);
-  assert.equal(readFileSync(join(worktree, '.env'), 'utf8'), 'TYPESAFE_API_KEY=\n');
+  assert.equal(readFileSync(join(worktree, '.env'), 'utf8'), 'JEV_API_KEY=\n');
 });
 
 test('links shared scratch and local agent notes when available', (t) => {

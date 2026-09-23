@@ -3,6 +3,7 @@ import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 
 import { createJevClassifier, type JevState } from "../../src/jev.js";
+import { loadJevConnection } from "../../src/config.js";
 import type { Effort } from "../../src/rewrite.js";
 
 // Plan item 16: Jev selection eval (live classifier, synthetic fixture corpus).
@@ -102,11 +103,7 @@ async function main(): Promise<number> {
   if (existsSync(".env")) {
     process.loadEnvFile(".env");
   }
-  const apiKey = process.env.TYPESAFE_API_KEY;
-  if (apiKey === undefined || apiKey.trim() === "") {
-    console.error("TYPESAFE_API_KEY is required");
-    return 1;
-  }
+  const jev = loadJevConnection(process.env);
 
   const here = dirname(fileURLToPath(import.meta.url));
   const corpusPath = join(here, "..", "fixtures", "jev-eval-corpus.json");
@@ -115,7 +112,7 @@ async function main(): Promise<number> {
   };
 
   const classifier = createJevClassifier({
-    apiKey,
+    ...jev,
     timeoutMs: 15_000,
   });
 

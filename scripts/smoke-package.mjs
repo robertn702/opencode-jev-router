@@ -43,7 +43,7 @@ try {
   const port = await unusedPort();
   child = spawn(binary, [], {
     cwd: temp,
-    env: { ...process.env, TYPESAFE_API_KEY: "smoke-test-key", JEV_PROXY_PORT: String(port) },
+    env: { ...process.env, TYPESAFE_API_KEY: undefined, JEV_API_KEY: "smoke-test-key", JEV_PROXY_PORT: String(port) },
     stdio: ["ignore", "pipe", "pipe"],
   });
   let output = "";

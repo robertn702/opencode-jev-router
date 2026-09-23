@@ -7,7 +7,7 @@
 // metadata is emitted. Evidence is prompt-free/credential-free: scenario IDs and
 // efforts only.
 //
-// Usage: node test/eval/live-matrix.mjs   (requires TYPESAFE_API_KEY + CLIPROXY_KEY)
+// Usage: node test/eval/live-matrix.mjs   (requires JEV_API_KEY + CLIPROXY_KEY)
 import { spawn } from "node:child_process";
 import { once } from "node:events";
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";

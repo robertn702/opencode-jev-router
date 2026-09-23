@@ -39,6 +39,8 @@ export type JevState = {
 
 export interface JevClassifierOptions {
   apiKey: string;
+  baseURL: string;
+  model: string;
   timeoutMs: number;
   fetch?: Fetch;
   cacheEntries?: number;
@@ -187,6 +189,8 @@ export function createJevClassifier(
 ): JevClassifier {
   const client = new TypeSafeClient({
     apiKey: options.apiKey,
+    baseURL: options.baseURL,
+    defaultModel: options.model,
     retry: { maxRetries: 0 },
     logLevel: "off",
     ...(options.fetch ? { fetch: options.fetch } : {}),
