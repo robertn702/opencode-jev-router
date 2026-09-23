@@ -251,8 +251,10 @@ effort.
 
 Direct OpenAI mode is covered by offline fake-upstream tests for non-streaming,
 streaming SSE, tool continuations, and authorization routing. A live direct
-OpenAI request has not yet been verified; it requires an `OPENAI_API_KEY` with
-API access to `gpt-6-astra`.
+OpenAI request through the router with Jev classification completed on
+`gpt-6-astra` (HTTP 200, response status `completed`, one output item). This
+verifies the non-streaming direct path; live SSE and tool continuations in direct
+mode have only fake-upstream test coverage.
 
 ## Development
 
