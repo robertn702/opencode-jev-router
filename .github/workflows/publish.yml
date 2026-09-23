@@ -31,9 +31,9 @@ jobs:
       - name: Check previously published artifact
         id: existing
         run: |
-          PACKAGE_SPEC=$(node -p "const p = require('./package.json'); p.name + '@' + p.version")
-          if npm view "$PACKAGE_SPEC" dist.shasum --json > "$RUNNER_TEMP/published-shasum.json" 2>/dev/null; then
-            node -e "const fs = require('node:fs'); const crypto = require('node:crypto'); const expected = JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP + '/published-shasum.json', 'utf8')); const actual = crypto.createHash('sha1').update(fs.readFileSync(process.env.TARBALL)).digest('hex'); if (expected !== actual) { console.error('Published tarball differs from tagged commit'); process.exit(1); }"
+          PACKAGE_URL=$(node -p "const p = require('./package.json'); 'https://registry.npmjs.org/' + encodeURIComponent(p.name) + '/' + p.version")
+          if curl --fail --silent --show-error --output "$RUNNER_TEMP/published.json" "$PACKAGE_URL" 2>/dev/null; then
+            node -e "const fs = require('node:fs'); const crypto = require('node:crypto'); const expected = JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP + '/published.json', 'utf8')).dist.shasum; const actual = crypto.createHash('sha1').update(fs.readFileSync(process.env.TARBALL)).digest('hex'); if (expected !== actual) { console.error('Published tarball differs from tagged commit'); process.exit(1); }"
             echo "already_published=true" >> "$GITHUB_OUTPUT"
           else
             echo "already_published=false" >> "$GITHUB_OUTPUT"
