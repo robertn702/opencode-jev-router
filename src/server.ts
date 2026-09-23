@@ -28,7 +28,7 @@ export type EffortSelector = (args: {
 
 export interface AppServerOptions {
   upstreamBaseUrl: string;
-  upstreamAuth: { mode: "cliproxy" } | { mode: "openai"; apiKey: string };
+  upstreamAuth: { mode: "cliproxyapi" } | { mode: "openai"; apiKey: string };
   upstreamModel: string;
   baseEffort: Effort;
   selectEffort?: EffortSelector;

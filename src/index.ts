@@ -14,7 +14,7 @@ Start the local Jev-powered Responses API proxy.
 Environment:
   TYPESAFE_API_KEY   Required Jev API key
   JEV_PROXY_PORT     Listening port (default: 4320)
-  UPSTREAM_MODE      cliproxy (default) or openai
+  UPSTREAM_MODE      cliproxyapi (default) or openai
   OPENAI_API_KEY     Required in openai mode; never use the client's bearer key
   UPSTREAM_BASE_URL  Mode-specific base URL (CLIProxyAPI localhost or https://api.openai.com/v1)
   UPSTREAM_MODEL     Execution model (default: gpt-6-astra)

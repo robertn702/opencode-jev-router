@@ -60,7 +60,7 @@ async function startUpstream(
   return { url, requests };
 }
 
-function startApp(upstreamBaseUrl: string, selectEffort?: Parameters<typeof createAppServer>[0]["selectEffort"], upstreamAuth: Parameters<typeof createAppServer>[0]["upstreamAuth"] = { mode: "cliproxy" }) {
+function startApp(upstreamBaseUrl: string, selectEffort?: Parameters<typeof createAppServer>[0]["selectEffort"], upstreamAuth: Parameters<typeof createAppServer>[0]["upstreamAuth"] = { mode: "cliproxyapi" }) {
   const server = createAppServer({
     upstreamBaseUrl,
     upstreamAuth,
@@ -73,7 +73,7 @@ function startApp(upstreamBaseUrl: string, selectEffort?: Parameters<typeof crea
 
 function startLimitedApp(upstreamBaseUrl: string, limits: Partial<Parameters<typeof createAppServer>[0]>) {
   return listen(createAppServer({
-    upstreamBaseUrl, upstreamAuth: { mode: "cliproxy" }, upstreamModel: "gpt-6-astra", baseEffort: "medium", ...limits,
+    upstreamBaseUrl, upstreamAuth: { mode: "cliproxyapi" }, upstreamModel: "gpt-6-astra", baseEffort: "medium", ...limits,
   }));
 }
 
