@@ -216,13 +216,15 @@ export function createJevClassifier(
 
   const previousEfforts = new EffortCache(options.cacheEntries ?? 256, options.cacheTtlMs ?? 600_000);
 
-  const select: EffortSelector = async ({ body, signal, model }) => {
+  const select: EffortSelector = async ({ body, signal, model, cacheScope }) => {
     if (signal.aborted) throw new ClassificationCancelledError();
     const startedAt = performance.now();
     const latency = (): number => Math.round(performance.now() - startedAt);
 
     const key = usableCacheKey(body.prompt_cache_key);
-    const cacheKey = key === null ? null : JSON.stringify([model.id, key]);
+    // A provider instance may serve multiple OpenCode credentials. Keep fallback
+    // state tenant-scoped even though prompt text never enters the cache.
+    const cacheKey = key === null ? null : JSON.stringify([cacheScope ?? "", model.id, key]);
     const input = Array.isArray(body.input) ? body.input : [];
     const state = { ...buildJevState(input), model: model.id };
     const questions = { effort: choice("Select the reasoning effort for the next model call.",

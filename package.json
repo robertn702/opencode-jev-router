@@ -14,6 +14,12 @@
   "bin": {
     "opencode-jev-router": "./dist/index.js"
   },
+  "main": "./dist/plugin.js",
+  "exports": {
+    ".": "./dist/plugin.js",
+    "./plugin": "./dist/plugin.js",
+    "./server": "./dist/plugin.js"
+  },
   "files": [
     "dist/",
     "examples/",
@@ -27,6 +33,7 @@
     "check": "npm run typecheck && npm run typecheck:cache && npm test",
     "prepack": "npm run build",
     "smoke:package": "node scripts/smoke-package.mjs",
+    "smoke:plugin": "node scripts/plugin-smoke.mjs",
     "eval": "tsx test/eval/jev-eval.ts",
     "eval:live": "node test/eval/live-matrix.mjs",
     "cache:validate": "tsx scripts/cache-validation.ts",

@@ -13,6 +13,15 @@ afterEach(async () => {
   }
 });
 
+describe("local shape validation", () => {
+  it.each([null, 1, [], "request"])("returns 400 without classification for %j", async (body) => {
+    let selected = 0;
+    const app = await startApp("http://127.0.0.1:1/v1", async () => { selected += 1; return { effort: "medium", jevLatencyMs: 0, fallback: null }; });
+    const response = await fetch(`${app}/v1/responses`, { method: "POST", body: JSON.stringify(body) });
+    expect(response.status).toBe(400); expect(selected).toBe(0);
+  });
+});
+
 async function listen(
   server: http.Server,
 ): Promise<string> {
