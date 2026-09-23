@@ -23,6 +23,7 @@ export interface EffortDecision {
   effort: Effort;
   jevLatencyMs: number;
   fallback: "jev_timeout" | "jev_error" | "jev_invalid_output" | null;
+  jevErrorCategory?: "http_auth" | "http_rate_limit" | "http_4xx" | "http_5xx" | "http_other" | "connection" | "sdk_timeout" | "sdk_abort" | "unknown";
 }
 
 export type EffortSelector = (args: {
@@ -372,6 +373,7 @@ async function handle(
             outboundEffort,
             jevLatencyMs: decision.jevLatencyMs,
             fallback: decision.fallback,
+            jevErrorCategory: decision.jevErrorCategory,
             outcome,
           }),
         );

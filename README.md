@@ -262,7 +262,11 @@ OpenCode's turn aggregates. The observer never logs response content.
 Per forwarded execution request the proxy emits one metadata record containing:
 
 - `request_id`, `session`, and `turn_id` for correlation.
-- `model`, `effort`, `jev_latency_ms`, `fallback`, and `outcome` for routing.
+- `model`, `effort`, `jev_latency_ms`, `fallback`, `jev_error_category`, and
+  `outcome` for routing. The category is a fixed label for `jev_error` (HTTP
+  authentication, rate limit, other 4xx/5xx, connection, SDK timeout/abort, or
+  unknown); it is null for other decisions. No error messages or response bodies
+  are recorded.
 - `input_tokens`, `cached_input_tokens`, and `output_tokens` from upstream usage.
 - `previous_effort`, `lineage_status`, and `history_updates_replayed` for lineage.
 

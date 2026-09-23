@@ -33,7 +33,18 @@ describe("local decision telemetry", () => {
       effort: "high",
       jev_latency_ms: 23,
       fallback: null,
+      jev_error_category: null,
       outcome: "completed",
     });
+  });
+
+  it("allows only fixed Jev error categories", () => {
+    const base = {
+      requestId: "test-id", outboundModel: "gpt-6-sol", outboundEffort: "medium",
+      jevLatencyMs: 12, fallback: "jev_error", outcome: "completed",
+    };
+    expect(buildEvidence({ ...base, jevErrorCategory: "http_5xx" }).jev_error_category).toBe("http_5xx");
+    expect(buildEvidence({ ...base, jevErrorCategory: "secret from server" }).jev_error_category).toBeNull();
+    expect(buildEvidence({ ...base, fallback: null, jevErrorCategory: "http_5xx" }).jev_error_category).toBeNull();
   });
 });

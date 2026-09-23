@@ -5,6 +5,10 @@ const FALLBACK_CODES = new Set([
 ]);
 
 const OUTCOMES = new Set(["completed", "failed", "request_too_large", "overloaded", "upstream_timeout"]);
+const JEV_ERROR_CATEGORIES = new Set([
+  "http_auth", "http_rate_limit", "http_4xx", "http_5xx", "http_other",
+  "connection", "sdk_timeout", "sdk_abort", "unknown",
+]);
 
 export interface Evidence {
   request_id: string;
@@ -20,6 +24,7 @@ export interface Evidence {
   effort: string;
   jev_latency_ms: number;
   fallback: string | null;
+  jev_error_category: string | null;
   outcome: string;
 }
 
@@ -35,6 +40,7 @@ export function buildEvidence(parts: {
   outboundEffort: unknown;
   jevLatencyMs: number;
   fallback: string | null;
+  jevErrorCategory?: string;
   outcome: string;
 }): Evidence {
   const fallback =
@@ -59,6 +65,8 @@ export function buildEvidence(parts: {
       ? Math.max(0, Math.round(parts.jevLatencyMs))
       : 0,
     fallback,
+    jev_error_category: fallback === "jev_error" && typeof parts.jevErrorCategory === "string" &&
+      JEV_ERROR_CATEGORIES.has(parts.jevErrorCategory) ? parts.jevErrorCategory : null,
     outcome,
   };
 }
@@ -84,6 +92,7 @@ export function formatDecisionEvent(evidence: Evidence, now = new Date()): strin
     effort: evidence.effort,
     jev_latency_ms: evidence.jev_latency_ms,
     fallback: evidence.fallback,
+    jev_error_category: evidence.jev_error_category,
     outcome: evidence.outcome,
   });
 }

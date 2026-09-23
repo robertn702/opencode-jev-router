@@ -1,4 +1,8 @@
 import {
+  APIConnectionError,
+  APIError,
+  APITimeoutError,
+  APIUserAbortError,
   choice,
   TypeSafeClient,
   type Fetch,
@@ -13,6 +17,20 @@ const EXCERPT_LIMIT = 1600;
 const USER_TEXT_LIMIT = 2000;
 const ASSISTANT_TEXT_LIMIT = 2000;
 const MAX_TOOL_RESULTS = 8;
+
+function errorCategory(error: unknown): NonNullable<EffortDecision["jevErrorCategory"]> {
+  if (error instanceof APIError) {
+    if (error.status === 401 || error.status === 403) return "http_auth";
+    if (error.status === 429) return "http_rate_limit";
+    if (error.status >= 400 && error.status < 500) return "http_4xx";
+    if (error.status >= 500 && error.status < 600) return "http_5xx";
+    return "http_other";
+  }
+  if (error instanceof APITimeoutError) return "sdk_timeout";
+  if (error instanceof APIConnectionError) return "connection";
+  if (error instanceof APIUserAbortError) return "sdk_abort";
+  return "unknown";
+}
 
 const DESCRIPTIONS: Record<Effort, string> = {
   none: "Mechanical work that does not benefit from reasoning.",
@@ -224,7 +242,7 @@ export function createJevClassifier(
       .systemOne({ state, questions }, { signal: combined })
       .then(
         (result: unknown) => ({ kind: "result" as const, result }),
-        () => ({ kind: "error" as const }),
+        (error: unknown) => ({ kind: "error" as const, category: errorCategory(error) }),
       );
 
     try {
@@ -249,7 +267,7 @@ export function createJevClassifier(
         return fallback("jev_timeout");
       }
       if (outcome.kind === "error") {
-        return fallback("jev_error");
+        return { ...fallback("jev_error"), jevErrorCategory: outcome.category };
       }
 
       const effort = extractEffort(outcome.result, model);

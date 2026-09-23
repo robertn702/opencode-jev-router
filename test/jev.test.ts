@@ -133,6 +133,7 @@ describe("Jev classifier", () => {
     const errored = await select({ body: cacheBody("k1"), signal });
     expect(errored.effort).toBe("xhigh");
     expect(errored.fallback).toBe("jev_error");
+    expect(errored.jevErrorCategory).toBe("http_5xx");
 
     mode = "hang";
     const timedOut = await select({ body: cacheBody("k1"), signal });
@@ -143,6 +144,25 @@ describe("Jev classifier", () => {
     const otherKey = await select({ body: cacheBody("k2"), signal });
     expect(otherKey.effort).toBe("medium");
     expect(otherKey.fallback).toBe("jev_error");
+    expect(otherKey.jevErrorCategory).toBe("http_5xx");
+  });
+
+  it("categorizes SDK HTTP and connection errors without retaining their messages", async () => {
+    let response: Response | null = null;
+    const { select } = createJevClassifier({
+      apiKey: "k", timeoutMs: 1000,
+      fetch: async () => {
+        if (response) return response;
+        throw new Error("secret connection detail");
+      },
+    });
+    const signal = new AbortController().signal;
+    const decide = () => select({ body: cacheBody("k1"), signal });
+    expect((await decide()).jevErrorCategory).toBe("connection");
+    response = new Response("secret auth detail", { status: 401 });
+    expect((await decide()).jevErrorCategory).toBe("http_auth");
+    response = new Response("secret rate limit detail", { status: 429 });
+    expect((await decide()).jevErrorCategory).toBe("http_rate_limit");
   });
 
   it("yields medium for missing or unusable cache keys and keys without prior values", async () => {
@@ -437,10 +457,13 @@ describe("evidence privacy under inherited debug logging", () => {
 
   it("emits metadata restricted to the explicit allowlist", async () => {
     const evidence: Array<Record<string, unknown>> = [];
+    let failJev = false;
     const { select } = createJevClassifier({
       apiKey: "k",
       timeoutMs: 500,
-      fetch: async () => okResponse("high"),
+      fetch: async () => failJev
+        ? new Response("secret server detail", { status: 503 })
+        : okResponse("high"),
     });
 
     const upstream = await (async () => {
@@ -481,6 +504,7 @@ describe("evidence privacy under inherited debug logging", () => {
       "fallback",
       "history_updates_replayed",
       "input_tokens",
+      "jev_error_category",
       "jev_latency_ms",
       "lineage_status",
       "model",
@@ -502,6 +526,14 @@ describe("evidence privacy under inherited debug logging", () => {
     for (const marker of MARKERS) {
       expect(JSON.stringify(evidence[0])).not.toContain(marker);
     }
+
+    failJev = true;
+    await fetch(`http://127.0.0.1:${appPort}/v1/responses`, {
+      method: "POST",
+      body: JSON.stringify({ model: "gpt-6-astra", input: [{ role: "user", content: "hi" }] }),
+    });
+    expect(evidence[1]).toMatchObject({ fallback: "jev_error", jev_error_category: "http_5xx" });
+    expect(JSON.stringify(evidence[1])).not.toContain("secret server detail");
 
     app.closeAllConnections();
     upstream.closeAllConnections();
