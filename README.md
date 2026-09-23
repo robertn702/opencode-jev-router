@@ -217,15 +217,6 @@ Node 24. The publish workflow checks the tag against `package.json`, runs the
 same checks, packs once, tests the **exact tarball**, then publishes that tarball
 with npm provenance. Dependency update PRs are opened weekly by Dependabot.
 
-The unscoped `opencode-jev-router` name belongs to another npm maintainer. The
-package therefore uses the `@robertn702` scope; publishing requires ownership
-of that npm scope. Configure npm trusted publishing for the GitHub repository
-`robertn702/opencode-jev-router` and workflow `publish.yml` (no GitHub environment)
-before pushing a release tag. For a first publication, bootstrap the package
-under that scope through an authorized npm account if npm requires the package
-to exist before trusted publishing can be configured. The workflow needs npm
-CLI 11.5.1 or later for OIDC and uses no long-lived npm token.
-
 For each release, add user-facing changes to `CHANGELOG.md`, update the version
 with `npm version patch|minor|major --no-git-tag-version`, review the lockfile,
 and merge the version/changelog change to `main`. Then create and push the
