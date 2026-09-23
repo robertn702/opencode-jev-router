@@ -169,7 +169,7 @@ try {
       {
         $schema: "https://opencode.ai/config.json",
         provider: {
-          jev: {
+          "jev-router": {
             npm: "@ai-sdk/openai",
             name: "Jev adaptive Astra",
             options: {
@@ -177,7 +177,7 @@ try {
               baseURL: `http://127.0.0.1:${PORT}/v1`,
             },
             models: {
-              astra: {
+              "gpt-6-astra": {
                 name: "GPT-6 Astra with adaptive effort",
                 reasoning: true,
                 options: { useResponses: true },
@@ -185,7 +185,7 @@ try {
             },
           },
         },
-        model: "jev/astra",
+        model: "jev-router/gpt-6-astra",
         permission: {
           read: "allow",
           glob: "allow",
@@ -222,7 +222,7 @@ try {
         authorization: `Bearer ${process.env.CLIPROXY_KEY}`,
       },
       body: JSON.stringify({
-        model: "anything",
+        model: "gpt-6-astra",
         reasoning: { effort: "low" },
         store: false,
         input: [{ role: "user", content: tier.prompt }],
@@ -249,7 +249,7 @@ try {
         "--dir",
         workdir,
         "-m",
-        "jev/astra",
+        "jev-router/gpt-6-astra",
         "--format",
         "json",
         "--pure",

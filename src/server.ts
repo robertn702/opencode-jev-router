@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import type { UpstreamAuth } from "./config.js";
 import {
   createServer,
   type IncomingMessage,
@@ -28,7 +29,7 @@ export type EffortSelector = (args: {
 
 export interface AppServerOptions {
   upstreamBaseUrl: string;
-  upstreamAuth: { mode: "cliproxyapi" } | { mode: "openai"; apiKey: string };
+  upstreamAuth: UpstreamAuth;
   upstreamModel: string;
   baseEffort: Effort;
   selectEffort?: EffortSelector;
@@ -122,7 +123,7 @@ function upstreamAuthorization(
   options: AppServerOptions,
   clientAuthorization: string | undefined,
 ): string | undefined {
-  return options.upstreamAuth.mode === "openai"
+  return options.upstreamAuth.policy === "bearer"
     ? `Bearer ${options.upstreamAuth.apiKey}`
     : clientAuthorization;
 }
@@ -276,7 +277,7 @@ async function handle(
       }
 
       try {
-        validateResponsesRequest(parsed);
+        validateResponsesRequest(parsed, options.upstreamModel);
       } catch (error) {
         if (error instanceof UnsupportedInputError) {
           writeJson(response, 400, {

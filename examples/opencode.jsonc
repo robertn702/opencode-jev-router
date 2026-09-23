@@ -1,17 +1,17 @@
 {
   "$schema": "https://opencode.ai/config.json",
   "provider": {
-    "jev": {
+    "jev-router": {
       "npm": "@ai-sdk/openai",
       "name": "Jev adaptive Astra",
       "options": {
-        // In openai mode, set CLIPROXY_KEY to a local placeholder (e.g. local-router).
-        // The router uses OPENAI_API_KEY from its own environment upstream.
+        // With UPSTREAM_AUTH=bearer, set CLIPROXY_KEY to a local placeholder.
+        // The router uses UPSTREAM_API_KEY from its own environment upstream.
         "apiKey": "{env:CLIPROXY_KEY}",
         "baseURL": "http://127.0.0.1:4320/v1"
       },
       "models": {
-        "astra": {
+        "gpt-6-astra": {
           "name": "GPT-6 Astra with adaptive effort",
           "reasoning": true,
           "options": {

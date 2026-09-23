@@ -30,34 +30,43 @@ describe("resource limit configuration", () => {
 });
 
 describe("upstream configuration", () => {
-  it("keeps CLIProxyAPI defaults even when an OpenAI key is present", () => {
-    const config = loadConfig({ OPENAI_API_KEY: "unused" });
-    expect(config.upstreamAuth).toEqual({ mode: "cliproxyapi" });
+  it("defaults to forwarding only to the local upstream", () => {
+    const config = loadConfig({});
+    expect(config.upstreamAuth).toEqual({ policy: "forward" });
     expect(config.upstreamBaseUrl).toBe("http://127.0.0.1:8317/v1");
   });
 
-  it("uses the official OpenAI URL only when explicitly selected", () => {
-    const config = loadConfig({ UPSTREAM_MODE: "openai", OPENAI_API_KEY: "test-key" });
-    expect(config.upstreamAuth).toEqual({ mode: "openai", apiKey: "test-key" });
+  it("supports a configured HTTPS upstream with a router-owned bearer key", () => {
+    const config = loadConfig({ UPSTREAM_BASE_URL: "https://api.openai.com/v1", UPSTREAM_AUTH: "bearer", UPSTREAM_API_KEY: "test-key" });
+    expect(config.upstreamAuth).toEqual({ policy: "bearer", apiKey: "test-key" });
     expect(config.upstreamBaseUrl).toBe("https://api.openai.com/v1");
+    expect(loadConfig({ UPSTREAM_BASE_URL: "https://gateway.example/api/v1", UPSTREAM_AUTH: "bearer", UPSTREAM_API_KEY: "gateway-key", UPSTREAM_MODEL: "custom-astra" }).upstreamModel)
+      .toBe("custom-astra");
+    expect(loadConfig({ UPSTREAM_BASE_URL: "http://localhost:8317/v1", UPSTREAM_AUTH: "bearer", UPSTREAM_API_KEY: "local-key" }).upstreamAuth)
+      .toEqual({ policy: "bearer", apiKey: "local-key" });
   });
 
-  it("rejects invalid modes, missing credentials, and credential misrouting", () => {
+  it("rejects invalid policies, missing credentials, and credential misrouting", () => {
     expect(() => loadConfig({ UPSTREAM_MODE: "other", OPENAI_API_KEY: "test-key" }))
-      .toThrow("UPSTREAM_MODE must be openai or cliproxyapi");
-    expect(() => loadConfig({ UPSTREAM_MODE: "cliproxy" }))
-      .toThrow("UPSTREAM_MODE must be openai or cliproxyapi");
-    expect(() => loadConfig({ UPSTREAM_MODE: "openai" }))
-      .toThrow("OPENAI_API_KEY is required when UPSTREAM_MODE=openai");
-    expect(() => loadConfig({ UPSTREAM_MODE: "openai", OPENAI_API_KEY: "  " }))
-      .toThrow("OPENAI_API_KEY is required when UPSTREAM_MODE=openai");
-    expect(() => loadConfig({ UPSTREAM_MODE: "openai", OPENAI_API_KEY: "test-key", UPSTREAM_BASE_URL: "http://localhost:8317/v1" }))
-      .toThrow("UPSTREAM_MODE=openai requires UPSTREAM_BASE_URL=https://api.openai.com/v1");
-    expect(() => loadConfig({ UPSTREAM_MODE: "cliproxyapi", UPSTREAM_BASE_URL: "https://api.openai.com/v1" }))
-      .toThrow("UPSTREAM_MODE=cliproxyapi cannot use api.openai.com");
+      .toThrow("UPSTREAM_MODE and OPENAI_API_KEY are unsupported");
+    expect(() => loadConfig({ OPENAI_API_KEY: "old-key" })).toThrow("unsupported");
+    expect(() => loadConfig({ UPSTREAM_AUTH: "other" }))
+      .toThrow("UPSTREAM_AUTH must be forward or bearer");
+    expect(() => loadConfig({ UPSTREAM_AUTH: "bearer" }))
+      .toThrow("UPSTREAM_API_KEY is required when UPSTREAM_AUTH=bearer");
+    expect(() => loadConfig({ UPSTREAM_AUTH: "bearer", UPSTREAM_API_KEY: "  " }))
+      .toThrow("UPSTREAM_API_KEY is required when UPSTREAM_AUTH=bearer");
+    expect(() => loadConfig({ UPSTREAM_API_KEY: "secret" })).toThrow("UPSTREAM_API_KEY requires UPSTREAM_AUTH=bearer");
+    expect(() => loadConfig({ UPSTREAM_BASE_URL: "https://api.openai.com/v1" }))
+      .toThrow("UPSTREAM_AUTH=forward requires a loopback");
+    expect(() => loadConfig({ UPSTREAM_BASE_URL: "https://gateway.example/v1" }))
+      .toThrow("UPSTREAM_AUTH=forward requires a loopback");
+    expect(() => loadConfig({ UPSTREAM_BASE_URL: "http://gateway.example/v1", UPSTREAM_AUTH: "bearer", UPSTREAM_API_KEY: "secret" }))
+      .toThrow("UPSTREAM_AUTH=bearer requires HTTPS");
     expect(() => loadConfig({ UPSTREAM_BASE_URL: "https://user:pass@proxy.example/v1" }))
       .toThrow("UPSTREAM_BASE_URL must be an HTTP(S) URL without credentials, query, or fragment");
     expect(() => loadConfig({ UPSTREAM_BASE_URL: "no-url" }))
       .toThrow("UPSTREAM_BASE_URL must be a valid HTTP(S) URL");
+    expect(() => loadConfig({ UPSTREAM_MODEL: " gpt-6-astra" })).toThrow("UPSTREAM_MODEL");
   });
 });
