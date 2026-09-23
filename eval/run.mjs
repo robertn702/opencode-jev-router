@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import { readFile, mkdir, writeFile, chmod } from "node:fs/promises";
 import { resolve, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { reconcileEvidence } from "./evidence.mjs";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const args = process.argv.slice(2);
@@ -53,12 +54,12 @@ if (remote) {
 const checkout = await git(["-C", taskRepo, "worktree", "add", "--detach", worktree, task.commit]);
 if (checkout.code !== 0) throw new Error(`Failed to create worktree: ${checkout.stderr}`);
 
-const result = { run_id: runId, task: task.id, model, arm, commit: task.commit, prepared: false, grade_passed: null, grader_error: false, elapsed_ms: null, exit_code: null, timed_out: false, requests: 0, efforts: [], fallbacks: 0, input_tokens: null, cached_input_tokens: null, output_tokens: null };
+const result = { run_id: runId, run_set: process.env.EVAL_RUN_SET ?? null, task: task.id, model, arm, commit: task.commit, prepared: false, grade_passed: null, grader_error: false, elapsed_ms: null, exit_code: null, timed_out: false, requests: 0, efforts: [], fallbacks: 0, input_tokens: null, cached_input_tokens: null, output_tokens: null };
 try {
   const config = {
     $schema: "https://opencode.ai/config.json",
     plugin: [[join(root, "dist/plugin.js"), {
-      ...(arm === "jev" ? { jevApiKey: "{env:JEV_API_KEY}", ...(process.env.JEV_BASE_URL ? { jevBaseUrl: process.env.JEV_BASE_URL } : {}) } : { fixedEffort: arm }),
+      ...(arm === "jev" ? { jevApiKey: "{env:JEV_API_KEY}", jevBaseUrl: process.env.JEV_BASE_URL ?? "https://ai-gateway.vercel.sh/typesafe" } : { fixedEffort: arm }),
       upstreamBaseURL: process.env.UPSTREAM_BASE_URL ?? "http://127.0.0.1:8317/v1",
       upstreamApiKey: "{env:CLIPROXY_KEY}", decisionsLogPath: join(dir, "decisions.jsonl"),
     }]], model: `jev-router/${model}`,
@@ -118,11 +119,13 @@ try {
     for (const field of ["input_tokens", "cached_input_tokens", "output_tokens"]) {
       if (events.length && events.every((e) => Number.isFinite(e[field]))) result[field] = events.reduce((sum, e) => sum + e[field], 0);
     }
-    const completed = oc.stdout.split("\n").filter(Boolean).flatMap((line) => {
+    const output = oc.stdout.split("\n").filter(Boolean).flatMap((line) => {
       try { return [JSON.parse(line)]; } catch { return []; }
-    }).filter((event) => event.type === "step_finish").length;
+    });
+    const reconciliation = reconcileEvidence(events, output);
+    result.auxiliary_requests = reconciliation?.auxiliary ?? null;
     result.evidence_valid = events.length > 0 && events.every((e) => e.model === model && e.outcome === "completed" && (arm === "jev" || e.effort === arm)) &&
-      completed > 0 && events.length === completed;
+      reconciliation !== null;
     if (!result.evidence_valid) { result.input_tokens = null; result.cached_input_tokens = null; result.output_tokens = null; }
   }
 } finally {

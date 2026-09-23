@@ -45,7 +45,7 @@ test("offline agent attempt grades an immutable patch and rejects missing router
     await writeFile(grader, `import {readFileSync} from 'node:fs'; if (process.env.CLIPROXY_KEY || process.env.JEV_API_KEY || process.env.UNRELATED_HOST_SECRET) process.exit(2); if (!readFileSync(process.env.EVAL_PATCH_PATH, 'utf8').includes('+after')) process.exit(1);`);
     await writeFile(manifest, JSON.stringify({ tasks: [{ id: "fake-agent", repo, commit, prompt: "Change file", grade: [process.execPath, grader] }] }));
     const fake = join(bin, "opencode");
-    await writeFile(fake, `#!${process.execPath}\nconst fs=require('node:fs'); fs.writeFileSync('file.txt','after\\n'); if(fs.existsSync(${JSON.stringify(join(temp, "evidence-on"))})){ const conf=JSON.parse(fs.readFileSync(process.env.OPENCODE_CONFIG)); const p=conf.plugin[0][1].decisionsLogPath; fs.writeFileSync(p,JSON.stringify({model:'gpt-6-sol',effort:'high',outcome:'completed',input_tokens:3,cached_input_tokens:0,output_tokens:2})+'\\n'); } console.log(JSON.stringify({type:'step_finish'}));`);
+    await writeFile(fake, `#!${process.execPath}\nconst fs=require('node:fs'); fs.writeFileSync('file.txt','after\\n'); const start=Date.now()-100; console.log(JSON.stringify({type:'step_start',timestamp:start,part:{messageID:'step'}})); if(fs.existsSync(${JSON.stringify(join(temp, "evidence-on"))})){ const conf=JSON.parse(fs.readFileSync(process.env.OPENCODE_CONFIG)); const p=conf.plugin[0][1].decisionsLogPath; const rows=[{ts:new Date(start+50).toISOString(),model:'gpt-6-sol',effort:'high',outcome:'completed',input_tokens:3,cached_input_tokens:0,output_tokens:2},{ts:new Date(start+200).toISOString(),model:'gpt-6-sol',effort:'high',outcome:'completed',input_tokens:5,cached_input_tokens:0,output_tokens:7}]; fs.writeFileSync(p,rows.map(JSON.stringify).join('\\n')+'\\n'); } console.log(JSON.stringify({type:'step_finish',timestamp:start+100,part:{messageID:'step',tokens:{input:3,output:2,reasoning:0,cache:{read:0,write:0}}}}));`);
     await chmod(fake, 0o755);
     for (const withEvidence of [true, false]) {
       if (withEvidence) await writeFile(join(temp, "evidence-on"), "yes");
@@ -56,7 +56,8 @@ test("offline agent attempt grades an immutable patch and rejects missing router
       const result = JSON.parse(await readFile(path, "utf8"));
       assert.equal(result.grade_passed, true);
       assert.equal(result.evidence_valid, withEvidence);
-      assert.equal(result.output_tokens, withEvidence ? 2 : null);
+      assert.equal(result.output_tokens, withEvidence ? 9 : null);
+      assert.equal(result.auxiliary_requests, withEvidence ? 1 : null);
       assert.equal((await readFile(join(resolve(path, ".."), "patch.diff"), "utf8")).includes("+after"), true);
       assert.equal(execFileSync("git", ["-C", repo, "worktree", "list", "--porcelain"], { encoding: "utf8" }).match(/worktree /g)?.length, 1);
       await rm(resolve(path, ".."), { recursive: true, force: true });
@@ -88,5 +89,27 @@ test("SWE-bench grader rejects an unpinned dataset before running the harness", 
     });
     assert.equal(missing.status, 2);
     assert.match(missing.stderr, /grader error/);
+  } finally { await rm(temp, { recursive: true, force: true }); }
+});
+
+test("adaptive preparation selects Gateway endpoint for Gateway key", async () => {
+  const temp = await mkdtemp(join(tmpdir(), "jev-eval-gateway-"));
+  const repo = join(temp, "repo"); const manifest = join(temp, "manifest.json");
+  try {
+    execFileSync("git", ["init", "-q", repo]);
+    await writeFile(join(repo, "file.txt"), "base\n");
+    execFileSync("git", ["-C", repo, "add", "file.txt"]);
+    execFileSync("git", ["-C", repo, "-c", "user.name=Eval", "-c", "user.email=eval@example.test", "commit", "-qm", "fixture"]);
+    const commit = execFileSync("git", ["-C", repo, "rev-parse", "HEAD"], { encoding: "utf8" }).trim();
+    await writeFile(manifest, JSON.stringify({ tasks: [{ id: "gateway", repo, commit, prompt: "Fix issue", grade: [process.execPath, "--version"] }] }));
+    const { JEV_BASE_URL: ignored, ...env } = process.env;
+    const output = execFileSync(process.execPath, ["eval/run.mjs", "--manifest", manifest, "--task", "gateway", "--model", "gpt-6-sol", "--arm", "jev", "--prepare-only"], {
+      cwd: root, encoding: "utf8", env: { ...env, EVAL_RUN_SET: "gateway-check" },
+    }).trim();
+    const result = JSON.parse(await readFile(output, "utf8"));
+    const config = JSON.parse(await readFile(join(resolve(output, ".."), "opencode.json"), "utf8"));
+    assert.equal(result.run_set, "gateway-check");
+    assert.equal(config.plugin[0][1].jevBaseUrl, "https://ai-gateway.vercel.sh/typesafe");
+    await rm(resolve(output, ".."), { recursive: true, force: true });
   } finally { await rm(temp, { recursive: true, force: true }); }
 });
