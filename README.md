@@ -8,22 +8,31 @@ OpenCode selects Astra/Luna/Sol -> one opencode-jev-router -> one Responses upst
 
 `opencode-jev-router` is a small Responses API proxy. For each `POST /v1/responses`
 it asks [Jev](https://typesafe.ai/) how much reasoning the next step needs, pins
-execution to the resolved request model, and inserts a `configuration_update` item that
-carries the selected effort before the next user message. The request-level `reasoning.effort` stays at a stable
-base (`medium` by default) so the response's reported effort is always the base
+execution to the resolved request model, and preserves historical effort updates.
+When needed, a `configuration_update` carries the selected effort before the
+current user message or after the tool results of a continuation. The request-level
+`reasoning.effort` stays at a stable base (`medium` by default), so the response's reported effort is the base
 setting, not the update-selected value.
 
 ## Status
 
-Verified spike. The checks recorded below were run on Node 24.x during
-implementation; see [Verified behavior](#verified-behavior) for what that does and
-does not prove.
+Supports Astra, Luna, and Sol through a shared Responses upstream, with bounded
+classification, streaming passthrough, cache-lineage replay, and request-level
+usage telemetry. Offline tests and live checks cover protocol compatibility;
+controlled live cache trials found no systematic additional adaptive cache loss
+in the limited sample. See [Verified behavior](#verified-behavior) for the evidence
+and remaining validation gaps.
+
+The goal is faster **successful task completion**, not higher tokens per second.
+Lower effort can reduce unnecessary reasoning; higher effort may avoid failed
+attempts or extra tool calls. Whether adaptive effort improves end-to-end time
+and correctness over fixed effort has not yet been established by a task benchmark.
 
 ## Requirements
 
 - Node.js 24.x (runtime and development)
 - Either [CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI) with Codex OAuth
-  or an OpenAI API key with access to `gpt-6-astra`
+  or an OpenAI API key with access to the selected GPT-6 model
 - A TypeSafe API key for Jev (`TYPESAFE_API_KEY`)
 
 ## Install and run
@@ -115,19 +124,19 @@ at another provider's model while performing per-request Jev classification and
   "provider": {
     "jev-router": {
       "npm": "@ai-sdk/openai",
-      "name": "Jev adaptive GPT-6",
+      "name": "Jev Router",
       "options": {
         "apiKey": "{env:CLIPROXY_KEY}",
         "baseURL": "http://127.0.0.1:4320/v1"
       },
       "models": {
         "gpt-6-astra": {
-          "name": "GPT-6 Astra with adaptive effort",
+          "name": "GPT-6 Astra",
           "reasoning": true,
           "options": { "useResponses": true }
         },
-        "gpt-6-luna": { "name": "GPT-6 Luna with adaptive effort", "reasoning": true, "options": { "useResponses": true } },
-        "gpt-6-sol": { "name": "GPT-6 Sol with adaptive effort", "reasoning": true, "options": { "useResponses": true } }
+        "gpt-6-luna": { "name": "GPT-6 Luna", "reasoning": true, "options": { "useResponses": true } },
+        "gpt-6-sol": { "name": "GPT-6 Sol", "reasoning": true, "options": { "useResponses": true } }
       }
     }
   }
@@ -165,8 +174,10 @@ supported by every registered profile; fallback remains independently `medium`.
 Astra supports `low`, `medium`, `high`, `xhigh`, and `max`; Luna and Sol also
 support `none`. Existing
 reasoning `configuration_update` items in history are preserved in their original
-positions. Exactly one current update is inserted before the next user message
-(never adjacent to another update):
+positions. A new update is inserted when the selected effort differs from the
+effective history: before the current user message, or at the tail after tool
+results when resuming an assistant without a new user message. Consecutive
+same-effort requests do not need another update. For example:
 
 ```json
 { "type": "configuration_update", "reasoning": { "effort": "high" } }
@@ -174,6 +185,21 @@ positions. Exactly one current update is inserted before the next user message
 
 Other input items keep their order. This follows the
 [reasoning guide](https://developers.openai.com/api/docs/guides/reasoning#change-reasoning-mid-conversation): preserve updates with `previous_response_id`, or replay them in their original positions. It aims to preserve an eligible reusable prefix, but cannot promise upstream cache availability, hits, or savings. The fallback-effort cache is independent of prompt caching.
+
+The in-memory lineage store reconstructs router-inserted updates when the client
+does not send them back. It matches the longest known input ancestor using item
+hashes and update positions, scoped by upstream, model, base effort, authorization,
+session/cache identity, instructions, and tools. It retains up to 256 snapshots
+for 10 minutes and does not store histories over 20,000 content items. These
+limits are independent of the configurable fallback-effort cache below.
+
+Exact retries retain their original update boundary. Caller-supplied updates
+remain intact; a conflicting update at the selected boundary returns a local
+`400` after classification instead of inserting an adjacent update. Edited or
+compacted histories, expiry, eviction, ambiguous branches/concurrent attempts,
+and process restarts can lose lineage. Without a usable session ID or cache key,
+requests are untracked. Replaying history preserves cache eligibility, not a
+guaranteed cache hit.
 
 Run the repeatable metadata-only comparison before drawing a cache conclusion;
 see [Cache validation](docs/cache-validation.md). Prefix byte/item measurements
@@ -213,17 +239,21 @@ OpenCode's turn aggregates. The observer never logs response content.
 
 ### Evidence
 
-Per accepted execution request the proxy emits one metadata record with only:
-proxy-generated request ID, outbound pinned model, validated selected effort
-(from the rewritten outbound request), Jev latency, a fixed fallback code, and a
-fixed completion/failure outcome. Prompt content, tool content, credentials,
-cache keys, raw SDK errors, and bodies are never logged.
+Per forwarded execution request the proxy emits one metadata record containing:
+
+- `request_id`, `session`, and `turn_id` for correlation.
+- `model`, `effort`, `jev_latency_ms`, `fallback`, and `outcome` for routing.
+- `input_tokens`, `cached_input_tokens`, and `output_tokens` from upstream usage.
+- `previous_effort`, `lineage_status`, and `history_updates_replayed` for lineage.
+
+Prompt content, tool content, credentials, cache keys, raw SDK errors, and bodies
+are never logged.
 Set `JEV_DECISIONS_LOG_PATH` to an absolute path to also append these metadata
 records as timestamped `JevDecision` JSONL events (`ts`, `event`, and the fields
 above). The directory is created if needed; a write failure reports only
 `decision_log_failed` and does not interrupt generation. This records the
-selected outbound update, not a measure of the model's internally applied
-reasoning effort. Requests rejected before selection have no decision event.
+selected effort, not a measure of the model's internally applied
+reasoning effort. Requests rejected before forwarding have no decision event.
 When OpenCode supplies `x-jev-session-id` and `x-jev-turn-id` headers, validated
 IDs appear as `session` and `turn_id` in the event. A turn can contain multiple
 router requests; requests without these headers have null IDs. These headers
@@ -311,6 +341,24 @@ http://127.0.0.1:4320/ready` as a startup check, `Restart=on-failure`, and
 
 ## Verified behavior
 
+### Cache preservation
+
+The 2026-09-23 controlled comparison on Node 24.21.0 made 42 live requests through
+the configured loopback upstream, using two alternating fixed/adaptive trials
+and a tool-continuation pilot. All returned HTTP 200; placement, effective-effort,
+exact-retry, and tool checks passed. Both arms averaged 2,765 cached input tokens;
+cached/input ratios were 0.869 fixed and 0.868 adaptive. Each arm had one isolated
+zero-cache request. The limited sample showed no systematic additional adaptive
+cache loss.
+
+This exercised the checked-out implementation with a deterministic injected
+selector and an in-process server. It did not verify the running deployment's
+revision or real Jev's adaptive choices. A separate real-Jev smoke completed
+with `low` effort and no fallback. See [Cache validation](docs/cache-validation.md)
+for reproduction, trial conditions, historical pilot results, and limitations.
+
+### Model and client compatibility
+
 The official [Astra](https://developers.openai.com/api/docs/models/gpt-6-astra),
 [Luna](https://developers.openai.com/api/docs/models/gpt-6-luna), and
 [Sol](https://developers.openai.com/api/docs/models/gpt-6-sol) pages document the
@@ -366,6 +414,7 @@ connection have only fake-upstream test coverage.
 npm run typecheck
 npm test
 npm run check   # both, on Node 24.x
+npm run cache:validate # offline prefix/retry/usage comparison
 ```
 
 Tests use fake upstreams and a mocked Jev fetch — no API keys or paid requests.
