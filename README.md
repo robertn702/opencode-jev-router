@@ -1,5 +1,9 @@
 # opencode-jev-router
 
+[![CI](https://github.com/robertn702/opencode-jev-router/actions/workflows/ci.yml/badge.svg)](https://github.com/robertn702/opencode-jev-router/actions/workflows/ci.yml)
+[![npm](https://img.shields.io/npm/v/%40robertn702%2Fopencode-jev-router)](https://www.npmjs.com/package/@robertn702/opencode-jev-router)
+[![MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
 Adaptive reasoning effort for OpenCode with request-local GPT-6 model selection.
 
 ```text
