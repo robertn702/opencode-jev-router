@@ -41,13 +41,17 @@ function validateReasoningMode(body: Record<string, unknown>): void {
   }
 }
 
+export function isUnsupportedProModel(model: string): boolean {
+  const normalized = model.toLowerCase();
+  return normalized.includes("astra-pro") || normalized.endsWith("-pro");
+}
+
 function validateModel(model: unknown, expectedModel?: string): void {
   if (model === undefined && expectedModel === undefined) return;
   if (typeof model !== "string") {
     throw new UnsupportedInputError("request.model must be a string matching the configured execution model");
   }
-  const normalized = model.toLowerCase();
-  if (normalized.includes("astra-pro") || normalized.endsWith("-pro")) {
+  if (isUnsupportedProModel(model)) {
     throw new UnsupportedInputError(
       `model ${JSON.stringify(model)} requests pro execution which is not supported; this proxy serves Astra standard, single-agent mode only`,
     );

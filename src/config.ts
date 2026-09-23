@@ -1,4 +1,5 @@
 import type { Effort } from "./rewrite.js";
+import { isUnsupportedProModel } from "./validate.js";
 
 const EFFORTS: readonly string[] = ["low", "medium", "high", "xhigh", "max"];
 
@@ -19,6 +20,12 @@ export interface AppConfig {
 }
 
 export type UpstreamAuth = { policy: "forward" } | { policy: "bearer"; apiKey: string };
+
+export function upstreamHostname(url: URL): string {
+  return url.hostname.startsWith("[") && url.hostname.endsWith("]")
+    ? url.hostname.slice(1, -1)
+    : url.hostname;
+}
 
 function positiveInteger(raw: string | undefined, fallback: number, name: string): number {
   const value = raw === undefined ? fallback : Number(raw);
@@ -55,6 +62,7 @@ function parseEffort(raw: string | undefined): Effort {
 function upstreamModel(raw: string | undefined): string {
   const value = raw ?? "gpt-6-astra";
   if (!value.trim() || value !== value.trim()) throw new Error("UPSTREAM_MODEL must be a non-empty model ID without surrounding whitespace");
+  if (isUnsupportedProModel(value)) throw new Error("UPSTREAM_MODEL must use standard, single-agent execution");
   return value;
 }
 

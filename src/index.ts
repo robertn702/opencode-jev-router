@@ -2,7 +2,7 @@
 import { existsSync } from "node:fs";
 import { connect } from "node:net";
 
-import { loadConfig } from "./config.js";
+import { loadConfig, upstreamHostname } from "./config.js";
 import { formatEvidence } from "./evidence.js";
 import { createJevClassifier } from "./jev.js";
 import { createAppServer, shutdownAppServer } from "./server.js";
@@ -72,7 +72,7 @@ const server = createAppServer({
   upstreamIdleTimeoutMs: config.upstreamIdleTimeoutMs,
   probeDependency: (signal) => new Promise<boolean>((resolve) => {
     const url = new URL(config.upstreamBaseUrl);
-    const socket = connect({ host: url.hostname, port: Number(url.port) || (url.protocol === "https:" ? 443 : 80) });
+    const socket = connect({ host: upstreamHostname(url), port: Number(url.port) || (url.protocol === "https:" ? 443 : 80) });
     const finish = (available: boolean): void => { socket.destroy(); resolve(available); };
     socket.once("connect", () => finish(true));
     socket.once("error", () => finish(false));
