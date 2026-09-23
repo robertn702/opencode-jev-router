@@ -1,7 +1,8 @@
 {
   "$schema": "https://opencode.ai/config.json",
   "plugin": [["@robertn702/opencode-jev-router", {
-    "jevApiKey": "{file:~/.config/jev-router/api-key}",
+    "jevApiKey": "{env:JEV_API_KEY}",
+    "jevBaseUrl": "https://ai-gateway.vercel.sh/typesafe",
     "upstreamBaseURL": "http://127.0.0.1:8317/v1",
     // Optional: uncomment with an absolute path for JevDecision JSONL events.
     // "decisionsLogPath": "/absolute/path/to/jev-plugin-decisions.jsonl",
