@@ -125,6 +125,39 @@ See [`.env.example`](.env.example) for all limits and connection settings.
 
 ### OpenCode configuration
 
+### In-process plugin (opt-in)
+
+The standalone proxy remains supported. Alternatively, install this package in
+your OpenCode project and add the plugin below. The plugin registers only the
+dedicated `jev-router` provider and installs its fetch adapter during OpenCode's
+configuration hook; it does not patch global fetch. Point `baseURL` at the
+actual Responses upstream (not the old localhost proxy) and keep the upstream
+credential in OpenCode's provider options. Keep the separate Jev key in the
+plugin tuple or `JEV_API_KEY`.
+
+```jsonc
+{
+  "plugin": [["@robertn702/opencode-jev-router@0.1.0", { "jevApiKey": "{env:JEV_API_KEY}" }]],
+  "provider": {
+    "jev-router": {
+      "npm": "@ai-sdk/openai",
+      "name": "Jev Router",
+      "options": { "apiKey": "{env:UPSTREAM_API_KEY}", "baseURL": "https://api.openai.com/v1" },
+      "models": {
+        "gpt-6-astra": { "name": "GPT-6 Astra", "reasoning": true, "options": { "useResponses": true } }
+      }
+    }
+  }
+}
+```
+
+The plugin's source compatibility is pinned to OpenCode 1.18.32's plugin and
+provider-fetch behavior. `scripts/plugin-smoke.mjs` successfully exercised an
+isolated local-file plugin load, configuration hook, rewritten fake Responses
+SSE, and independent `./server` import resolution against that runtime. This
+does not test an npm-registry installation or real services. Restart OpenCode
+after changing its configuration.
+
 Add the provider below (also in [`examples/opencode.jsonc`](examples/opencode.jsonc))
 and select `jev-router/gpt-6-astra`, `jev-router/gpt-6-luna`, or
 `jev-router/gpt-6-sol`. Restart OpenCode after changing its configuration.

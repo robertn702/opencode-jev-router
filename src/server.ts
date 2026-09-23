@@ -1,5 +1,4 @@
-import { randomUUID } from "node:crypto";
-import type { Usage } from "./usage.js";
+import { createHash, randomUUID } from "node:crypto";
 import type { UpstreamAuth } from "./config.js";
 import {
   createServer,
@@ -10,27 +9,10 @@ import {
 
 import { buildEvidence, type Evidence } from "./evidence.js";
 import { forwardUpstream, type UpstreamOutcome } from "./forward.js";
-import {
-  rewriteResponsesRequest,
-  UnsupportedInputError,
-  type Effort,
-} from "./rewrite.js";
-import { validateResponsesRequest, resolveModel } from "./validate.js";
-import type { ModelProfile } from "./models.js";
-import { LineageStore } from "./lineage.js";
-
-export interface EffortDecision {
-  effort: Effort;
-  jevLatencyMs: number;
-  fallback: "jev_timeout" | "jev_error" | "jev_invalid_output" | null;
-  jevErrorCategory?: "http_auth" | "http_rate_limit" | "http_4xx" | "http_5xx" | "http_other" | "connection" | "sdk_timeout" | "sdk_abort" | "unknown";
-}
-
-export type EffortSelector = (args: {
-  model: ModelProfile;
-  body: Record<string, unknown>;
-  signal: AbortSignal;
-}) => Promise<EffortDecision>;
+import { UnsupportedInputError, type Effort } from "./rewrite.js";
+import { ResponsesRouter, type EffortDecision, type EffortSelector } from "./router.js";
+import { resolveModel, validateResponsesRequest } from "./validate.js";
+export type { EffortDecision, EffortSelector } from "./router.js";
 
 export interface AppServerOptions {
   upstreamBaseUrl: string;
@@ -136,8 +118,11 @@ function correlationId(value: string | string[] | undefined, pattern: RegExp): s
   return typeof value === "string" && pattern.test(value) ? value : null;
 }
 
+function credentialScope(authorization: string | undefined): string {
+  return createHash("sha256").update(authorization ?? "").digest("hex");
+}
+
 export function createAppServer(options: AppServerOptions): Server {
-  const lineage = new LineageStore();
   let inFlight = 0;
   const state: Lifecycle = { draining: false, controllers: new Set(), responses: new Set() };
   let dependencyResult: boolean | undefined;
@@ -169,6 +154,7 @@ export function createAppServer(options: AppServerOptions): Server {
       jevLatencyMs: 0,
       fallback: null,
     }));
+  const router = new ResponsesRouter({ baseEffort: options.baseEffort, selectEffort, onEvidence: options.onEvidence });
 
   const server = createServer((request, response) => {
     if (state.draining && request.url !== "/health" && request.url !== "/ready") {
@@ -207,13 +193,13 @@ export function createAppServer(options: AppServerOptions): Server {
     };
     response.once("close", release);
 
-    void handle(request, response, clientAbort, selectEffort, options, async () => {
+    void handle(request, response, clientAbort, options, async () => {
       if (options.configurationValid === false) return "missing_configuration";
       if (state.draining || !server.listening) return state.draining ? "draining" : "starting";
       const available = await dependencyReady();
       if (state.draining) return "draining";
       return available ? null : "dependency_unavailable";
-    }, lineage).finally(release);
+    }, router).finally(release);
   });
   lifecycles.set(server, state);
   return server;
@@ -223,10 +209,9 @@ async function handle(
   request: IncomingMessage,
   response: ServerResponse,
   clientAbort: AbortController,
-  selectEffort: EffortSelector,
   options: AppServerOptions,
   readinessReason: () => Promise<string | null>,
-  lineage: LineageStore,
+  router: ResponsesRouter,
 ): Promise<void> {
   try {
     if (request.method === "GET" && request.url === "/health") {
@@ -286,10 +271,20 @@ async function handle(
         return;
       }
 
-      let model: ModelProfile;
+      let prepared;
       try {
-        model = resolveModel(parsed);
+        const body = parsed as Record<string, unknown>;
+        const model = resolveModel(parsed);
         validateResponsesRequest(parsed, model);
+        const session = correlationId(request.headers["x-jev-session-id"], /^ses_[A-Za-z0-9]{1,128}$/);
+        const cacheKey = typeof body.prompt_cache_key === "string" && body.prompt_cache_key.length > 0 ? body.prompt_cache_key : null;
+        const authorization = upstreamAuthorization(options, request.headers.authorization);
+        prepared = await router.prepare(parsed, {
+          signal: clientAbort.signal, session,
+          turnId: correlationId(request.headers["x-jev-turn-id"], /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i),
+          cacheScope: credentialScope(authorization),
+          scope: session || cacheKey ? [options.upstreamBaseUrl, body.model, options.baseEffort ?? model.defaultBaseEffort, authorization ?? "", session ?? "", cacheKey ?? "", body.instructions ?? null, body.tools ?? null] : null,
+        });
       } catch (error) {
         if (error instanceof UnsupportedInputError) {
           writeJson(response, 400, {
@@ -300,102 +295,25 @@ async function handle(
         }
         throw error;
       }
-
-      let decision: EffortDecision;
-      try {
-        decision = await selectEffort({
-          model,
-          body: parsed as Record<string, unknown>,
-          signal: clientAbort.signal,
-        });
-      } catch {
-        if (clientAbort.signal.aborted) {
-          return;
-        }
-        throw new Error("effort selection must resolve");
-      }
-
-      if (clientAbort.signal.aborted) {
-        return;
-      }
-
-      const body = parsed as Record<string, unknown>;
-      const session = correlationId(request.headers["x-jev-session-id"], /^ses_[A-Za-z0-9]{1,128}$/);
-      const cacheKey = typeof body.prompt_cache_key === "string" && body.prompt_cache_key.length > 0 ? body.prompt_cache_key : null;
-      // A lineage is useful only when the client supplies a stable cache or
-      // session identity. Authorization is scoped so forwarded tenants cannot
-      // reconstruct one another's histories.
-      const history = lineage.prepare(body.input as unknown[], session || cacheKey ? [
-        options.upstreamBaseUrl,
-        model.id,
-        options.baseEffort ?? model.defaultBaseEffort,
-        upstreamAuthorization(options, request.headers.authorization) ?? "",
-        session ?? "",
-        cacheKey ?? "",
-        body.instructions ?? null,
-        body.tools ?? null,
-      ] : null, decision.effort);
-      if (history.unsafe) {
-        history.discard();
-        writeJson(response, 400, {
-          error: "invalid_request",
-          message: "request history has a conflicting reasoning configuration update at the selected boundary",
-        });
-        return;
-      }
-      const rewritten = rewriteResponsesRequest(parsed, {
-        model,
-        baseEffort: options.baseEffort ?? model.defaultBaseEffort,
-        effort: decision.effort,
-        replayedInput: history.input,
-      });
-
-      // This is the selected injection, not whichever historical update happens
-      // to be last in a manually replayed input.
-      const outboundEffort: unknown = decision.effort;
-
-      const onEvidence = options.onEvidence;
-      let usage: Usage | undefined;
-      const emit = (outcome: string): void => {
-        if (onEvidence === undefined) {
-          return;
-        }
-        onEvidence(
-          buildEvidence({
-            requestId: randomUUID(),
-            usage,
-            previousEffort: history.previousEffort,
-            lineageStatus: history.status,
-            historyUpdatesReplayed: history.replayed,
-            session: correlationId(request.headers["x-jev-session-id"], /^ses_[A-Za-z0-9]+$/),
-            turnId: correlationId(request.headers["x-jev-turn-id"], /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i),
-            outboundModel: rewritten.model,
-            outboundEffort,
-            jevLatencyMs: decision.jevLatencyMs,
-            fallback: decision.fallback,
-            jevErrorCategory: decision.jevErrorCategory,
-            outcome,
-          }),
-        );
-      };
+      if (prepared === null) return;
 
       let accepted = false;
       let terminal = false;
+      let status = 0;
+      let usage;
       const forwardOutcome: UpstreamOutcome = await forwardUpstream(response, {
         method: "POST",
         onUsage: (value) => { usage = value; },
-        onResponseStatus: (statusCode) => { accepted = statusCode >= 200 && statusCode < 300; },
+        onResponseStatus: (statusCode) => { status = statusCode; accepted = statusCode >= 200 && statusCode < 300; },
         onTerminal: (completed) => { terminal = completed; },
         url: upstreamUrl(options.upstreamBaseUrl, "responses"),
         authorization: upstreamAuthorization(options, request.headers.authorization),
-        body: JSON.stringify(rewritten),
+        body: JSON.stringify(prepared.body),
         signal: clientAbort.signal,
         headerTimeoutMs: options.upstreamHeaderTimeoutMs ?? 10_000,
         idleTimeoutMs: options.upstreamIdleTimeoutMs ?? 60_000,
       });
-      if (forwardOutcome === "forwarded" && accepted && terminal) history.commit();
-      else history.discard();
-      emit(forwardOutcome === "forwarded" ? "completed" : forwardOutcome === "upstream_timeout" ? "upstream_timeout" : "failed");
+      prepared.finish(forwardOutcome === "forwarded" ? "completed" : forwardOutcome === "upstream_timeout" ? "upstream_timeout" : "failed", status, terminal, usage);
       return;
     }
 

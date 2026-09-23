@@ -27,6 +27,13 @@ export function pickResponseHeaders(
   return picked;
 }
 
+export function pickFetchResponseHeaders(headers: Headers): Headers {
+  const excluded = new Set((headers.get("connection") ?? "").split(",").map((token) => token.trim().toLowerCase()));
+  const picked = new Headers();
+  for (const [name, value] of headers) if (ALLOWED_RESPONSE_HEADERS.has(name) && !excluded.has(name)) picked.set(name, value);
+  return picked;
+}
+
 export function buildUpstreamRequestHeaders(
   authorization: string | undefined,
   body: string | undefined,
@@ -42,5 +49,19 @@ export function buildUpstreamRequestHeaders(
     headers["content-type"] = "application/json";
     headers["content-length"] = String(Buffer.byteLength(body));
   }
+  return headers;
+}
+
+/** Fetch adapter variant: retain provider credentials and configured OpenAI headers. */
+export function buildPluginUpstreamRequestHeaders(incoming: Headers, body: string): Headers {
+  const headers = new Headers(incoming);
+  const hopByHop = new Set(["connection", "keep-alive", "proxy-authenticate", "proxy-authorization", "te", "trailer", "transfer-encoding", "upgrade"]);
+  for (const token of (headers.get("connection") ?? "").split(",")) hopByHop.add(token.trim().toLowerCase());
+  for (const name of [...headers.keys()]) {
+    const lower = name.toLowerCase();
+    if (hopByHop.has(lower) || lower === "content-length" || lower === "content-encoding" || lower === "x-jev-session-id" || lower === "x-jev-turn-id" || lower === "x-opencode-session-id" || lower === "x-opencode-turn-id") headers.delete(name);
+  }
+  headers.set("content-type", "application/json");
+  headers.set("content-length", String(Buffer.byteLength(body)));
   return headers;
 }
