@@ -198,6 +198,12 @@ proxy-generated request ID, outbound pinned model, validated selected effort
 (from the rewritten outbound request), Jev latency, a fixed fallback code, and a
 fixed completion/failure outcome. Prompt content, tool content, credentials,
 cache keys, raw SDK errors, and bodies are never logged.
+Set `JEV_DECISIONS_LOG_PATH` to an absolute path to also append these metadata
+records as timestamped `JevDecision` JSONL events (`ts`, `event`, and the fields
+above). The directory is created if needed; a write failure reports only
+`decision_log_failed` and does not interrupt generation. This records the
+selected outbound update, not a measure of the model's internally applied
+reasoning effort. Requests rejected before selection have no decision event.
 Local request-size, overload, and upstream deadline failures use the fixed
 `request_too_large`, `overloaded`, and `upstream_timeout` outcome codes.
 

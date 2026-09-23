@@ -11,6 +11,9 @@ describe("resource limit configuration", () => {
     expect(defaults.effortCacheEntries).toBe(256);
     expect(defaults.effortCacheTtlMs).toBe(600_000);
     expect(defaults.shutdownGraceMs).toBe(30_000);
+    expect(defaults.decisionsLogPath).toBeUndefined();
+    expect(loadConfig({ JEV_DECISIONS_LOG_PATH: "/tmp/decisions.jsonl" }).decisionsLogPath).toBe("/tmp/decisions.jsonl");
+    expect(() => loadConfig({ JEV_DECISIONS_LOG_PATH: "relative.jsonl" })).toThrow("JEV_DECISIONS_LOG_PATH");
     expect(loadConfig({ SHUTDOWN_GRACE_MS: "50" }).shutdownGraceMs).toBe(50);
     expect(loadConfig({ MAX_IN_FLIGHT: "1" }).maxInFlight).toBe(1);
   });

@@ -44,3 +44,16 @@ export function buildEvidence(parts: {
 export function formatEvidence(evidence: Evidence): string {
   return JSON.stringify(evidence);
 }
+
+export function formatDecisionEvent(evidence: Evidence, now = new Date()): string {
+  return JSON.stringify({
+    ts: now.toISOString(),
+    event: "JevDecision",
+    request_id: evidence.request_id,
+    model: evidence.model,
+    effort: evidence.effort,
+    jev_latency_ms: evidence.jev_latency_ms,
+    fallback: evidence.fallback,
+    outcome: evidence.outcome,
+  });
+}

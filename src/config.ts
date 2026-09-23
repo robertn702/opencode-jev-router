@@ -1,4 +1,5 @@
 import type { Effort } from "./rewrite.js";
+import { isAbsolute } from "node:path";
 import { isUnsupportedProModel } from "./validate.js";
 
 const EFFORTS: readonly string[] = ["low", "medium", "high", "xhigh", "max"];
@@ -17,6 +18,7 @@ export interface AppConfig {
   effortCacheEntries: number;
   effortCacheTtlMs: number;
   shutdownGraceMs: number;
+  decisionsLogPath?: string;
 }
 
 export type UpstreamAuth = { policy: "forward" } | { policy: "bearer"; apiKey: string };
@@ -67,6 +69,9 @@ function upstreamModel(raw: string | undefined): string {
 }
 
 export function loadConfig(env: Record<string, string | undefined>): AppConfig {
+  if (env.JEV_DECISIONS_LOG_PATH !== undefined && !isAbsolute(env.JEV_DECISIONS_LOG_PATH)) {
+    throw new Error("JEV_DECISIONS_LOG_PATH must be an absolute path");
+  }
   if (env.UPSTREAM_MODE !== undefined || env.OPENAI_API_KEY !== undefined) {
     throw new Error("UPSTREAM_MODE and OPENAI_API_KEY are unsupported; use UPSTREAM_AUTH and UPSTREAM_API_KEY");
   }
@@ -118,5 +123,6 @@ export function loadConfig(env: Record<string, string | undefined>): AppConfig {
     effortCacheEntries: positiveInteger(env.EFFORT_CACHE_ENTRIES, 256, "EFFORT_CACHE_ENTRIES"),
     effortCacheTtlMs: positiveInteger(env.EFFORT_CACHE_TTL_MS, 600_000, "EFFORT_CACHE_TTL_MS"),
     shutdownGraceMs: positiveInteger(env.SHUTDOWN_GRACE_MS, 30_000, "SHUTDOWN_GRACE_MS"),
+    decisionsLogPath: env.JEV_DECISIONS_LOG_PATH,
   };
 }

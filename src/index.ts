@@ -1,9 +1,11 @@
 #!/usr/bin/env node
 import { existsSync } from "node:fs";
 import { connect } from "node:net";
+import { appendFile, mkdir } from "node:fs/promises";
+import { dirname } from "node:path";
 
 import { loadConfig, upstreamHostname } from "./config.js";
-import { formatEvidence } from "./evidence.js";
+import { formatDecisionEvent, formatEvidence } from "./evidence.js";
 import { createJevClassifier } from "./jev.js";
 import { createAppServer, shutdownAppServer } from "./server.js";
 
@@ -21,6 +23,7 @@ Environment:
   UPSTREAM_MODEL     Execution model (default: gpt-6-astra)
   BASE_EFFORT        Base reasoning effort (default: medium)
   JEV_TIMEOUT_MS     Jev timeout in milliseconds (default: 4000)
+  JEV_DECISIONS_LOG_PATH  Optional absolute path for local decision JSONL
   MAX_REQUEST_BYTES  Maximum POST body bytes (default: 1048576)
   MAX_IN_FLIGHT      Maximum active proxy requests (default: 32)
   UPSTREAM_HEADER_TIMEOUT_MS  Upstream header deadline (default: 10000)
@@ -81,6 +84,12 @@ const server = createAppServer({
   selectEffort: classifier.select,
   onEvidence: (evidence) => {
     console.log(formatEvidence(evidence));
+    if (config.decisionsLogPath && evidence.effort) {
+      const path = config.decisionsLogPath;
+      void mkdir(dirname(path), { recursive: true, mode: 0o700 })
+        .then(() => appendFile(path, `${formatDecisionEvent(evidence)}\n`, { mode: 0o600 }))
+        .catch(() => console.error(JSON.stringify({ event: "decision_log_failed" })));
+    }
   },
 });
 
