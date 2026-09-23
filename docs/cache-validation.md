@@ -51,3 +51,26 @@ An initial controlled live pilot ran on 2026-09-23 through the configured loopba
 The Node-24 repeat ran on 2026-09-23 using `npx --package=node@24` (**v24.21.0**): two alternating trials, 42 live requests (including one tool pilot), all HTTP 200, with placement/effective-effort/retry/tool checks passing. Its local, ignored metadata-only artifact is `cache-results/issue21-live-node24-two-trial.json` (not committed). Both arms averaged 2765 cached input tokens; cached/input ratios were 0.869 fixed and 0.868 adaptive. Each arm had one isolated zero-cache request, while all recorded measured retries were exact-eligible and all noninitial prefixes were fully stable. On this limited sample there is no systematic additional adaptive cache loss; it demonstrates variability, not cache-hit guarantees. The run used base Git revision `b5ea81e` with the then-uncommitted prefix-preservation implementation in the working tree, and an in-process server. No running deployment revision was verified. A separate Node-24 real-Jev smoke completed HTTP 200 with selected `low` and no fallback. The offline fake-upstream run validates harness wiring only; its synthetic usage does not demonstrate upstream cache behavior.
 
 For ongoing monitoring, query metadata-only decision logs by request correlation and compare `cached_input_tokens / input_tokens` alongside reusable prefix bytes and item counts, grouped by model, selected effort, and lineage status. Exclude null usage rather than treating it as zero.
+
+## Scope of the cache guarantee
+
+This harness measures prefix eligibility for one OpenAI Responses upstream, and
+the result depends on how that upstream accepts an effort change. Here it works
+because OpenAI exposes a mid-conversation reasoning change as a
+`configuration_update` input item: effort is request-level configuration on a
+fixed model ID, so an update can be appended after the cached prefix. That is
+OpenAI-specific and does not generalize. Providers that render effort into the
+prompt behave differently: Anthropic invalidates cached message blocks on a
+top-level `output_config.effort` change and preserves the prefix only when effort
+changes ride in a mid-conversation `system` message (a beta on selected models),
+and Gemini and xAI expose thinking level or `reasoning_effort` as request
+configuration without a documented cross-effort guarantee. Pointing this router at
+a non-OpenAI upstream requires re-measuring its cache behavior rather than
+inheriting these results.
+
+No provider shares a prompt cache across different models: the cache is KV state
+produced by one model's weights over one model's tokenization, so a model switch is
+always a cold prefix, even between adjacent versions of the same family. Cache
+lineage here is keyed on `[resolved model ID, prompt_cache_key]` and resets when the
+resolved model changes for that reason; the model in the key is required for
+correctness, not arbitrary.
