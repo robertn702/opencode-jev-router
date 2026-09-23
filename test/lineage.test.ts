@@ -28,6 +28,20 @@ describe("historical effort replay", () => {
     expect(retry.input.filter((item) => (item as { type?: string }).type === "configuration_update")).toHaveLength(1);
   });
 
+  it("keeps opaque items in place across replay and does not treat their role as a new user turn", () => {
+    const store = new LineageStore();
+    const firstInput = [user("call"), { type: "function_call", call_id: "c" }, { type: "function_call_output", call_id: "c", output: "ok" }];
+    store.prepare(firstInput, ["model", "cache", "auth"], "low").commit();
+    const opaque = { type: "future_tool_result", role: "user", content: "not a user message", data: { nested: ["unchanged"] } };
+    const next = store.prepare([...firstInput, opaque], ["model", "cache", "auth"], "high");
+    expect(next).toMatchObject({ status: "preserved", replayed: 1 });
+    expect(next.input).toEqual([
+      user("call"), { type: "function_call", call_id: "c" }, { type: "function_call_output", call_id: "c", output: "ok" },
+      { type: "configuration_update", reasoning: { effort: "low" } }, opaque,
+      { type: "configuration_update", reasoning: { effort: "high" } },
+    ]);
+  });
+
   it("places a later new user ahead of an earlier tool output", () => {
     const store = new LineageStore();
     const input = [user("call"), { type: "function_call_output", call_id: "c", output: "ok" }, user("next")];

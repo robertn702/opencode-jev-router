@@ -224,8 +224,24 @@ See [`.env.example`](.env.example) for all limits and connection settings.
   classification or generation. OpenCode reasoning-effort variants are ignored
   for this provider.
 - Array-form Responses `input` as emitted by OpenCode is supported, including tool
-  continuations (`function_call` / `function_call_output`). Other input shapes are
-  rejected with a local `400`.
+  continuations (`function_call` / `function_call_output`, `custom_tool_call` /
+  `custom_tool_call_output`). Untyped messages require a supported role (`user`,
+  `assistant`, `system`, `developer`); typed messages also require one of these
+  roles. Non-message typed JSON objects with a non-empty string `type` pass through
+  unchanged: known examples include `reasoning`, `item_reference`, computer-use
+  call/output, hosted-tool calls (such as web/file search), and future item types.
+  Their nested content, metadata, and relative order are preserved; the selected
+  upstream remains responsible for accepting their individual schemas, enabled
+  tools, model capabilities, and reference IDs. This is a pass-through contract,
+  not a claim that every type is executable on every configured upstream.
+  String input, non-object items, missing/invalid typed discriminators, and
+  unsupported message roles receive a local `400`.
+- `configuration_update` is intentionally *not* opaque: only a model-valid
+  `reasoning.effort` update with no extra fields is accepted. `reasoning.mode`
+  must be `standard` if set; `truncation` must be `disabled` if set (`auto` can
+  drop injected history). Conflicting caller updates at an insertion boundary
+  receive a local `400`. No item fields are silently stripped to make these
+  combinations work.
 - Exact registered IDs are `gpt-6-astra`, `gpt-6-luna`, and `gpt-6-sol`.
   Missing, malformed, unknown, and pro IDs fail locally before classification.
   All registered models are available without model environment settings.
@@ -285,7 +301,10 @@ OpenCode's turn aggregates. The observer never logs response content.
 ### Classification
 
 - Bounded Jev state (recent user text, assistant progress, up to 8 tool results
-  with names and error flags, failure summary) with excerpt caps.
+  with names and error flags, failure summary) with excerpt caps. Only untyped or
+  `message` user/assistant text parts and function/custom tool outputs are
+  classified. Opaque typed items, including hosted-tool and computer-use payloads,
+  are not copied into Jev state even if they contain `role`, `content`, or `output`.
 - One Jev question limited to the resolved model's supported efforts; bounded
   classifier state includes that model's registered ID.
 - `@typesafe-ai/sdk` is configured with `retry: { maxRetries: 0 }` and

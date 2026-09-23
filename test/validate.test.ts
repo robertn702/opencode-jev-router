@@ -84,10 +84,23 @@ describe("validateResponsesRequest", () => {
     ).toThrow(UnsupportedInputError);
   });
 
-  it("rejects unsupported item types", () => {
-    expect(() =>
-      validateResponsesRequest({ input: [{ type: "mystery_item" }] }),
-    ).toThrow(UnsupportedInputError);
+  it("passes through structurally valid typed items without a local type allowlist", () => {
+    const items = [
+      { type: "computer_call", id: "cu1", action: { type: "screenshot" }, status: "completed" },
+      { type: "computer_call_output", call_id: "cu1", output: { type: "computer_screenshot", image_url: "data:image/png;base64,AAAA" } },
+      { type: "web_search_call", id: "ws1", action: { query: "weather" }, status: "completed" },
+      { type: "file_search_call", id: "fs1", queries: ["manual"] },
+      { type: "item_reference", id: "item_123" },
+      { type: "future_tool_result", payload: { nested: [1, { private: "opaque" }] } },
+    ];
+    const body = { model: "gpt-6-astra", input: items };
+    expect(validateResponsesRequest(body)).toBe(body);
+    expect(body.input).toBe(items);
+  });
+
+  it.each([null, 1, [], {}, ""])('rejects malformed typed item discriminators %j', (type) => {
+    expect(() => validateResponsesRequest({ input: [{ type }] }))
+      .toThrow('request.input[0].type must be a non-empty string');
   });
 
   it("rejects message items with unsupported roles", () => {
@@ -130,6 +143,24 @@ describe("validateResponsesRequest", () => {
         input: [{ role: "user", content: "x" }],
       }),
     ).toThrow(UnsupportedInputError);
+  });
+
+  it("accepts disabled truncation and rejects unknown strategies", () => {
+    expect(() => validateResponsesRequest({ truncation: "disabled", input: [] })).not.toThrow();
+    expect(() => validateResponsesRequest({ truncation: "future", input: [] }))
+      .toThrow('request.truncation must be "disabled" when present');
+  });
+
+  it("keeps configuration updates model-valid and restricted to effort", () => {
+    for (const update of [
+      { type: "configuration_update", reasoning: { effort: "none" } },
+      { type: "configuration_update", reasoning: { effort: "high", mode: "pro" } },
+      { type: "configuration_update", reasoning: { effort: "high" }, temperature: 1 },
+      { type: "configuration_update", reasoning: null },
+    ]) {
+      expect(() => validateResponsesRequest({ input: [update] }))
+        .toThrow('request.input[0] configuration_update supports only reasoning.effort valid for request.model');
+    }
   });
 
   it("rejects a non-object reasoning value", () => {

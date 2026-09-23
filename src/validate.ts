@@ -15,17 +15,6 @@ export class UnsupportedInputError extends Error {
 
 const MESSAGE_ROLES = new Set(["user", "assistant", "system", "developer"]);
 
-const ITEM_TYPES = new Set([
-  "message",
-  "reasoning",
-  "function_call",
-  "function_call_output",
-  "custom_tool_call",
-  "custom_tool_call_output",
-  "configuration_update",
-  "item_reference",
-]);
-
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -62,9 +51,11 @@ function validateItem(item: unknown, index: number, model: ModelProfile): void {
     }
     return;
   }
-  if (typeof type !== "string" || !ITEM_TYPES.has(type)) {
+  // The upstream owns typed-item schemas. A fixed local list would reject new
+  // hosted tools and response items even when the selected upstream accepts them.
+  if (typeof type !== "string" || type.length === 0) {
     throw new UnsupportedInputError(
-      `request.input[${index}] has unsupported item type ${JSON.stringify(type)}`,
+      `request.input[${index}].type must be a non-empty string`,
     );
   }
   if (type === "message" && (typeof role !== "string" || !MESSAGE_ROLES.has(role))) {
@@ -75,11 +66,11 @@ function validateItem(item: unknown, index: number, model: ModelProfile): void {
   if (type === "configuration_update" && item.reasoning !== undefined) {
     if (!isRecord(item.reasoning) || Object.keys(item).some((key) => key !== "type" && key !== "reasoning") ||
       Object.keys(item.reasoning).length !== 1 || !supportsEffort(model, item.reasoning.effort)) {
-      throw new UnsupportedInputError(`request.input[${index}] has unsupported reasoning configuration update`);
+      throw new UnsupportedInputError(`request.input[${index}] configuration_update supports only reasoning.effort valid for request.model`);
     }
   }
   if (type === "configuration_update" && item.reasoning === undefined) {
-    throw new UnsupportedInputError(`request.input[${index}] has unsupported configuration update`);
+    throw new UnsupportedInputError(`request.input[${index}] configuration_update requires reasoning.effort valid for request.model`);
   }
 }
 
@@ -93,6 +84,9 @@ export function validateResponsesRequest(body: unknown, model: ModelProfile): Re
     throw new UnsupportedInputError(
       'request.truncation "auto" is not supported with configuration_update injection',
     );
+  }
+  if (body.truncation !== undefined && body.truncation !== "disabled") {
+    throw new UnsupportedInputError('request.truncation must be "disabled" when present');
   }
   const input = body.input;
   if (!Array.isArray(input)) {
