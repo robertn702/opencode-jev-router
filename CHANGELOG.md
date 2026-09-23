@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.2.0
+
+- Make the in-process OpenCode plugin the primary setup path, including Vercel
+  AI Gateway configuration and model defaults.
+- Pass through structurally valid Responses input items, including newer tool
+  and reference types, while keeping router-specific validation and bounded Jev state.
+
 ## 0.1.0
 
 - Initial packaged CLI for the Jev-powered Responses API proxy.
