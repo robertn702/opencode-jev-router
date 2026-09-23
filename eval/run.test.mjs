@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { mkdtemp, readFile, readdir, rm, writeFile, mkdir, chmod } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { resolve, join } from "node:path";
@@ -42,7 +42,7 @@ test("offline agent attempt grades an immutable patch and rejects missing router
     execFileSync("git", ["-C", repo, "add", "file.txt"]);
     execFileSync("git", ["-C", repo, "-c", "user.name=Eval", "-c", "user.email=eval@example.test", "commit", "-qm", "fixture"]);
     const commit = execFileSync("git", ["-C", repo, "rev-parse", "HEAD"], { encoding: "utf8" }).trim();
-    await writeFile(grader, `import {readFileSync} from 'node:fs'; if (!readFileSync(process.env.EVAL_PATCH_PATH, 'utf8').includes('+after')) process.exit(1);`);
+    await writeFile(grader, `import {readFileSync} from 'node:fs'; if (process.env.CLIPROXY_KEY || process.env.JEV_API_KEY || process.env.UNRELATED_HOST_SECRET) process.exit(2); if (!readFileSync(process.env.EVAL_PATCH_PATH, 'utf8').includes('+after')) process.exit(1);`);
     await writeFile(manifest, JSON.stringify({ tasks: [{ id: "fake-agent", repo, commit, prompt: "Change file", grade: [process.execPath, grader] }] }));
     const fake = join(bin, "opencode");
     await writeFile(fake, `#!${process.execPath}\nconst fs=require('node:fs'); fs.writeFileSync('file.txt','after\\n'); if(fs.existsSync(${JSON.stringify(join(temp, "evidence-on"))})){ const conf=JSON.parse(fs.readFileSync(process.env.OPENCODE_CONFIG)); const p=conf.plugin[0][1].decisionsLogPath; fs.writeFileSync(p,JSON.stringify({model:'gpt-6-sol',effort:'high',outcome:'completed',input_tokens:3,cached_input_tokens:0,output_tokens:2})+'\\n'); } console.log(JSON.stringify({type:'step_finish'}));`);
@@ -51,7 +51,7 @@ test("offline agent attempt grades an immutable patch and rejects missing router
       if (withEvidence) await writeFile(join(temp, "evidence-on"), "yes");
       else await rm(join(temp, "evidence-on"));
       const path = execFileSync(process.execPath, ["eval/run.mjs", "--manifest", manifest, "--task", "fake-agent", "--model", "gpt-6-sol", "--arm", "high"], {
-        cwd: root, encoding: "utf8", env: { ...process.env, PATH: `${bin}:${process.env.PATH}`, CLIPROXY_KEY: "offline" },
+        cwd: root, encoding: "utf8", env: { ...process.env, PATH: `${bin}:${process.env.PATH}`, CLIPROXY_KEY: "offline", UNRELATED_HOST_SECRET: "must-not-reach-grader" },
       }).trim();
       const result = JSON.parse(await readFile(path, "utf8"));
       assert.equal(result.grade_passed, true);
@@ -61,5 +61,32 @@ test("offline agent attempt grades an immutable patch and rejects missing router
       assert.equal(execFileSync("git", ["-C", repo, "worktree", "list", "--porcelain"], { encoding: "utf8" }).match(/worktree /g)?.length, 1);
       await rm(resolve(path, ".."), { recursive: true, force: true });
     }
+    await writeFile(grader, "process.exit(2);");
+    const erroredPath = execFileSync(process.execPath, ["eval/run.mjs", "--manifest", manifest, "--task", "fake-agent", "--model", "gpt-6-sol", "--arm", "high"], {
+      cwd: root, encoding: "utf8", env: { ...process.env, PATH: `${bin}:${process.env.PATH}`, CLIPROXY_KEY: "offline" },
+    }).trim();
+    const ungraded = JSON.parse(await readFile(erroredPath, "utf8"));
+    assert.equal(ungraded.grade_passed, null);
+    assert.equal(ungraded.grader_error, true);
+    await rm(resolve(erroredPath, ".."), { recursive: true, force: true });
+  } finally { await rm(temp, { recursive: true, force: true }); }
+});
+
+test("SWE-bench grader rejects an unpinned dataset before running the harness", async () => {
+  const temp = await mkdtemp(join(tmpdir(), "jev-eval-digest-"));
+  try {
+    const dataset = join(temp, "changed.json"); const patch = join(temp, "patch.diff");
+    await writeFile(dataset, JSON.stringify([{ instance_id: "pallets__flask-5014", base_commit: "7ee9ceb71e868944a46e1ff00b506772a53a4f1d" }]));
+    await writeFile(patch, "");
+    const result = spawnSync(process.execPath, ["eval/grade-swebench.mjs", "pallets__flask-5014"], {
+      cwd: root, encoding: "utf8", env: { ...process.env, SWE_BENCH_DATASET_PATH: dataset, EVAL_PATCH_PATH: patch, EVAL_TASK_COMMIT: "7ee9ceb71e868944a46e1ff00b506772a53a4f1d" },
+    });
+    assert.equal(result.status, 2);
+    assert.match(result.stderr, /digest mismatch/);
+    const missing = spawnSync(process.execPath, ["eval/grade-swebench.mjs", "pallets__flask-5014"], {
+      cwd: root, encoding: "utf8", env: { ...process.env, SWE_BENCH_DATASET_PATH: join(temp, "missing.json"), EVAL_PATCH_PATH: patch, EVAL_TASK_COMMIT: "7ee9ceb71e868944a46e1ff00b506772a53a4f1d" },
+    });
+    assert.equal(missing.status, 2);
+    assert.match(missing.stderr, /grader error/);
   } finally { await rm(temp, { recursive: true, force: true }); }
 });

@@ -11,3 +11,5 @@ AGENTS.local.md
 openspec/
 docs/cache-results/
 eval/runs/
+logs/
+prediction.jsonl

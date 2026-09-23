@@ -16,17 +16,20 @@ if (!taskId || !["gpt-6-astra", "gpt-6-sol"].includes(model) || !["medium", "hig
 }
 const manifest = JSON.parse(await readFile(resolve(option("--manifest") ?? join(root, "eval/tasks.json")), "utf8"));
 const task = manifest.tasks.find((item) => item.id === taskId);
+const remote = typeof task?.repo === "string" && /^https:\/\/github\.com\/[a-zA-Z0-9_.-]+\/[a-zA-Z0-9_.-]+\.git$/.test(task.repo);
+const grader = task?.grade === "swebench" ? [join(root, "eval/grade-swebench.mjs"), task.id] : task?.grade;
 if (!task || !/^[a-zA-Z0-9_-]+$/.test(task.id) || !/^\w{40}$/.test(task.commit) ||
-    typeof task.repo !== "string" || !task.repo.startsWith("/") ||
+    typeof task.repo !== "string" || !(task.repo.startsWith("/") || remote) ||
     typeof task.prompt !== "string" || !task.prompt.trim() ||
-    !Array.isArray(task.grade) || !task.grade.length || !task.grade.every((v) => typeof v === "string" && v.length > 0) ||
-    !task.grade[0].startsWith("/") || task.grade.some((arg) => arg === task.repo || arg.startsWith(`${task.repo}/`)) ||
+    !Array.isArray(grader) || !grader.length || !grader.every((v) => typeof v === "string" && v.length > 0) ||
+    !grader[0].startsWith("/") || grader.some((arg) => arg === task.repo || arg.startsWith(`${task.repo}/`)) ||
     resolve(task.repo) === root || root.startsWith(`${resolve(task.repo)}/`)) {
   throw new Error("Task missing or invalid: require pinned repo, commit, prompt, independent absolute grader argv");
 }
 const runId = `${task.id}-${model}-${arm}-${randomUUID()}`;
 const dir = join(root, "eval/runs", runId);
 const worktree = join(dir, "worktree");
+const taskRepo = remote ? join(dir, "source.git") : task.repo;
 await mkdir(dir, { recursive: true, mode: 0o700 });
 await chmod(dir, 0o700);
 const save = async (name, contents) => writeFile(join(dir, name), contents, { mode: 0o600 });
@@ -41,10 +44,16 @@ const run = (command, argv, opts = {}) => new Promise((done, reject) => {
   child.on("close", (code) => { if (timer) clearTimeout(timer); done({ code, timedOut, stdout: Buffer.concat(stdout).toString(), stderr: Buffer.concat(stderr).toString() }); });
 });
 const git = (argv, cwd) => run("git", argv, { cwd });
-const checkout = await git(["-C", task.repo, "worktree", "add", "--detach", worktree, task.commit]);
+if (remote) {
+  const initialized = await git(["init", "--bare", taskRepo]);
+  if (initialized.code !== 0) throw new Error(`Failed to initialize task source: ${initialized.stderr}`);
+  const fetched = await git(["-C", taskRepo, "fetch", "--depth=1", "--no-tags", task.repo, task.commit]);
+  if (fetched.code !== 0) throw new Error(`Failed to fetch pinned task commit: ${fetched.stderr}`);
+}
+const checkout = await git(["-C", taskRepo, "worktree", "add", "--detach", worktree, task.commit]);
 if (checkout.code !== 0) throw new Error(`Failed to create worktree: ${checkout.stderr}`);
 
-const result = { run_id: runId, task: task.id, model, arm, commit: task.commit, prepared: false, grade_passed: null, elapsed_ms: null, exit_code: null, timed_out: false, requests: 0, efforts: [], fallbacks: 0, input_tokens: null, cached_input_tokens: null, output_tokens: null };
+const result = { run_id: runId, task: task.id, model, arm, commit: task.commit, prepared: false, grade_passed: null, grader_error: false, elapsed_ms: null, exit_code: null, timed_out: false, requests: 0, efforts: [], fallbacks: 0, input_tokens: null, cached_input_tokens: null, output_tokens: null };
 try {
   const config = {
     $schema: "https://opencode.ai/config.json",
@@ -75,18 +84,23 @@ try {
     // Intent-to-add captures new agent files without staging their contents.
     const added = await git(["add", "-N", "."], worktree);
     if (added.code !== 0) throw new Error(`Failed to capture new files: ${added.stderr}`);
-    const patch = await git(["diff", "--binary", "HEAD"], worktree);
+    const patch = await git(["diff", "--binary", task.commit], worktree);
     if (patch.code !== 0) throw new Error(`Failed to capture patch: ${patch.stderr}`);
     await save("patch.diff", patch.stdout);
     if (oc.code === 0 && !oc.timedOut) {
       // The grader runs outside the agent-writable checkout and receives only
       // its patch and pinned source. An adapter must apply the patch to a fresh
       // checkout and use tests that are not taken from agent-modified files.
-      const grade = await run(task.grade[0], task.grade.slice(1), { cwd: dir, timeoutMs: 120_000,
-        env: { PATH: process.env.PATH, HOME: process.env.HOME, EVAL_PATCH_PATH: join(dir, "patch.diff"), EVAL_TASK_REPO: task.repo, EVAL_TASK_COMMIT: task.commit } });
-      result.grade_passed = grade.code === 0 && !grade.timedOut;
+      const dockerEnv = Object.fromEntries(["DOCKER_HOST", "DOCKER_CONFIG", "DOCKER_CERT_PATH", "DOCKER_TLS_VERIFY"].filter((key) => process.env[key]).map((key) => [key, process.env[key]]));
+      const grade = await run(grader[0], grader.slice(1), { cwd: dir, timeoutMs: task.grade === "swebench" ? 30 * 60_000 : 120_000,
+        env: { PATH: process.env.PATH, HOME: process.env.HOME, ...dockerEnv,
+          ...(process.env.SWE_BENCH_DATASET_PATH ? { SWE_BENCH_DATASET_PATH: process.env.SWE_BENCH_DATASET_PATH } : {}),
+          ...(process.env.SWE_BENCH_PYTHON ? { SWE_BENCH_PYTHON: process.env.SWE_BENCH_PYTHON } : {}),
+          EVAL_PATCH_PATH: join(dir, "patch.diff"), EVAL_TASK_REPO: taskRepo, EVAL_TASK_COMMIT: task.commit } });
+      result.grader_error = grade.timedOut || (grade.code !== 0 && grade.code !== 1);
+      result.grade_passed = result.grader_error ? null : grade.code === 0;
       await save("grade.log", grade.stdout + grade.stderr);
-    } else result.grade_passed = false;
+    } // An incomplete agent run was not submitted to the benchmark grader.
     // Decision logging is asynchronous; allow the queue to flush after OpenCode exits.
     let evidence = ""; let stable = 0;
     for (let i = 0; i < 30; i++) {
@@ -113,7 +127,8 @@ try {
   }
 } finally {
   await save("result.json", `${JSON.stringify(result, null, 2)}\n`);
-  const removed = await git(["-C", task.repo, "worktree", "remove", "--force", worktree]);
+  const removed = await git(["-C", taskRepo, "worktree", "remove", "--force", worktree]);
   if (removed.code !== 0) console.error(`Worktree cleanup failed: ${removed.stderr}`);
+  if (remote) await (await import("node:fs/promises")).rm(taskRepo, { recursive: true, force: true });
 }
 console.log(join(dir, "result.json"));
