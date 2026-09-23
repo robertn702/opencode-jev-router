@@ -27,7 +27,6 @@ jobs:
         run: echo "TARBALL=$RUNNER_TEMP/$(npm --silent pack --pack-destination "$RUNNER_TEMP")" >> "$GITHUB_ENV"
       - name: Smoke-test release artifact
         run: npm run smoke:package -- "$TARBALL"
-      - run: npm publish --dry-run "$TARBALL"
       - name: Check previously published artifact
         id: existing
         run: |
@@ -38,5 +37,7 @@ jobs:
           else
             echo "already_published=false" >> "$GITHUB_OUTPUT"
           fi
+      - if: steps.existing.outputs.already_published != 'true'
+        run: npm publish --dry-run "$TARBALL"
       - if: steps.existing.outputs.already_published != 'true'
         run: npm publish --provenance --access public "$TARBALL"
