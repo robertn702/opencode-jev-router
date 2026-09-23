@@ -21,6 +21,6 @@ Run set: `gateway-pilot-2026-09-23`. One short and one harder selected case; thi
 ## Reading this pilot
 
 Resolved: 10/12 attempts; adaptive arm: 4/4.
-Adaptive selected-effort events: medium 26, high 46, low 10; fallback events: 9. Fallback efforts are included in the displayed effort counts.
+Adaptive selected-effort events across 4 evidence-valid attempts: medium 26, high 46, low 10; fallback events: 9. Fallback efforts are included in the displayed effort counts.
 Each arm used one fresh attempt per task/model. Differences in solution path and run length confound token and time comparisons; these two tasks cannot establish a general saving or success-rate advantage.
 Raw OpenCode events, grader logs, and patches remain in ignored local run directories; only metadata is published here.
