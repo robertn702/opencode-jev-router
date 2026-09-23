@@ -40,6 +40,14 @@ for (const r of rows) {
   const efforts = r.evidence_valid ? [...counts].map(([effort, count]) => `${effort}:${count}`).join(", ") : "—";
   lines.push(`| ${r.task} | ${r.model} | ${r.arm} | ${cell(r.grade_passed)} | ${cell(r.grader_error)} | ${cell(r.evidence_valid)} | ${cell(Math.round(r.elapsed_ms / 1000))} | ${cell(r.requests)} | ${r.evidence_valid ? cell(r.auxiliary_requests) : "—"} | ${efforts} | ${r.evidence_valid ? cell(r.fallbacks) : "—"} | ${cell(r.input_tokens)} | ${cell(r.cached_input_tokens)} | ${cell(r.output_tokens)} | ${r.run_id} |`);
 }
+const adaptive = rows.filter((r) => r.arm === "jev");
+const choices = new Map();
+for (const r of adaptive) for (const effort of r.efforts ?? []) choices.set(effort, (choices.get(effort) ?? 0) + 1);
+lines.push("", "## Reading this pilot", "",
+  `Resolved: ${rows.filter((r) => r.grade_passed === true).length}/${rows.length} attempts; adaptive arm: ${adaptive.filter((r) => r.grade_passed === true).length}/${adaptive.length}.`,
+  `Adaptive selected-effort events: ${[...choices].map(([effort, count]) => `${effort} ${count}`).join(", ")}; fallback events: ${adaptive.reduce((sum, r) => sum + r.fallbacks, 0)}. Fallback efforts are included in the displayed effort counts.`,
+  "Each arm used one fresh attempt per task/model. Differences in solution path and run length confound token and time comparisons; these two tasks cannot establish a general saving or success-rate advantage.",
+  "Raw OpenCode events, grader logs, and patches remain in ignored local run directories; only metadata is published here.");
 const output = join(root, "results", "pilot.md");
 await mkdir(dirname(output), { recursive: true });
 await writeFile(output, `${lines.join("\n")}\n`);
