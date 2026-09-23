@@ -10,6 +10,12 @@ export interface Evidence {
   request_id: string;
   session: string | null;
   turn_id: string | null;
+  input_tokens: number | null;
+  cached_input_tokens: number | null;
+  output_tokens: number | null;
+  previous_effort: string | null;
+  lineage_status: string | null;
+  history_updates_replayed: number;
   model: string;
   effort: string;
   jev_latency_ms: number;
@@ -21,6 +27,10 @@ export function buildEvidence(parts: {
   requestId: string;
   session?: string | null;
   turnId?: string | null;
+  usage?: { input_tokens: number | null; cached_input_tokens: number | null; output_tokens: number | null };
+  previousEffort?: string | null;
+  lineageStatus?: string;
+  historyUpdatesReplayed?: number;
   outboundModel: unknown;
   outboundEffort: unknown;
   jevLatencyMs: number;
@@ -37,6 +47,12 @@ export function buildEvidence(parts: {
     request_id: parts.requestId,
     session: parts.session ?? null,
     turn_id: parts.turnId ?? null,
+    input_tokens: parts.usage?.input_tokens ?? null,
+    cached_input_tokens: parts.usage?.cached_input_tokens ?? null,
+    output_tokens: parts.usage?.output_tokens ?? null,
+    previous_effort: parts.previousEffort ?? null,
+    lineage_status: parts.lineageStatus ?? null,
+    history_updates_replayed: parts.historyUpdatesReplayed ?? 0,
     model: typeof parts.outboundModel === "string" ? parts.outboundModel : "",
     effort: typeof parts.outboundEffort === "string" ? parts.outboundEffort : "",
     jev_latency_ms: Number.isFinite(parts.jevLatencyMs)
@@ -58,6 +74,12 @@ export function formatDecisionEvent(evidence: Evidence, now = new Date()): strin
     request_id: evidence.request_id,
     session: evidence.session,
     turn_id: evidence.turn_id,
+    input_tokens: evidence.input_tokens,
+    cached_input_tokens: evidence.cached_input_tokens,
+    output_tokens: evidence.output_tokens,
+    previous_effort: evidence.previous_effort,
+    lineage_status: evidence.lineage_status,
+    history_updates_replayed: evidence.history_updates_replayed,
     model: evidence.model,
     effort: evidence.effort,
     jev_latency_ms: evidence.jev_latency_ms,
