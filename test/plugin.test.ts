@@ -16,6 +16,28 @@ const upstreamOptions = { upstreamBaseURL: "http://127.0.0.1:8317/v1", upstreamA
 afterEach(() => { globalThis.fetch = originalFetch; vi.restoreAllMocks(); });
 
 describe("jev-router plugin", () => {
+  it("uses fixed effort without a Jev key while preserving the normal rewrite and evidence path", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "jev-fixed-"));
+    const log = join(dir, "decisions.jsonl");
+    const upstream = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body));
+      expect(body.reasoning).toEqual({ effort: "medium" });
+      expect(body.input[0]).toEqual({ type: "configuration_update", reasoning: { effort: "high" } });
+      return new Response(JSON.stringify({ status: "completed", usage: { input_tokens: 3, output_tokens: 2 } }), { headers: { "content-type": "application/json" } });
+    });
+    globalThis.fetch = upstream as typeof fetch;
+    try {
+      const hooks = await plugin({}, { fixedEffort: "high", decisionsLogPath: log, ...upstreamOptions });
+      const config: any = {}; hooks.config(config);
+      const response = await config.provider["jev-router"].options.fetch("https://upstream.test/v1/responses", { method: "POST", body: JSON.stringify(request) });
+      await response.text();
+      expect(upstream).toHaveBeenCalledTimes(1);
+      await vi.waitFor(async () => expect((await readFile(log, "utf8")).trim()).not.toBe(""));
+      expect(JSON.parse((await readFile(log, "utf8")).trim())).toMatchObject({ effort: "high", jev_latency_ms: 0, fallback: null, input_tokens: 3, output_tokens: 2 });
+      hooks.dispose();
+    } finally { await rm(dir, { recursive: true, force: true }); }
+  });
+
   it("rewrites Responses requests, consumes internal headers, and commits only after downstream reads", async () => {
     const upstream = vi.fn(async (input: RequestInfo | URL, _init?: RequestInit) => {
       const sent = new Request(input, _init);

@@ -4,13 +4,13 @@ import { resolveJevConnection, upstreamHostname } from "./config.js";
 import { createDecisionLogger } from "./decision-log.js";
 import { buildPluginUpstreamRequestHeaders, pickFetchResponseHeaders } from "./headers.js";
 import { createJevClassifier } from "./jev.js";
-import { MODELS, type Effort } from "./models.js";
+import { MODELS, supportsEffort, type Effort } from "./models.js";
 import { UnsupportedInputError } from "./rewrite.js";
 import { ResponsesRouter, type PreparedRequest } from "./router.js";
 import { UsageObserver } from "./usage.js";
 import { resolveModel, validateResponsesRequest } from "./validate.js";
 
-type PluginOptions = { jevApiKey?: string; jevBaseUrl?: string; jevModel?: string; baseEffort?: Effort; maxRequestBytes?: number; maxInFlight?: number; upstreamHeaderTimeoutMs?: number; upstreamIdleTimeoutMs?: number; upstreamBaseURL?: string; upstreamApiKey?: string; decisionsLogPath?: string };
+type PluginOptions = { jevApiKey?: string; jevBaseUrl?: string; jevModel?: string; baseEffort?: Effort; fixedEffort?: Effort; maxRequestBytes?: number; maxInFlight?: number; upstreamHeaderTimeoutMs?: number; upstreamIdleTimeoutMs?: number; upstreamBaseURL?: string; upstreamApiKey?: string; decisionsLogPath?: string };
 type ProviderConfig = { npm?: string; name?: string; options?: Record<string, unknown>; models?: Record<string, unknown> };
 type OpenCodeConfig = { provider?: Record<string, ProviderConfig> };
 type HeaderHook = { sessionID: string; model: { providerID?: string; provider?: string }; provider: { id?: string } };
@@ -87,16 +87,17 @@ async function boundedBody(request: Request, maxBytes: number, signal: AbortSign
 
 /** OpenCode loader entrypoint. All state and fetch interception are per plugin instance. */
 export default async function jevRouterPlugin(_input: unknown, options: PluginOptions = {}) {
-  const connection = resolveJevConnection(options.jevApiKey ?? process.env.JEV_API_KEY ?? "", options.jevBaseUrl);
-  if (options.jevModel !== undefined && options.jevModel !== connection.model) throw new Error("jevModel must match the configured Jev endpoint");
+  const connection = options.fixedEffort === undefined ? resolveJevConnection(options.jevApiKey ?? process.env.JEV_API_KEY ?? "", options.jevBaseUrl) : undefined;
+  if (options.jevModel !== undefined && options.jevModel !== connection?.model) throw new Error("jevModel must match the configured Jev endpoint");
   if (options.baseEffort !== undefined && !["low", "medium", "high", "xhigh", "max"].includes(options.baseEffort)) throw new Error("baseEffort is unsupported");
+  if (options.fixedEffort !== undefined && !MODELS.every((model) => supportsEffort(model, options.fixedEffort))) throw new Error("fixedEffort must be supported by every model");
   const maxBytes = positive(options.maxRequestBytes, 1_048_576, "maxRequestBytes");
   const maxInFlight = positive(options.maxInFlight, 32, "maxInFlight");
   const headerTimeoutMs = positive(options.upstreamHeaderTimeoutMs, 10_000, "upstreamHeaderTimeoutMs");
   const idleTimeoutMs = positive(options.upstreamIdleTimeoutMs, 60_000, "upstreamIdleTimeoutMs");
-  const classifier = createJevClassifier({ ...connection, timeoutMs: 4_000 });
+  const selectEffort = connection ? createJevClassifier({ ...connection, timeoutMs: 4_000 }).select : async () => ({ effort: options.fixedEffort!, jevLatencyMs: 0, fallback: null });
   const onEvidence = options.decisionsLogPath === undefined ? undefined : createDecisionLogger(options.decisionsLogPath);
-  const router = new ResponsesRouter({ baseEffort: options.baseEffort, selectEffort: classifier.select, onEvidence });
+  const router = new ResponsesRouter({ baseEffort: options.baseEffort, selectEffort, onEvidence });
   const controllers = new Set<AbortController>();
   const releases = new Set<() => void>();
   let inFlight = 0; let disposed = false;
