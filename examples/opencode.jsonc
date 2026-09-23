@@ -3,15 +3,15 @@
   "provider": {
     "jev-router": {
       "npm": "@ai-sdk/openai",
-      "name": "Jev adaptive GPT-6",
+      "name": "Jev Router",
       "options": {
         "apiKey": "{env:CLIPROXY_KEY}",
         "baseURL": "http://127.0.0.1:4320/v1"
       },
       "models": {
-        "gpt-6-astra": { "name": "GPT-6 Astra with adaptive effort", "reasoning": true, "options": { "useResponses": true } },
-        "gpt-6-luna": { "name": "GPT-6 Luna with adaptive effort", "reasoning": true, "options": { "useResponses": true } },
-        "gpt-6-sol": { "name": "GPT-6 Sol with adaptive effort", "reasoning": true, "options": { "useResponses": true } }
+        "gpt-6-astra": { "name": "GPT-6 Astra", "reasoning": true, "options": { "useResponses": true } },
+        "gpt-6-luna": { "name": "GPT-6 Luna", "reasoning": true, "options": { "useResponses": true } },
+        "gpt-6-sol": { "name": "GPT-6 Sol", "reasoning": true, "options": { "useResponses": true } }
       }
     }
   }
