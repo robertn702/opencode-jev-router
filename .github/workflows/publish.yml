@@ -28,4 +28,15 @@ jobs:
       - name: Smoke-test release artifact
         run: npm run smoke:package -- "$TARBALL"
       - run: npm publish --dry-run "$TARBALL"
-      - run: npm publish --provenance --access public "$TARBALL"
+      - name: Check previously published artifact
+        id: existing
+        run: |
+          PACKAGE_SPEC=$(node -p "const p = require('./package.json'); p.name + '@' + p.version")
+          if npm view "$PACKAGE_SPEC" dist.shasum --json > "$RUNNER_TEMP/published-shasum.json" 2>/dev/null; then
+            node -e "const fs = require('node:fs'); const crypto = require('node:crypto'); const expected = JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP + '/published-shasum.json', 'utf8')); const actual = crypto.createHash('sha1').update(fs.readFileSync(process.env.TARBALL)).digest('hex'); if (expected !== actual) { console.error('Published tarball differs from tagged commit'); process.exit(1); }"
+            echo "already_published=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "already_published=false" >> "$GITHUB_OUTPUT"
+          fi
+      - if: steps.existing.outputs.already_published != 'true'
+        run: npm publish --provenance --access public "$TARBALL"

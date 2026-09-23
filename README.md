@@ -477,17 +477,26 @@ in a clean temporary directory, and starts the installed executable.
 
 ### Releasing to npm
 
-Version tags drive publishing. CI checks pull requests and pushes to `main` on
-Node 24. The publish workflow checks the tag against `package.json`, runs the
-same checks, packs once, tests the **exact tarball**, then publishes that tarball
-with npm provenance. Dependency update PRs are opened weekly by Dependabot.
+Version tags drive subsequent publishing. CI checks pull requests and pushes to
+`main` on Node 24. The tag workflow checks the version, runs the same checks,
+packs once, tests the **exact tarball**, and publishes it with npm provenance.
+Dependency update PRs are opened weekly by Dependabot.
 
-For each release, add user-facing changes to `CHANGELOG.md`, update the version
+The first publication requires an npm account with access to the `@robertn702`
+scope: npm cannot configure a trusted publisher until the package exists. After
+reviewing and merging the `0.1.0` release commit to `main`, log in to npm and
+publish its packed artifact with `npm publish --access public <tarball>`.
+Configure the package's npm trusted publisher for GitHub repository
+`robertn702/opencode-jev-router`, workflow filename `publish.yml`, and permission
+to run `npm publish`. Then push `v0.1.0` on the same commit; the tag workflow
+checks that its tarball matches the already-published bootstrap artifact. The
+first manual publish does not have GitHub Actions provenance.
+
+For later releases, add user-facing changes to `CHANGELOG.md`, update the version
 with `npm version patch|minor|major --no-git-tag-version`, review the lockfile,
-and merge the version/changelog change to `main`. Then create and push the
-matching tag on that commit, for example `git tag v0.1.0` followed by
-`git push origin v0.1.0`. The tag workflow validates, dry-runs, and publishes;
-do not publish an unreviewed tag.
+and merge the version/changelog change to `main`. Create and push the matching
+tag on that commit. The tag workflow validates, dry-runs, and publishes; do not
+publish an unreviewed tag.
 
 ## Prior art
 
