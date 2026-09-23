@@ -1,6 +1,6 @@
 import type { Effort } from "./rewrite.js";
 import { isAbsolute } from "node:path";
-import { isUnsupportedProModel } from "./validate.js";
+import { MODELS, supportsEffort } from "./models.js";
 
 const EFFORTS: readonly string[] = ["low", "medium", "high", "xhigh", "max"];
 
@@ -8,8 +8,7 @@ export interface AppConfig {
   port: number;
   upstreamBaseUrl: string;
   upstreamAuth: UpstreamAuth;
-  upstreamModel: string;
-  baseEffort: Effort;
+  baseEffort: Effort | undefined;
   jevTimeoutMs: number;
   maxRequestBytes: number;
   maxInFlight: number;
@@ -53,22 +52,19 @@ function parseTimeout(raw: string | undefined): number {
   return ms;
 }
 
-function parseEffort(raw: string | undefined): Effort {
-  const value = raw ?? "medium";
-  if (!EFFORTS.includes(value)) {
+function parseEffort(raw: string | undefined): Effort | undefined {
+  if (raw === undefined) return undefined;
+  const value = raw;
+  if (!MODELS.every((model) => supportsEffort(model, value))) {
     throw new Error(`BASE_EFFORT must be one of ${EFFORTS.join(", ")}`);
   }
   return value as Effort;
 }
 
-function upstreamModel(raw: string | undefined): string {
-  const value = raw ?? "gpt-6-astra";
-  if (!value.trim() || value !== value.trim()) throw new Error("UPSTREAM_MODEL must be a non-empty model ID without surrounding whitespace");
-  if (isUnsupportedProModel(value)) throw new Error("UPSTREAM_MODEL must use standard, single-agent execution");
-  return value;
-}
-
 export function loadConfig(env: Record<string, string | undefined>): AppConfig {
+  for (const name of ["UPSTREAM_MODEL", "UPSTREAM_MODELS", "ALLOWED_MODELS"]) {
+    if (env[name] !== undefined) throw new Error(`${name} is unsupported; select a registered model through request.model`);
+  }
   if (env.JEV_DECISIONS_LOG_PATH !== undefined && !isAbsolute(env.JEV_DECISIONS_LOG_PATH)) {
     throw new Error("JEV_DECISIONS_LOG_PATH must be an absolute path");
   }
@@ -113,7 +109,6 @@ export function loadConfig(env: Record<string, string | undefined>): AppConfig {
     upstreamAuth: policy === "bearer"
       ? { policy, apiKey: env.UPSTREAM_API_KEY!.trim() }
       : { policy },
-    upstreamModel: upstreamModel(env.UPSTREAM_MODEL),
     baseEffort: parseEffort(env.BASE_EFFORT),
     jevTimeoutMs: parseTimeout(env.JEV_TIMEOUT_MS),
     maxRequestBytes: positiveInteger(env.MAX_REQUEST_BYTES, 1_048_576, "MAX_REQUEST_BYTES"),

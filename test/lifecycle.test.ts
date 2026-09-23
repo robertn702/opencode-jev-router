@@ -22,11 +22,11 @@ async function listen(server: http.Server): Promise<string> {
 }
 
 function app(options: Partial<AppServerOptions> = {}): http.Server {
-  return createAppServer({ upstreamBaseUrl: "http://127.0.0.1:9", upstreamAuth: { policy: "forward" }, upstreamModel: "astra",
+  return createAppServer({ upstreamBaseUrl: "http://127.0.0.1:9", upstreamAuth: { policy: "forward" },
     baseEffort: "medium", ...options });
 }
 
-const input = JSON.stringify({ model: "astra", input: [{ role: "user", content: "hi" }] });
+const input = JSON.stringify({ model: "gpt-6-astra", input: [{ role: "user", content: "hi" }] });
 
 describe("lifecycle and readiness", () => {
   it("reports ready, missing configuration and unavailable dependencies without probing health", async () => {

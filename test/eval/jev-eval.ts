@@ -15,6 +15,7 @@ import type { Effort } from "../../src/rewrite.js";
 
 const EFFORTS: readonly Effort[] = ["low", "medium", "high", "xhigh", "max"];
 const ORDINAL: Record<Effort, number> = {
+  none: -1,
   low: 0,
   medium: 1,
   high: 2,
@@ -166,6 +167,7 @@ async function main(): Promise<number> {
     while (runs.length < RUNS_PER_SCENARIO && attempts < MAX_ATTEMPTS_PER_SCENARIO) {
       attempts += 1;
       const decision = await classifier.select({
+        model: findModel("gpt-6-astra")!,
         body: { input: stateToInput(scenario.state) },
         signal: new AbortController().signal,
       });
@@ -305,3 +307,4 @@ main().then(
     process.exit(1);
   },
 );
+import { findModel } from "../../src/models.js";

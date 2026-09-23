@@ -7,7 +7,7 @@ import {
 } from "../src/rewrite.js";
 
 const options: RewriteOptions = {
-  upstreamModel: "gpt-6-astra",
+  model: findModel("gpt-6-astra")!,
   baseEffort: "medium",
   effort: "high",
 };
@@ -141,3 +141,4 @@ describe("rewriteResponsesRequest", () => {
     );
   });
 });
+import { findModel } from "../src/models.js";

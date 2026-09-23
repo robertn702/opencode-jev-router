@@ -1,14 +1,14 @@
 # opencode-jev-router
 
-Adaptive reasoning effort for OpenCode with one fixed execution model.
+Adaptive reasoning effort for OpenCode with request-local GPT-6 model selection.
 
 ```text
-OpenCode (jev-router/gpt-6-astra) -> opencode-jev-router -> configured Responses upstream
+OpenCode selects Astra/Luna/Sol -> one opencode-jev-router -> one Responses upstream
 ```
 
 `opencode-jev-router` is a small Responses API proxy. For each `POST /v1/responses`
 it asks [Jev](https://typesafe.ai/) how much reasoning the next step needs, pins
-execution to `gpt-6-astra`, and appends an Astra `configuration_update` item that
+execution to the resolved request model, and appends a `configuration_update` item that
 carries the selected effort. The request-level `reasoning.effort` stays at a stable
 base (`medium` by default) so the response's reported effort is always the base
 setting, not the update-selected value.
@@ -65,8 +65,8 @@ UPSTREAM_AUTH=bearer
 UPSTREAM_API_KEY=sk-...
 ```
 
-The upstream contract is `UPSTREAM_BASE_URL`, `UPSTREAM_MODEL` (default
-`gpt-6-astra`), and `UPSTREAM_AUTH`. The default `forward` policy passes the
+The upstream contract is `UPSTREAM_BASE_URL` and `UPSTREAM_AUTH`, shared by all
+three registered models. The default `forward` policy passes the
 client Authorization header to a **loopback-only** upstream. The `bearer` policy
 replaces it with `Bearer UPSTREAM_API_KEY`, regardless of the client credential;
 it permits HTTPS upstreams (including direct OpenAI or an external gateway) and
@@ -97,7 +97,9 @@ See [`.env.example`](.env.example) for all limits and connection settings.
 ### OpenCode configuration
 
 Add the provider below (also in [`examples/opencode.jsonc`](examples/opencode.jsonc))
-and select `jev-router/gpt-6-astra`. With `UPSTREAM_AUTH=forward`,
+and select `jev-router/gpt-6-astra`, `jev-router/gpt-6-luna`, or
+`jev-router/gpt-6-sol`. Restart OpenCode after changing its configuration.
+With `UPSTREAM_AUTH=forward`,
 `CLIPROXY_KEY` must be set in the OpenCode process; the proxy forwards that
 bearer credential to CLIProxyAPI. With `UPSTREAM_AUTH=bearer`, set
 `CLIPROXY_KEY` to a non-secret placeholder such as
@@ -113,7 +115,7 @@ at another provider's model while performing per-request Jev classification and
   "provider": {
     "jev-router": {
       "npm": "@ai-sdk/openai",
-      "name": "Jev adaptive Astra",
+      "name": "Jev adaptive GPT-6",
       "options": {
         "apiKey": "{env:CLIPROXY_KEY}",
         "baseURL": "http://127.0.0.1:4320/v1"
@@ -123,7 +125,9 @@ at another provider's model while performing per-request Jev classification and
           "name": "GPT-6 Astra with adaptive effort",
           "reasoning": true,
           "options": { "useResponses": true }
-        }
+        },
+        "gpt-6-luna": { "name": "GPT-6 Luna with adaptive effort", "reasoning": true, "options": { "useResponses": true } },
+        "gpt-6-sol": { "name": "GPT-6 Sol with adaptive effort", "reasoning": true, "options": { "useResponses": true } }
       }
     }
   }
@@ -134,7 +138,7 @@ at another provider's model while performing per-request Jev classification and
 
 ### Scope
 
-- Astra **standard, single-agent mode only** with either upstream connection. Requests
+- GPT-6 **standard, single-agent mode only** with either upstream connection. Requests
   with `reasoning.mode` other than `standard` (pro, multi-agent, etc.), pro model
   slugs, a missing or mismatched `model`, or `truncation: "auto"` are rejected with a local `400` before
   classification or generation. OpenCode reasoning-effort variants are ignored
@@ -142,47 +146,49 @@ at another provider's model while performing per-request Jev classification and
 - Array-form Responses `input` as emitted by OpenCode is supported, including tool
   continuations (`function_call` / `function_call_output`). Other input shapes are
   rejected with a local `400`.
-- `UPSTREAM_MODEL` pins the outbound model (default `gpt-6-astra`). Incoming
-  `model` must exactly match it. If you configure another execution model, update
-  the OpenCode model entry to the same ID; the router does not silently alias it.
-  Direct API access requires that model to be available to your API organization; a Codex
-  subscription or CLIProxyAPI alias does not grant API access. Check the
-  [OpenAI model documentation](https://developers.openai.com/api/docs/models/gpt-6-astra)
-  for API availability and supported efforts. `configuration_update` is supported
-  for the GPT-6 family in standard, single-agent mode; choosing a different model
-  can cause the API to reject this router's update item.
+- Exact registered IDs are `gpt-6-astra`, `gpt-6-luna`, and `gpt-6-sol`.
+  Missing, malformed, unknown, and pro IDs fail locally before classification.
+  All registered models are available without model environment settings.
+  `UPSTREAM_MODEL`, `UPSTREAM_MODELS`, and `ALLOWED_MODELS` are rejected at startup
+  with value-free diagnostics directing selection through `request.model`.
+  There are no aliases or custom-model overrides. Upstream entitlement is separate.
+- `/v1/models` remains authenticated upstream passthrough: its inventory is not
+  the router capability registry. Independent same-model tool continuations are
+  supported; arbitrary cross-model encrypted reasoning or response-ID replay is
+  not guaranteed.
 
-### Effort updates and cache lineage
+### Effort updates (no cache lineage)
 
-Every execution request uses the configured `UPSTREAM_MODEL` (default
-`gpt-6-astra`) with a stable request-level `reasoning.effort` (`BASE_EFFORT`,
-default `medium`). For requests with a session header or `prompt_cache_key`, a
-bounded in-memory ledger restores router-inserted updates at their original
-positions. A new update is appended when the selected effort changes:
+Every execution request uses its resolved model with a stable request-level
+`reasoning.effort` (profile default `medium`). Optional `BASE_EFFORT` must be
+supported by every registered profile; fallback remains independently `medium`.
+Astra supports `low`, `medium`, `high`, `xhigh`, and `max`; Luna and Sol also
+support `none`. Existing
+reasoning `configuration_update` items are stripped from the input and exactly one
+current update is appended at the end:
 
 ```json
 { "type": "configuration_update", "reasoning": { "effort": "high" } }
 ```
 
-Other input items keep their order. The ledger stores only hashes and update
-positions, scoped to credentials, session/cache key, model, instructions, and
-tools. It retains up to 256 request snapshots for ten minutes. Branches use the
-longest matching ancestor; edited or compacted history starts a fresh lineage.
-Restart, expiry, eviction, and missing identifiers can lose lineage. Preserving
-the prefix enables cache reuse; actual upstream cache hits remain best-effort
-and require live validation on the deployed upstream.
+Other input items keep their order. This strip/append policy does not replay
+updates at their original historical positions and promises no cache lineage,
+hits, or savings. The fallback-effort cache is independent of prompt caching.
 
 Decision telemetry includes `input_tokens`, `cached_input_tokens`, and
 `output_tokens` from upstream JSON or SSE usage, plus `previous_effort`,
 `lineage_status`, and `history_updates_replayed`. Missing or oversized usage
-events yield null counts, not zero. These are request-level counters, not
+events yield null counts, not zero. Previous effort and lineage status remain
+null, and replayed update count is zero, because this router does not replay
+history. These are request-level counters, not
 OpenCode's turn aggregates. The observer never logs response content.
 
 ### Classification
 
 - Bounded Jev state (recent user text, assistant progress, up to 8 tool results
   with names and error flags, failure summary) with excerpt caps.
-- One Jev question selecting `low`, `medium`, `high`, `xhigh`, or `max`.
+- One Jev question limited to the resolved model's supported efforts; bounded
+  classifier state includes that model's registered ID.
 - `@typesafe-ai/sdk` is configured with `retry: { maxRetries: 0 }` and
   `logLevel: "off"` explicitly (SDK logging is suppressed even when
   `TYPESAFE_LOG_LEVEL` is inherited as `debug`).
@@ -191,9 +197,13 @@ OpenCode's turn aggregates. The observer never logs response content.
   leaves the request running and no retry loop.
 - On timeout (`jev_timeout`), error (`jev_error`), or invalid output
   (`jev_invalid_output`), the previous validated effort for the same usable
-  `prompt_cache_key` is reused; otherwise `medium`. The in-memory previous-effort
+  tuple `[resolved model ID, prompt_cache_key]` is reused; otherwise the profile
+  fallback. Tuple encoding is collision-safe; the upstream key is unchanged.
+  Missing/blank keys disable history. Only successful classifications write or
+  renew TTL; fallback does not. The globally shared in-memory previous-effort
   cache is limited to 256 entries and 10 minutes by default, with LRU eviction
-  and lazy expiry. It is not a history or cache-preservation store.
+  and lazy expiry across all models. This is fallback-effort state, not prompt/KV
+  caching or cache lineage.
 - Client cancellation is separate from classifier failure: a disconnect aborts
   classification and any upstream request and never fails open into generation,
   including at the timeout-to-fallback boundary. Late classifier results cannot
@@ -298,6 +308,23 @@ http://127.0.0.1:4320/ready` as a startup check, `Restart=on-failure`, and
   upstream retries.
 
 ## Verified behavior
+
+The official [Astra](https://developers.openai.com/api/docs/models/gpt-6-astra),
+[Luna](https://developers.openai.com/api/docs/models/gpt-6-luna), and
+[Sol](https://developers.openai.com/api/docs/models/gpt-6-sol) pages document the
+supported effort sets. The [reasoning guide](https://developers.openai.com/api/docs/guides/reasoning#change-reasoning-mid-conversation)
+documents configuration updates for the GPT-6 family in standard, single-agent mode.
+
+Multi-model verification on Node 24.21.0 passed 90 offline tests and the build.
+Live checks through the configured loopback upstream at `http://127.0.0.1:8317`
+with forwarded credentials returned HTTP 200 and completed for non-streaming,
+SSE completion, and independent same-model tool continuations on all three models.
+These checks used `scripts/verify-models.mjs`; incremental SSE is tested offline.
+Actual OpenCode-client acceptance of all three selections and additional explicit
+multi-model edge-case assertions remain pending. Direct bearer-auth live checks
+were not run for this change.
+
+The following results are historical Astra checks, not new Luna/Sol evidence.
 
 Ran on Node 24.x (`npm run check`: 51 tests) with **OpenCode 1.18.32** and
 **CLIProxyAPI 7.2.151**:

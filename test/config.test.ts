@@ -43,8 +43,14 @@ describe("upstream configuration", () => {
     const config = loadConfig({ UPSTREAM_BASE_URL: "https://api.openai.com/v1", UPSTREAM_AUTH: "bearer", UPSTREAM_API_KEY: "test-key" });
     expect(config.upstreamAuth).toEqual({ policy: "bearer", apiKey: "test-key" });
     expect(config.upstreamBaseUrl).toBe("https://api.openai.com/v1");
-    expect(loadConfig({ UPSTREAM_BASE_URL: "https://gateway.example/api/v1", UPSTREAM_AUTH: "bearer", UPSTREAM_API_KEY: "gateway-key", UPSTREAM_MODEL: "custom-astra" }).upstreamModel)
-      .toBe("custom-astra");
+    expect(loadConfig({}).baseEffort).toBeUndefined();
+    for (const name of ["UPSTREAM_MODEL", "UPSTREAM_MODELS", "ALLOWED_MODELS"]) {
+      for (const value of ["", "secret-model"]) {
+        expect(() => loadConfig({ [name]: value })).toThrow(`${name} is unsupported; select a registered model through request.model`);
+      }
+    }
+    expect(() => loadConfig({ BASE_EFFORT: "none" })).toThrow("BASE_EFFORT");
+    expect(loadConfig({ BASE_EFFORT: "high" }).baseEffort).toBe("high");
     expect(loadConfig({ UPSTREAM_BASE_URL: "http://localhost:8317/v1", UPSTREAM_AUTH: "bearer", UPSTREAM_API_KEY: "local-key" }).upstreamAuth)
       .toEqual({ policy: "bearer", apiKey: "local-key" });
     expect(loadConfig({ UPSTREAM_BASE_URL: "http://[::1]:8317/v1" }).upstreamAuth)
@@ -74,6 +80,6 @@ describe("upstream configuration", () => {
     expect(() => loadConfig({ UPSTREAM_BASE_URL: "no-url" }))
       .toThrow("UPSTREAM_BASE_URL must be a valid HTTP(S) URL");
     expect(() => loadConfig({ UPSTREAM_MODEL: " gpt-6-astra" })).toThrow("UPSTREAM_MODEL");
-    expect(() => loadConfig({ UPSTREAM_MODEL: "gpt-6-astra-pro" })).toThrow("UPSTREAM_MODEL must use standard");
+    expect(() => loadConfig({ UPSTREAM_MODEL: "gpt-6-astra-pro" })).toThrow("UPSTREAM_MODEL is unsupported");
   });
 });
