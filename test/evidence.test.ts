@@ -5,6 +5,8 @@ describe("local decision telemetry", () => {
   it("records only bounded metadata, not arbitrary request fields", () => {
     const evidence = buildEvidence({
       requestId: "test-id",
+      session: "ses_abc123",
+      turnId: "57e52d14-5cfa-4db3-a35a-48e9fcb9567d",
       outboundModel: "gpt-6-astra",
       outboundEffort: "high",
       jevLatencyMs: 23,
@@ -19,6 +21,8 @@ describe("local decision telemetry", () => {
       ts: "2026-09-23T00:00:00.000Z",
       event: "JevDecision",
       request_id: "test-id",
+      session: "ses_abc123",
+      turn_id: "57e52d14-5cfa-4db3-a35a-48e9fcb9567d",
       model: "gpt-6-astra",
       effort: "high",
       jev_latency_ms: 23,

@@ -128,6 +128,10 @@ function upstreamAuthorization(
     : clientAuthorization;
 }
 
+function correlationId(value: string | string[] | undefined, pattern: RegExp): string | null {
+  return typeof value === "string" && pattern.test(value) ? value : null;
+}
+
 export function createAppServer(options: AppServerOptions): Server {
   let inFlight = 0;
   const state: Lifecycle = { draining: false, controllers: new Set(), responses: new Set() };
@@ -330,6 +334,8 @@ async function handle(
         onEvidence(
           buildEvidence({
             requestId: randomUUID(),
+            session: correlationId(request.headers["x-jev-session-id"], /^ses_[A-Za-z0-9]+$/),
+            turnId: correlationId(request.headers["x-jev-turn-id"], /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i),
             outboundModel: rewritten.model,
             outboundEffort,
             jevLatencyMs: decision.jevLatencyMs,

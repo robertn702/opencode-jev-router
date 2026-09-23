@@ -460,12 +460,16 @@ describe("evidence privacy under inherited debug logging", () => {
       "model",
       "outcome",
       "request_id",
+      "session",
+      "turn_id",
     ]);
     expect(evidence[0]).toMatchObject({
       model: "gpt-6-astra",
       effort: "high",
       fallback: null,
       outcome: "completed",
+      session: null,
+      turn_id: null,
     });
     for (const marker of MARKERS) {
       expect(JSON.stringify(evidence[0])).not.toContain(marker);

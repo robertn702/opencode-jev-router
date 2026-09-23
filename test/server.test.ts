@@ -83,6 +83,27 @@ const simpleInput = JSON.stringify({
 });
 
 describe("forwarding lifecycle", () => {
+  it("logs validated session and turn IDs without forwarding correlation headers", async () => {
+    const upstream = await startUpstream((_request, response) => response.end("{}"));
+    const evidence: Array<{ session: string | null; turn_id: string | null }> = [];
+    const app = await startLimitedApp(upstream.url, { onEvidence: (entry) => evidence.push(entry) });
+    const turnId = "57e52d14-5cfa-4db3-a35a-48e9fcb9567d";
+    for (const headers of [
+      { "x-jev-session-id": "ses_abc123", "x-jev-turn-id": turnId },
+      { "x-jev-session-id": "invalid", "x-jev-turn-id": "invalid" },
+    ]) {
+      const response = await fetch(`${app}/v1/responses`, { method: "POST", headers, body: simpleInput });
+      expect(response.status).toBe(200);
+      await response.text();
+    }
+    expect(evidence.map(({ session, turn_id }) => ({ session, turn_id }))).toEqual([
+      { session: "ses_abc123", turn_id: turnId },
+      { session: null, turn_id: null },
+    ]);
+    expect(upstream.requests[0]!.headers["x-jev-session-id"]).toBeUndefined();
+    expect(upstream.requests[0]!.headers["x-jev-turn-id"]).toBeUndefined();
+  });
+
   it("accepts the byte boundary and rejects a chunked body beyond it before classification", async () => {
     let calls = 0;
     const upstream = await startUpstream((_request, response) => response.end("{}"));
