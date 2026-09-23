@@ -34,8 +34,13 @@ if (!row || row.base_commit !== process.env.EVAL_TASK_COMMIT) {
   console.error("Instance or base commit does not match the pinned dataset");
   process.exit(2);
 }
+const patch = readFileSync(process.env.EVAL_PATCH_PATH, "utf8");
+if (!patch.trim()) {
+  console.log(JSON.stringify({ instance_id: id, resolved: false, reason: "empty_patch" }));
+  process.exit(1);
+}
 const predictions = join(dir, "prediction.jsonl");
-writeFileSync(predictions, JSON.stringify({ instance_id: id, model_name_or_path: "jev-eval", model_patch: readFileSync(process.env.EVAL_PATCH_PATH, "utf8") }) + "\n", { mode: 0o600 });
+writeFileSync(predictions, JSON.stringify({ instance_id: id, model_name_or_path: "jev-eval", model_patch: patch }) + "\n", { mode: 0o600 });
 const runId = `jev-${randomUUID()}`;
 const run = spawnSync(process.env.SWE_BENCH_PYTHON ?? "python3", ["-m", "swebench.harness.run_evaluation", "--dataset_name", dataset,
   "--predictions_path", predictions, "--instance_ids", id, "--max_workers", "1", "--run_id", runId],

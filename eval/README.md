@@ -57,7 +57,9 @@ Docker and the official SWE-bench harness (pilot revision
 the interpreter with `swebench` installed, if not available through `python3`.
 Check the gold prediction and the unmodified base against the installed harness
 before spending model runs. Configure
-`JEV_API_KEY` for the adaptive arm and `CLIPROXY_KEY` for every arm; the default
+`JEV_API_KEY` for the adaptive arm and `CLIPROXY_KEY` for every arm. The eval
+defaults Jev to Vercel AI Gateway (`https://ai-gateway.vercel.sh/typesafe`);
+set `JEV_BASE_URL=https://api.typesafe.ai` only for a direct TypeSafe key. The default
 upstream is `http://127.0.0.1:8317/v1` (override with `UPSTREAM_BASE_URL`).
 The baseline arms do not contact Jev. OpenCode config is generated for each
 attempt and project config loading is disabled to avoid task-local overrides.
@@ -84,8 +86,13 @@ inspect/redact before publishing. Do not publish keys or complete private tasks.
 efforts, fallback count and summed upstream usage. If any response lacks usage,
 the corresponding total is `null`, not an estimated saving. Model output tokens
 include billed reasoning tokens. Subscription usage is not a dollar-cost claim.
-If router evidence is absent or differs from OpenCode step-finish events, the
-result is marked `evidence_valid: false` and token totals are withheld.
+If router evidence is absent or cannot reconcile every OpenCode step-finish
+event by ordered usage, the result is marked `evidence_valid: false` and token
+totals are withheld. OpenCode may make auxiliary provider requests without a
+step-finish event. The reconciler requires exactly one early auxiliary request
+in the observed OpenCode run shape, counts it in totals, and reports it as
+`auxiliary_requests`; its purpose is not proven by the metadata alone. Other
+shapes fail closed until explicitly verified.
 Two tasks per model × three arms = 12 attempts; this is a harness pilot, not a
 statistically meaningful benchmark score. Inspect the `efforts` array and
 `fallbacks` for each Jev attempt: neither high nor xhigh is guaranteed, and a
@@ -93,7 +100,8 @@ fallback to medium is not evidence of routing. Report the observed effort
 distribution, including if every decision is low or medium; do not present
 these two tasks as evidence of broad savings or an xhigh benefit.
 
-For durable, low-maintenance references, run `node eval/summarize.mjs` after
+For durable, low-maintenance references, set a distinct `EVAL_RUN_SET` for all
+attempts in a matrix. Run `node eval/summarize.mjs --run-set NAME` after
 the attempts, review `eval/results/pilot.md`, and commit that metadata-only
 table to this repo for a stable GitHub URL. Attach raw run directories to a
 GitHub Release or upload them as CI artifacts for auditing if desired;
