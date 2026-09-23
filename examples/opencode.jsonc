@@ -3,6 +3,8 @@
   "plugin": [["@robertn702/opencode-jev-router", {
     "jevApiKey": "{file:~/.config/jev-router/api-key}",
     "upstreamBaseURL": "http://127.0.0.1:8317/v1",
+    // Optional: uncomment with an absolute path for JevDecision JSONL events.
+    // "decisionsLogPath": "/absolute/path/to/jev-plugin-decisions.jsonl",
     "upstreamApiKey": "{env:CLIPROXY_KEY}"
   }]],
   "model": "jev-router/gpt-6-astra"

@@ -141,7 +141,8 @@ values in plugin options before the plugin receives them.
   "plugin": [["@robertn702/opencode-jev-router@0.1.0", {
     "jevApiKey": "{file:~/.config/jev-router/api-key}",
     "upstreamBaseURL": "http://127.0.0.1:8317/v1",
-    "upstreamApiKey": "{env:CLIPROXY_KEY}"
+    "upstreamApiKey": "{env:CLIPROXY_KEY}",
+    "decisionsLogPath": "/absolute/path/to/jev-plugin-decisions.jsonl"
   }]],
   "model": "jev-router/gpt-6-astra"
 }
@@ -154,12 +155,18 @@ SSE, and independent `./server` import resolution against that runtime. This
 does not test an npm-registry installation or real services. Restart OpenCode
 after changing its configuration.
 
-The in-process plugin does not emit `JevDecision` events or use
-`JEV_DECISIONS_LOG_PATH`; that logging is implemented by the standalone CLI.
-An OpenCode turn showing provider `jev-router` confirms provider selection,
-but does not by itself reveal Jev's chosen effort or whether classification
-fell back. To inspect per-request decisions, use the standalone proxy with
-decision logging enabled.
+Set the optional plugin `decisionsLogPath` to an **absolute** local path to
+append timestamped, metadata-only `JevDecision` JSONL events. Omit it to disable
+plugin logging. OpenCode's `chat.headers` hook supplies the session ID and a
+request UUID, which appear as `session` and `turn_id`. The session can be used
+to associate decisions with OpenCode turns; `turn_id` identifies a routed
+request and is not guaranteed to equal an `LLMTurn` identifier. A turn may
+have multiple requests/decisions. Invalid or missing headers yield null IDs.
+`JEV_DECISIONS_LOG_PATH` configures the **standalone CLI**
+only; the plugin does not read it. The plugin does not print per-request evidence
+to stdout, whereas the standalone CLI does so even without its optional JSONL
+path. Provider `jev-router` or the response's reported effort alone does not
+reveal the selected effort or fallback.
 
 Select `jev-router/gpt-6-astra`, `jev-router/gpt-6-luna`, or
 `jev-router/gpt-6-sol`, then restart OpenCode after changing its configuration.
@@ -278,7 +285,8 @@ OpenCode's turn aggregates. The observer never logs response content.
 
 ### Evidence
 
-Per forwarded execution request the standalone proxy emits one metadata record containing:
+Per prepared execution request the standalone proxy emits a metadata record to
+stdout; when configured, the CLI or plugin also appends a `JevDecision` event containing:
 
 - `request_id`, `session`, and `turn_id` for correlation.
 - `model`, `effort`, `jev_latency_ms`, `fallback`, `jev_error_category`, and
@@ -291,12 +299,15 @@ Per forwarded execution request the standalone proxy emits one metadata record c
 
 Prompt content, tool content, credentials, cache keys, raw SDK errors, and bodies
 are never logged.
-Set `JEV_DECISIONS_LOG_PATH` to an absolute path to also append these metadata
-records as timestamped `JevDecision` JSONL events (`ts`, `event`, and the fields
-above). The directory is created if needed; a write failure reports only
+Set CLI `JEV_DECISIONS_LOG_PATH` or plugin `decisionsLogPath` to an absolute
+path to enable JSONL (`ts`, `event`, and the fields above). The directory is
+created if needed; writes are asynchronous and limited to 256 pending records
+per instance (excess records are dropped). A write failure reports only
 `decision_log_failed` and does not interrupt generation. This records the
 selected effort, not a measure of the model's internally applied
-reasoning effort. Requests rejected before forwarding have no decision event.
+reasoning effort. Requests rejected before classification/rewrite have no
+decision event; a prepared request can record upstream failure or cancellation
+as `failed`.
 When OpenCode supplies `x-jev-session-id` and `x-jev-turn-id` headers, validated
 IDs appear as `session` and `turn_id` in the event. A turn can contain multiple
 router requests; requests without these headers have null IDs. These headers

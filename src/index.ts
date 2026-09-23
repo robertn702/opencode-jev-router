@@ -1,11 +1,9 @@
 #!/usr/bin/env node
 import { existsSync } from "node:fs";
 import { connect } from "node:net";
-import { appendFile, mkdir } from "node:fs/promises";
-import { dirname } from "node:path";
-
 import { loadConfig, loadJevConnection, upstreamHostname } from "./config.js";
-import { formatDecisionEvent, formatEvidence } from "./evidence.js";
+import { createDecisionLogger } from "./decision-log.js";
+import { formatEvidence } from "./evidence.js";
 import { createJevClassifier } from "./jev.js";
 import { createAppServer, shutdownAppServer } from "./server.js";
 
@@ -60,6 +58,7 @@ const classifier = createJevClassifier({
   cacheEntries: config.effortCacheEntries,
   cacheTtlMs: config.effortCacheTtlMs,
 });
+const logDecision = config.decisionsLogPath ? createDecisionLogger(config.decisionsLogPath) : undefined;
 
 const server = createAppServer({
   upstreamBaseUrl: config.upstreamBaseUrl,
@@ -80,12 +79,7 @@ const server = createAppServer({
   selectEffort: classifier.select,
   onEvidence: (evidence) => {
     console.log(formatEvidence(evidence));
-    if (config.decisionsLogPath && evidence.effort) {
-      const path = config.decisionsLogPath;
-      void mkdir(dirname(path), { recursive: true, mode: 0o700 })
-        .then(() => appendFile(path, `${formatDecisionEvent(evidence)}\n`, { mode: 0o600 }))
-        .catch(() => console.error(JSON.stringify({ event: "decision_log_failed" })));
-    }
+    logDecision?.(evidence);
   },
 });
 

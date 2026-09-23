@@ -45,9 +45,11 @@ OpenCode and connects directly to the configured upstream. OpenCode needs
   incremental SSE with backpressure, and header filtering. `src/evidence.ts` logs
   metadata only: no prompts, tool output, credentials, or raw upstream errors.
 - `src/plugin.ts` and `src/router.ts`: The plugin shares classification and
-  rewriting with the proxy, but only the standalone CLI wires evidence to
-  `JevDecision` logging. Do not infer a selected effort from OpenCode's provider
-  or reported response effort alone.
+  rewriting with the proxy. Optional plugin `decisionsLogPath` and CLI
+  `JEV_DECISIONS_LOG_PATH` both write metadata-only `JevDecision` events using
+  shared formatting; the CLI also prints request evidence to stdout. Log failure
+  must never affect generation. Do not infer a selected effort from OpenCode's
+  provider or reported response effort alone.
 
 ## Worktree setup
 
