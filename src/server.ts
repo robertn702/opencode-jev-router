@@ -28,6 +28,7 @@ export type EffortSelector = (args: {
 
 export interface AppServerOptions {
   upstreamBaseUrl: string;
+  upstreamAuth: { mode: "cliproxy" } | { mode: "openai"; apiKey: string };
   upstreamModel: string;
   baseEffort: Effort;
   selectEffort?: EffortSelector;
@@ -82,6 +83,15 @@ function readBody(request: IncomingMessage, maxBytes: number): Promise<string> {
 function upstreamUrl(base: string, path: string): URL {
   const normalizedBase = base.endsWith("/") ? base : `${base}/`;
   return new URL(path.replace(/^\//, ""), normalizedBase);
+}
+
+function upstreamAuthorization(
+  options: AppServerOptions,
+  clientAuthorization: string | undefined,
+): string | undefined {
+  return options.upstreamAuth.mode === "openai"
+    ? `Bearer ${options.upstreamAuth.apiKey}`
+    : clientAuthorization;
 }
 
 export function createAppServer(options: AppServerOptions): Server {
@@ -143,7 +153,7 @@ async function handle(
       const outcome = await forwardUpstream(response, {
         method: "GET",
         url: upstreamUrl(options.upstreamBaseUrl, "models"),
-        authorization: request.headers.authorization,
+        authorization: upstreamAuthorization(options, request.headers.authorization),
         body: undefined,
         signal: clientAbort.signal,
         headerTimeoutMs: options.upstreamHeaderTimeoutMs ?? 10_000,
@@ -250,7 +260,7 @@ async function handle(
       const forwardOutcome: UpstreamOutcome = await forwardUpstream(response, {
         method: "POST",
         url: upstreamUrl(options.upstreamBaseUrl, "responses"),
-        authorization: request.headers.authorization,
+        authorization: upstreamAuthorization(options, request.headers.authorization),
         body: JSON.stringify(rewritten),
         signal: clientAbort.signal,
         headerTimeoutMs: options.upstreamHeaderTimeoutMs ?? 10_000,

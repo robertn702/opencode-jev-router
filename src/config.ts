@@ -5,6 +5,7 @@ const EFFORTS: readonly string[] = ["low", "medium", "high", "xhigh", "max"];
 export interface AppConfig {
   port: number;
   upstreamBaseUrl: string;
+  upstreamAuth: { mode: "cliproxy" } | { mode: "openai"; apiKey: string };
   upstreamModel: string;
   baseEffort: Effort;
   jevTimeoutMs: number;
@@ -49,9 +50,41 @@ function parseEffort(raw: string | undefined): Effort {
 }
 
 export function loadConfig(env: Record<string, string | undefined>): AppConfig {
+  const mode = env.UPSTREAM_MODE ?? "cliproxy";
+  if (mode !== "cliproxy" && mode !== "openai") {
+    throw new Error("UPSTREAM_MODE must be openai or cliproxy");
+  }
+  if (mode === "openai" && !env.OPENAI_API_KEY?.trim()) {
+    throw new Error("OPENAI_API_KEY is required when UPSTREAM_MODE=openai");
+  }
+
+  const upstreamBaseUrl = env.UPSTREAM_BASE_URL ??
+    (mode === "openai" ? "https://api.openai.com/v1" : "http://127.0.0.1:8317/v1");
+  let url: URL;
+  try {
+    url = new URL(upstreamBaseUrl);
+  } catch {
+    throw new Error("UPSTREAM_BASE_URL must be a valid HTTP(S) URL");
+  }
+  if (
+    !["http:", "https:"].includes(url.protocol) ||
+    url.username || url.password || url.search || url.hash
+  ) {
+    throw new Error("UPSTREAM_BASE_URL must be an HTTP(S) URL without credentials, query, or fragment");
+  }
+  if (mode === "openai" && url.href !== "https://api.openai.com/v1") {
+    throw new Error("UPSTREAM_MODE=openai requires UPSTREAM_BASE_URL=https://api.openai.com/v1");
+  }
+  if (mode === "cliproxy" && url.hostname === "api.openai.com") {
+    throw new Error("UPSTREAM_MODE=cliproxy cannot use api.openai.com");
+  }
+
   return {
     port: parsePort(env.JEV_PROXY_PORT),
-    upstreamBaseUrl: env.UPSTREAM_BASE_URL ?? "http://127.0.0.1:8317/v1",
+    upstreamBaseUrl,
+    upstreamAuth: mode === "openai"
+      ? { mode, apiKey: env.OPENAI_API_KEY!.trim() }
+      : { mode },
     upstreamModel: env.UPSTREAM_MODEL ?? "gpt-6-astra",
     baseEffort: parseEffort(env.BASE_EFFORT),
     jevTimeoutMs: parseTimeout(env.JEV_TIMEOUT_MS),
