@@ -454,11 +454,17 @@ describe("evidence privacy under inherited debug logging", () => {
 
     expect(evidence).toHaveLength(1);
     expect(Object.keys(evidence[0]!).sort()).toEqual([
+      "cached_input_tokens",
       "effort",
       "fallback",
+      "history_updates_replayed",
+      "input_tokens",
       "jev_latency_ms",
+      "lineage_status",
       "model",
       "outcome",
+      "output_tokens",
+      "previous_effort",
       "request_id",
       "session",
       "turn_id",

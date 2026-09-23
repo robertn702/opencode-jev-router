@@ -1,4 +1,6 @@
 import { randomUUID } from "node:crypto";
+import { LineageStore } from "./lineage.js";
+import type { Usage } from "./usage.js";
 import type { UpstreamAuth } from "./config.js";
 import {
   createServer,
@@ -133,6 +135,7 @@ function correlationId(value: string | string[] | undefined, pattern: RegExp): s
 }
 
 export function createAppServer(options: AppServerOptions): Server {
+  const lineage = new LineageStore();
   let inFlight = 0;
   const state: Lifecycle = { draining: false, controllers: new Set(), responses: new Set() };
   let dependencyResult: boolean | undefined;
@@ -208,7 +211,7 @@ export function createAppServer(options: AppServerOptions): Server {
       const available = await dependencyReady();
       if (state.draining) return "draining";
       return available ? null : "dependency_unavailable";
-    }).finally(release);
+    }, lineage).finally(release);
   });
   lifecycles.set(server, state);
   return server;
@@ -221,6 +224,7 @@ async function handle(
   selectEffort: EffortSelector,
   options: AppServerOptions,
   readinessReason: () => Promise<string | null>,
+  lineage: LineageStore,
 ): Promise<void> {
   try {
     if (request.method === "GET" && request.url === "/health") {
@@ -310,14 +314,19 @@ async function handle(
         return;
       }
 
+      const body = parsed as Record<string, unknown>;
+      const session = correlationId(request.headers["x-jev-session-id"], /^ses_[A-Za-z0-9]{1,128}$/);
+      const cacheKey = typeof body.prompt_cache_key === "string" && body.prompt_cache_key.length > 0 ? body.prompt_cache_key : null;
+      const history = lineage.prepare(body.input as unknown[], session || cacheKey ? [options.upstreamBaseUrl, options.upstreamModel, options.baseEffort, upstreamAuthorization(options, request.headers.authorization) ?? "", session ?? "", cacheKey ?? "", JSON.stringify(body.instructions ?? null), JSON.stringify(body.tools ?? null)] : null, decision.effort);
       const rewritten = rewriteResponsesRequest(parsed, {
         upstreamModel: options.upstreamModel,
         baseEffort: options.baseEffort,
         effort: decision.effort,
+        replayedInput: history.input,
       });
 
       const outboundInput = Array.isArray(rewritten.input) ? rewritten.input : [];
-      const outboundUpdate = outboundInput.at(-1);
+      const outboundUpdate = [...outboundInput].reverse().find((item: unknown) => typeof item === "object" && item !== null && (item as { type?: string }).type === "configuration_update");
       let outboundEffort: unknown = null;
       if (typeof outboundUpdate === "object" && outboundUpdate !== null) {
         const reasoning = (outboundUpdate as { reasoning?: unknown }).reasoning;
@@ -327,6 +336,7 @@ async function handle(
       }
 
       const onEvidence = options.onEvidence;
+      let usage: Usage | undefined;
       const emit = (outcome: string): void => {
         if (onEvidence === undefined) {
           return;
@@ -334,6 +344,10 @@ async function handle(
         onEvidence(
           buildEvidence({
             requestId: randomUUID(),
+            usage,
+            previousEffort: history.previousEffort,
+            lineageStatus: history.status,
+            historyUpdatesReplayed: history.replayed,
             session: correlationId(request.headers["x-jev-session-id"], /^ses_[A-Za-z0-9]+$/),
             turnId: correlationId(request.headers["x-jev-turn-id"], /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i),
             outboundModel: rewritten.model,
@@ -347,6 +361,7 @@ async function handle(
 
       const forwardOutcome: UpstreamOutcome = await forwardUpstream(response, {
         method: "POST",
+        onUsage: (value) => { usage = value; },
         url: upstreamUrl(options.upstreamBaseUrl, "responses"),
         authorization: upstreamAuthorization(options, request.headers.authorization),
         body: JSON.stringify(rewritten),
@@ -354,6 +369,7 @@ async function handle(
         headerTimeoutMs: options.upstreamHeaderTimeoutMs ?? 10_000,
         idleTimeoutMs: options.upstreamIdleTimeoutMs ?? 60_000,
       });
+      if (forwardOutcome === "forwarded") history.commit();
       emit(forwardOutcome === "forwarded" ? "completed" : forwardOutcome === "upstream_timeout" ? "upstream_timeout" : "failed");
       return;
     }

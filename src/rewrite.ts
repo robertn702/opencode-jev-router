@@ -13,6 +13,7 @@ export interface RewriteOptions {
   upstreamModel: string;
   baseEffort: Effort;
   effort: Effort;
+  replayedInput?: unknown[];
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -45,7 +46,7 @@ export function rewriteResponsesRequest(
       ...(isRecord(record.reasoning) ? record.reasoning : {}),
       effort: baseEffort,
     },
-    input: [
+    input: options.replayedInput ?? [
       ...retained,
       {
         type: CONFIGURATION_UPDATE,

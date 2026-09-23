@@ -83,6 +83,28 @@ const simpleInput = JSON.stringify({
 });
 
 describe("forwarding lifecycle", () => {
+  it("replays the upstream prefix across effort changes and records request usage", async () => {
+    const upstream = await startUpstream((_request, response) => {
+      response.writeHead(200, { "content-type": "text/event-stream" });
+      response.end('data: {"type":"response.completed","response":{"usage":{"input_tokens":4000,"input_tokens_details":{"cached_tokens":3072},"output_tokens":12}}}\n\n');
+    });
+    let calls = 0;
+    const records: Record<string, unknown>[] = [];
+    const app = await startLimitedApp(upstream.url, {
+      selectEffort: async () => ({ effort: calls++ ? "high" : "low", jevLatencyMs: 1, fallback: null }),
+      onEvidence: (entry) => records.push({ ...entry }),
+    });
+    const initial = [{ role: "user", content: "hi" }];
+    for (const input of [initial, [...initial, { role: "assistant", content: "hello" }, { role: "user", content: "continue" }]]) {
+      const response = await fetch(`${app}/v1/responses`, { method: "POST", body: JSON.stringify({ model: "gpt-6-astra", prompt_cache_key: "test-lineage", input }) });
+      expect(await response.text()).toContain('"cached_tokens":3072');
+    }
+    const first = JSON.parse(upstream.requests[0]!.body);
+    const second = JSON.parse(upstream.requests[1]!.body);
+    expect(second.input.slice(0, first.input.length)).toEqual(first.input);
+    expect(records[1]).toMatchObject({ effort: "high", previous_effort: "low", lineage_status: "preserved", history_updates_replayed: 1, input_tokens: 4000, cached_input_tokens: 3072, output_tokens: 12 });
+  });
+
   it("logs validated session and turn IDs without forwarding correlation headers", async () => {
     const upstream = await startUpstream((_request, response) => response.end("{}"));
     const evidence: Array<{ session: string | null; turn_id: string | null }> = [];

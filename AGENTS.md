@@ -24,10 +24,11 @@ CLIProxyAPI, then run `npm run build && npm start`. OpenCode needs `CLIPROXY_KEY
 ## Behavior to preserve
 
 - `src/rewrite.ts`: Pin the outbound model. Keep request-level
-  `reasoning.effort` at `BASE_EFFORT`, remove prior reasoning updates, and append
-  Jev's selected effort as the final `configuration_update` input item. This
-  intentionally does not preserve cache lineage; the reported response effort
-  is not the selected effort.
+  `reasoning.effort` at `BASE_EFFORT`. The server's bounded lineage ledger replays
+  historical updates at their original positions and appends effort changes.
+  Preserve matched prefixes; reset lineage on unmatched history. Reported
+  response effort is not the selected effort. Usage observation must not alter
+  streaming bytes or backpressure.
 - `src/validate.ts` and `src/server.ts`: Reject unsupported modes, truncation,
   and input shapes with a local 400 before calling Jev or the upstream.
 - `src/jev.ts` and `src/server.ts`: Jev timeout or failure may fall back to a

@@ -152,23 +152,31 @@ at another provider's model while performing per-request Jev classification and
   for the GPT-6 family in standard, single-agent mode; choosing a different model
   can cause the API to reject this router's update item.
 
-### Effort updates (no cache lineage)
+### Effort updates and cache lineage
 
 Every execution request uses the configured `UPSTREAM_MODEL` (default
 `gpt-6-astra`) with a stable request-level `reasoning.effort` (`BASE_EFFORT`,
-default `medium`). Existing
-reasoning `configuration_update` items are stripped from the input and exactly one
-current update is appended at the end:
+default `medium`). For requests with a session header or `prompt_cache_key`, a
+bounded in-memory ledger restores router-inserted updates at their original
+positions. A new update is appended when the selected effort changes:
 
 ```json
 { "type": "configuration_update", "reasoning": { "effort": "high" } }
 ```
 
-Other input items keep their order. This strip/append policy does **not** replay
-updates at their original historical positions and promises **no cache lineage,
-hits, or savings**. Historical update replay and cache-prefix preservation are
-deferred; [OpenAI's guidance](https://developers.openai.com/api/docs/guides/reasoning#change-reasoning-mid-conversation)
-requires retaining original update positions when replaying history manually.
+Other input items keep their order. The ledger stores only hashes and update
+positions, scoped to credentials, session/cache key, model, instructions, and
+tools. It retains up to 256 request snapshots for ten minutes. Branches use the
+longest matching ancestor; edited or compacted history starts a fresh lineage.
+Restart, expiry, eviction, and missing identifiers can lose lineage. Preserving
+the prefix enables cache reuse; actual upstream cache hits remain best-effort
+and require live validation on the deployed upstream.
+
+Decision telemetry includes `input_tokens`, `cached_input_tokens`, and
+`output_tokens` from upstream JSON or SSE usage, plus `previous_effort`,
+`lineage_status`, and `history_updates_replayed`. Missing or oversized usage
+events yield null counts, not zero. These are request-level counters, not
+OpenCode's turn aggregates. The observer never logs response content.
 
 ### Classification
 

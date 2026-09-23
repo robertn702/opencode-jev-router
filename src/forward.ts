@@ -3,6 +3,7 @@ import https from "node:https";
 import type { ServerResponse } from "node:http";
 
 import { upstreamHostname } from "./config.js";
+import { UsageObserver, type Usage } from "./usage.js";
 import {
   buildUpstreamRequestHeaders,
   pickResponseHeaders,
@@ -21,6 +22,7 @@ export interface UpstreamCall {
   signal: AbortSignal;
   headerTimeoutMs?: number;
   idleTimeoutMs?: number;
+  onUsage?: (usage: Usage) => void;
 }
 
 export type UpstreamOutcome =
@@ -104,6 +106,7 @@ export function forwardUpstream(
         headers: buildUpstreamRequestHeaders(call.authorization, call.body),
       },
       (upstreamResponse) => {
+        const observer = call.onUsage ? new UsageObserver(String(upstreamResponse.headers["content-type"]).includes("text/event-stream")) : undefined;
         headersForwarded = true;
         deadline(call.idleTimeoutMs);
         response.writeHead(
@@ -112,6 +115,7 @@ export function forwardUpstream(
         );
 
         upstreamResponse.on("data", (chunk: Buffer) => {
+          observer?.push(chunk);
           if (!response.write(chunk)) {
             upstreamResponse.pause();
             clearDeadline();
@@ -126,6 +130,8 @@ export function forwardUpstream(
         });
 
         upstreamResponse.on("end", () => {
+          observer?.finish();
+          if (observer) call.onUsage?.(observer.usage);
           upstreamComplete = true;
           response.end();
           settle(
