@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 
 import { resolveJevConnection, upstreamHostname } from "./config.js";
+import { createDecisionLogger } from "./decision-log.js";
 import { buildPluginUpstreamRequestHeaders, pickFetchResponseHeaders } from "./headers.js";
 import { createJevClassifier } from "./jev.js";
 import { MODELS, type Effort } from "./models.js";
@@ -9,7 +10,7 @@ import { ResponsesRouter, type PreparedRequest } from "./router.js";
 import { UsageObserver } from "./usage.js";
 import { resolveModel, validateResponsesRequest } from "./validate.js";
 
-type PluginOptions = { jevApiKey?: string; jevBaseUrl?: string; jevModel?: string; baseEffort?: Effort; maxRequestBytes?: number; maxInFlight?: number; upstreamHeaderTimeoutMs?: number; upstreamIdleTimeoutMs?: number; upstreamBaseURL?: string; upstreamApiKey?: string };
+type PluginOptions = { jevApiKey?: string; jevBaseUrl?: string; jevModel?: string; baseEffort?: Effort; maxRequestBytes?: number; maxInFlight?: number; upstreamHeaderTimeoutMs?: number; upstreamIdleTimeoutMs?: number; upstreamBaseURL?: string; upstreamApiKey?: string; decisionsLogPath?: string };
 type ProviderConfig = { npm?: string; name?: string; options?: Record<string, unknown>; models?: Record<string, unknown> };
 type OpenCodeConfig = { provider?: Record<string, ProviderConfig> };
 type HeaderHook = { sessionID: string; model: { providerID?: string; provider?: string }; provider: { id?: string } };
@@ -94,7 +95,8 @@ export default async function jevRouterPlugin(_input: unknown, options: PluginOp
   const headerTimeoutMs = positive(options.upstreamHeaderTimeoutMs, 10_000, "upstreamHeaderTimeoutMs");
   const idleTimeoutMs = positive(options.upstreamIdleTimeoutMs, 60_000, "upstreamIdleTimeoutMs");
   const classifier = createJevClassifier({ ...connection, timeoutMs: 4_000 });
-  const router = new ResponsesRouter({ baseEffort: options.baseEffort, selectEffort: classifier.select });
+  const onEvidence = options.decisionsLogPath === undefined ? undefined : createDecisionLogger(options.decisionsLogPath);
+  const router = new ResponsesRouter({ baseEffort: options.baseEffort, selectEffort: classifier.select, onEvidence });
   const controllers = new Set<AbortController>();
   const releases = new Set<() => void>();
   let inFlight = 0; let disposed = false;

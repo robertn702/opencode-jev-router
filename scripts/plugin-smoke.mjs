@@ -104,6 +104,7 @@ try {
     assert.equal(request.url, "/v1/responses");
     let raw = "";
     for await (const chunk of request) raw += chunk;
+    observed.upstreamCount = (observed.upstreamCount ?? 0) + 1;
     observed.upstream = { headers: request.headers, body: JSON.parse(raw) };
     const events = [
       { type: "response.created", response: { id: "resp_smoke", object: "response", created_at: 0, status: "in_progress", model: "gpt-6-astra", output: [] } },
@@ -120,10 +121,11 @@ try {
   const fake = await fakeJevProxy(ca, observed);
   ({ proxy, tls } = fake);
   const jevKeyFile = join(temp, "jev-key");
+  const decisionsLogPath = join(temp, "decisions", "plugin.jsonl");
   await writeFile(jevKeyFile, "fake-jev-key");
 
   await writeFile(join(temp, "opencode.json"), JSON.stringify({
-    plugin: [[pluginPath, { jevApiKey: `{file:${jevKeyFile}}`, upstreamBaseURL: `http://127.0.0.1:${upstreamPort}/v1`, upstreamApiKey: "{env:SMOKE_UPSTREAM_KEY}" }]],
+    plugin: [[pluginPath, { jevApiKey: `{file:${jevKeyFile}}`, upstreamBaseURL: `http://127.0.0.1:${upstreamPort}/v1`, upstreamApiKey: "{env:SMOKE_UPSTREAM_KEY}", decisionsLogPath }]],
     enabled_providers: ["jev-router"],
     autoupdate: false,
     share: "disabled",
@@ -155,8 +157,23 @@ try {
   assert.equal(observed.upstream.headers["x-jev-session-id"], undefined);
   assert.equal(observed.upstream.headers["x-jev-turn-id"], undefined);
   assert.equal(observed.upstream.headers.authorization, "Bearer fake-upstream-key");
+  const decisions = (await readFile(decisionsLogPath, "utf8")).trim().split("\n");
+  assert.equal(decisions.length, observed.upstreamCount, "each Responses request should produce one decision");
+  const events = decisions.map((line) => JSON.parse(line));
+  assert.equal(new Set(events.map((event) => event.request_id)).size, events.length);
+  for (const decision of events) {
+    assert.equal(decision.event, "JevDecision");
+    assert.match(decision.session, /^ses_/);
+    assert.match(decision.turn_id, /^[0-9a-f-]{36}$/i);
+    assert.equal(decision.effort, "high");
+    assert.equal(decision.fallback, null);
+    assert.equal(decision.outcome, "completed");
+    assert.equal(decision.input_tokens, 1);
+    assert.equal(decision.output_tokens, 1);
+  }
+  assert.ok(!decisions.join("\n").includes("fake-upstream-key"));
   assert.ok(!(await exists(join(data, "opencode", "auth.json"))), "smoke must not create an auth.json credential store");
-  console.log("PASS OpenCode 1.18.32 minimal plugin smoke: generated model, file/env options, fake Jev, rewritten Responses SSE, and no auth.json.");
+  console.log("PASS OpenCode 1.18.32 minimal plugin smoke: generated model, file/env options, fake Jev, rewritten Responses SSE, correlated JevDecision, and no auth.json.");
 } finally {
   if (child && child.exitCode === null) child.kill("SIGTERM");
   if (child && child.exitCode === null) await Promise.race([new Promise((resolve) => child.once("exit", resolve)), sleep(2_000)]);
