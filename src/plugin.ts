@@ -1,15 +1,15 @@
 import { createHash, randomUUID } from "node:crypto";
 
-import { resolveJevConnection } from "./config.js";
+import { resolveJevConnection, upstreamHostname } from "./config.js";
 import { buildPluginUpstreamRequestHeaders, pickFetchResponseHeaders } from "./headers.js";
 import { createJevClassifier } from "./jev.js";
-import { type Effort } from "./models.js";
+import { MODELS, type Effort } from "./models.js";
 import { UnsupportedInputError } from "./rewrite.js";
 import { ResponsesRouter, type PreparedRequest } from "./router.js";
 import { UsageObserver } from "./usage.js";
 import { resolveModel, validateResponsesRequest } from "./validate.js";
 
-type PluginOptions = { jevApiKey?: string; jevBaseUrl?: string; jevModel?: string; baseEffort?: Effort; maxRequestBytes?: number; maxInFlight?: number; upstreamHeaderTimeoutMs?: number; upstreamIdleTimeoutMs?: number };
+type PluginOptions = { jevApiKey?: string; jevBaseUrl?: string; jevModel?: string; baseEffort?: Effort; maxRequestBytes?: number; maxInFlight?: number; upstreamHeaderTimeoutMs?: number; upstreamIdleTimeoutMs?: number; upstreamBaseURL?: string; upstreamApiKey?: string };
 type ProviderConfig = { npm?: string; name?: string; options?: Record<string, unknown>; models?: Record<string, unknown> };
 type OpenCodeConfig = { provider?: Record<string, ProviderConfig> };
 type HeaderHook = { sessionID: string; model: { providerID?: string; provider?: string }; provider: { id?: string } };
@@ -25,6 +25,43 @@ const positive = (value: number | undefined, fallback: number, name: string): nu
   return result;
 };
 const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null && !Array.isArray(value);
+const requiredString = (value: unknown, name: string): string => {
+  if (typeof value !== "string" || !value.trim()) throw new Error(`${name} is required`);
+  return value;
+};
+const upstreamBaseURL = (value: unknown): string => {
+  const baseURL = requiredString(value, "upstreamBaseURL or provider.options.baseURL");
+  let url: URL;
+  try { url = new URL(baseURL); } catch { throw new Error("upstreamBaseURL must be an HTTP(S) URL"); }
+  if (!/^https?:$/.test(url.protocol) || !url.hostname || url.username || url.password || url.search || url.hash) throw new Error("upstreamBaseURL must be an HTTP(S) URL without credentials, query, or fragment");
+  const loopback = ["127.0.0.1", "localhost", "::1"].includes(upstreamHostname(url));
+  if (url.protocol !== "https:" && !loopback) throw new Error("upstreamBaseURL requires HTTPS except for loopback endpoints");
+  return baseURL;
+};
+const validateModel = (id: string, model: unknown, adapter: typeof fetch): Record<string, unknown> => {
+  if (!isRecord(model)) throw new Error(`jev-router model ${id} must be an object`);
+  if (model.npm !== undefined) throw new Error(`jev-router model ${id} cannot override the SDK`);
+  const modelProvider = model.provider;
+  if (modelProvider !== undefined) {
+    if (!isRecord(modelProvider)) throw new Error(`jev-router model ${id} provider must be an object`);
+    if (modelProvider.npm !== undefined && modelProvider.npm !== "@ai-sdk/openai") throw new Error(`jev-router model ${id} requires provider.npm: @ai-sdk/openai`);
+    if (modelProvider.fetch !== undefined) throw new Error("jev-router model fetch is managed by the plugin");
+    modelProvider.options ??= {};
+    if (!isRecord(modelProvider.options)) throw new Error(`jev-router model ${id} provider options must be an object`);
+    if (modelProvider.options.fetch !== undefined && modelProvider.options.fetch !== adapter) throw new Error("jev-router model fetch is managed by the plugin");
+    if (modelProvider.options.useResponses !== undefined && modelProvider.options.useResponses !== true) throw new Error("jev-router models require useResponses: true");
+    if (modelProvider.options.baseURL !== undefined) modelProvider.options.baseURL = upstreamBaseURL(modelProvider.options.baseURL);
+    if (modelProvider.options.apiKey !== undefined) modelProvider.options.apiKey = requiredString(modelProvider.options.apiKey, `jev-router model ${id} provider options.apiKey`);
+    modelProvider.options.useResponses = true;
+    modelProvider.options.fetch = adapter;
+  }
+  model.options ??= {};
+  if (!isRecord(model.options)) throw new Error(`jev-router model ${id} options must be an object`);
+  if (model.options.useResponses !== undefined && model.options.useResponses !== true) throw new Error("jev-router models require useResponses: true");
+  if (model.options.fetch !== undefined) throw new Error("jev-router model fetch is managed by the plugin");
+  model.options.useResponses = true;
+  return model;
+};
 
 async function boundedBody(request: Request, maxBytes: number, signal: AbortSignal): Promise<Uint8Array> {
   const declared = request.headers.get("content-length");
@@ -125,10 +162,24 @@ export default async function jevRouterPlugin(_input: unknown, options: PluginOp
       config.provider ??= {};
       const provider = config.provider["jev-router"] ??= { options: {}, models: {} };
       if (provider.npm !== undefined && provider.npm !== "@ai-sdk/openai") throw new Error("jev-router requires npm: @ai-sdk/openai");
-      for (const model of Object.values(provider.models ?? {})) {
-        if (isRecord(model) && isRecord(model.options) && model.options.useResponses === false) throw new Error("jev-router models require useResponses: true");
+      provider.options ??= {};
+      if (!isRecord(provider.options)) throw new Error("jev-router provider options must be an object");
+      if (provider.options.fetch !== undefined && provider.options.fetch !== adapter) throw new Error("jev-router provider fetch is managed by the plugin");
+      if (options.upstreamApiKey !== undefined) requiredString(options.upstreamApiKey, "upstreamApiKey");
+      if (provider.options.apiKey !== undefined) provider.options.apiKey = requiredString(provider.options.apiKey, "provider.options.apiKey");
+      provider.options.baseURL ??= options.upstreamBaseURL;
+      provider.options.apiKey ??= options.upstreamApiKey;
+      provider.options.baseURL = upstreamBaseURL(provider.options.baseURL);
+      provider.models ??= {};
+      if (!isRecord(provider.models)) throw new Error("jev-router provider models must be an object");
+      for (const profile of MODELS) {
+        const model = provider.models[profile.id] ??= {};
+        const validated = validateModel(profile.id, model, adapter);
+        validated.name ??= profile.name;
+        validated.reasoning ??= true;
       }
-      provider.npm = "@ai-sdk/openai"; provider.name ??= "Jev Router"; provider.options ??= {}; provider.options.fetch = adapter;
+      for (const [id, model] of Object.entries(provider.models)) validateModel(id, model, adapter);
+      provider.npm = "@ai-sdk/openai"; provider.name ??= "Jev Router"; provider.options.fetch = adapter;
     },
     async "chat.headers"(input: HeaderHook, output: { headers: Record<string, string> }) {
       if (input.model.providerID !== "jev-router" && input.model.provider !== "jev-router" && input.provider.id !== "jev-router") return;

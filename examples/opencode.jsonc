@@ -1,18 +1,9 @@
 {
   "$schema": "https://opencode.ai/config.json",
-  "provider": {
-    "jev-router": {
-      "npm": "@ai-sdk/openai",
-      "name": "Jev Router",
-      "options": {
-        "apiKey": "{env:CLIPROXY_KEY}",
-        "baseURL": "http://127.0.0.1:4320/v1"
-      },
-      "models": {
-        "gpt-6-astra": { "name": "GPT-6 Astra", "reasoning": true, "options": { "useResponses": true } },
-        "gpt-6-luna": { "name": "GPT-6 Luna", "reasoning": true, "options": { "useResponses": true } },
-        "gpt-6-sol": { "name": "GPT-6 Sol", "reasoning": true, "options": { "useResponses": true } }
-      }
-    }
-  }
+  "plugin": [["@robertn702/opencode-jev-router", {
+    "jevApiKey": "{file:~/.config/jev-router/api-key}",
+    "upstreamBaseURL": "http://127.0.0.1:8317/v1",
+    "upstreamApiKey": "{env:CLIPROXY_KEY}"
+  }]],
+  "model": "jev-router/gpt-6-astra"
 }
