@@ -23,6 +23,8 @@ export interface UpstreamCall {
   headerTimeoutMs?: number;
   idleTimeoutMs?: number;
   onUsage?: (usage: Usage) => void;
+  onResponseStatus?: (statusCode: number) => void;
+  onTerminal?: (completed: boolean) => void;
 }
 
 export type UpstreamOutcome =
@@ -106,6 +108,7 @@ export function forwardUpstream(
         headers: buildUpstreamRequestHeaders(call.authorization, call.body),
       },
       (upstreamResponse) => {
+        call.onResponseStatus?.(upstreamResponse.statusCode ?? 502);
         const observer = call.onUsage ? new UsageObserver(String(upstreamResponse.headers["content-type"]).includes("text/event-stream")) : undefined;
         headersForwarded = true;
         deadline(call.idleTimeoutMs);
@@ -132,6 +135,7 @@ export function forwardUpstream(
         upstreamResponse.on("end", () => {
           observer?.finish();
           if (observer) call.onUsage?.(observer.usage);
+          call.onTerminal?.(observer?.completed ?? false);
           upstreamComplete = true;
           response.end();
           settle(

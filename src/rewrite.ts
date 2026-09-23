@@ -14,18 +14,17 @@ export interface RewriteOptions {
   model: ModelProfile;
   baseEffort: Effort;
   effort: Effort;
+  replayedInput?: unknown[];
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function isReasoningUpdate(value: unknown): boolean {
-  return (
-    isRecord(value) &&
-    value.type === CONFIGURATION_UPDATE &&
-    isRecord(value.reasoning)
-  );
+function defaultInput(input: unknown[], effort: Effort): unknown[] {
+  const update = { type: CONFIGURATION_UPDATE, reasoning: { effort } };
+  const user = input.findIndex((item) => isRecord(item) && (item.type === "message" || item.type === undefined) && item.role === "user");
+  return user < 0 ? [...input, update] : [...input.slice(0, user), update, ...input.slice(user)];
 }
 
 export function rewriteResponsesRequest(
@@ -39,7 +38,6 @@ export function rewriteResponsesRequest(
 
   const input = record.input as unknown[];
 
-  const retained = input.filter((item) => !isReasoningUpdate(item));
   const baseEffort = options.baseEffort;
 
   return {
@@ -49,12 +47,6 @@ export function rewriteResponsesRequest(
       ...(isRecord(record.reasoning) ? record.reasoning : {}),
       effort: baseEffort,
     },
-    input: [
-      ...retained,
-      {
-        type: CONFIGURATION_UPDATE,
-        reasoning: { effort: options.effort },
-      },
-    ],
+    input: options.replayedInput ?? defaultInput(input, options.effort),
   };
 }

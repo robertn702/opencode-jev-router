@@ -25,11 +25,12 @@ CLIProxyAPI, then run `npm run build && npm start`. OpenCode needs `CLIPROXY_KEY
 
 - `src/models.ts` and `src/rewrite.ts`: Pin the outbound model to the resolved
   request profile. Keep request-level `reasoning.effort` at the profile default
-  or validated `BASE_EFFORT` override, remove prior reasoning updates, and append
-  Jev's selected effort as the final `configuration_update` input item. This
-  intentionally does not preserve cache lineage; the reported response effort
-  is not the selected effort. Usage observation must not alter streaming bytes
-  or backpressure.
+  or validated `BASE_EFFORT` override, preserve historical reasoning updates in
+  their original positions, and insert Jev's selected update before the next user
+  message (never adjacent to another update). This follows OpenAI's reasoning
+  continuation guidance and preserves an eligible prefix, not a guaranteed cache
+  hit; the reported response effort is not the selected effort. Usage observation
+  must not alter streaming bytes or backpressure.
 - `src/validate.ts` and `src/server.ts`: Reject unsupported modes, truncation,
   and input shapes with a local 400 before calling Jev or the upstream.
 - `src/jev.ts` and `src/server.ts`: Jev timeout or failure may fall back to a

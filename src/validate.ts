@@ -1,4 +1,4 @@
-import { findModel, type ModelProfile } from "./models.js";
+import { findModel, supportsEffort, type ModelProfile } from "./models.js";
 
 export function resolveModel(body: unknown): ModelProfile {
   const model = isRecord(body) ? findModel(body.model) : undefined;
@@ -49,7 +49,7 @@ function validateReasoningMode(body: Record<string, unknown>): void {
   }
 }
 
-function validateItem(item: unknown, index: number): void {
+function validateItem(item: unknown, index: number, model: ModelProfile): void {
   if (!isRecord(item)) {
     throw new UnsupportedInputError(`request.input[${index}] must be a JSON object`);
   }
@@ -72,6 +72,15 @@ function validateItem(item: unknown, index: number): void {
       `request.input[${index}] message item has unsupported role ${JSON.stringify(role)}`,
     );
   }
+  if (type === "configuration_update" && item.reasoning !== undefined) {
+    if (!isRecord(item.reasoning) || Object.keys(item).some((key) => key !== "type" && key !== "reasoning") ||
+      Object.keys(item.reasoning).length !== 1 || !supportsEffort(model, item.reasoning.effort)) {
+      throw new UnsupportedInputError(`request.input[${index}] has unsupported reasoning configuration update`);
+    }
+  }
+  if (type === "configuration_update" && item.reasoning === undefined) {
+    throw new UnsupportedInputError(`request.input[${index}] has unsupported configuration update`);
+  }
 }
 
 export function validateResponsesRequest(body: unknown, model: ModelProfile): Record<string, unknown> {
@@ -91,6 +100,6 @@ export function validateResponsesRequest(body: unknown, model: ModelProfile): Re
       "request.input must be an array of Responses input items",
     );
   }
-  input.forEach(validateItem);
+  input.forEach((item, index) => validateItem(item, index, model));
   return body;
 }
