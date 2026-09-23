@@ -32,7 +32,13 @@ export interface AppServerOptions {
   baseEffort: Effort;
   selectEffort?: EffortSelector;
   onEvidence?: (evidence: Evidence) => void;
+  maxRequestBytes?: number;
+  maxInFlight?: number;
+  upstreamHeaderTimeoutMs?: number;
+  upstreamIdleTimeoutMs?: number;
 }
+
+class BodyTooLargeError extends Error {}
 
 function writeJson(
   response: ServerResponse,
@@ -43,12 +49,33 @@ function writeJson(
   response.end(JSON.stringify(body));
 }
 
-function readBody(request: IncomingMessage): Promise<string> {
+function readBody(request: IncomingMessage, maxBytes: number): Promise<string> {
   return new Promise((resolve, reject) => {
     const chunks: Buffer[] = [];
-    request.on("data", (chunk: Buffer) => chunks.push(chunk));
-    request.on("end", () => resolve(Buffer.concat(chunks).toString("utf8")));
-    request.on("error", reject);
+    let bytes = 0;
+    const cleanup = (): void => {
+      request.off("data", onData);
+      request.off("end", onEnd);
+      request.off("error", onError);
+      request.off("close", onClose);
+    };
+    const onData = (chunk: Buffer): void => {
+      bytes += chunk.length;
+      if (bytes > maxBytes) {
+        request.pause();
+        cleanup();
+        reject(new BodyTooLargeError());
+        return;
+      }
+      chunks.push(chunk);
+    };
+    const onEnd = (): void => { cleanup(); resolve(Buffer.concat(chunks).toString("utf8")); };
+    const onError = (error: Error): void => { cleanup(); reject(error); };
+    const onClose = (): void => { cleanup(); reject(new Error("request closed")); };
+    request.on("data", onData);
+    request.on("end", onEnd);
+    request.on("error", onError);
+    request.on("close", onClose);
   });
 }
 
@@ -58,6 +85,7 @@ function upstreamUrl(base: string, path: string): URL {
 }
 
 export function createAppServer(options: AppServerOptions): Server {
+  let inFlight = 0;
   const selectEffort: EffortSelector =
     options.selectEffort ??
     (async () => ({
@@ -75,7 +103,26 @@ export function createAppServer(options: AppServerOptions): Server {
     };
     response.on("close", onClose);
 
-    void handle(request, response, clientAbort, selectEffort, options);
+    const proxied = (request.method === "POST" && request.url === "/v1/responses") ||
+      (request.method === "GET" && request.url === "/v1/models");
+    if (proxied && inFlight >= (options.maxInFlight ?? 32)) {
+      request.pause();
+      response.setHeader("connection", "close");
+      options.onEvidence?.(buildEvidence({ requestId: randomUUID(), outboundModel: options.upstreamModel,
+        outboundEffort: "", jevLatencyMs: 0, fallback: null, outcome: "overloaded" }));
+      writeJson(response, 503, { error: "overloaded" });
+      return;
+    }
+    if (proxied) inFlight += 1;
+    let released = false;
+    const release = (): void => {
+      if (released || !proxied) return;
+      released = true;
+      inFlight -= 1;
+    };
+    response.once("close", release);
+
+    void handle(request, response, clientAbort, selectEffort, options).finally(release);
   });
 }
 
@@ -99,13 +146,33 @@ async function handle(
         authorization: request.headers.authorization,
         body: undefined,
         signal: clientAbort.signal,
+        headerTimeoutMs: options.upstreamHeaderTimeoutMs ?? 10_000,
+        idleTimeoutMs: options.upstreamIdleTimeoutMs ?? 60_000,
       });
       void outcome;
       return;
     }
 
     if (request.method === "POST" && request.url === "/v1/responses") {
-      const raw = await readBody(request);
+      if (Number(request.headers["content-length"]) > (options.maxRequestBytes ?? 1_048_576)) {
+        request.pause();
+        response.setHeader("connection", "close");
+        writeJson(response, 413, { error: "request_too_large" });
+        options.onEvidence?.(buildEvidence({ requestId: randomUUID(), outboundModel: options.upstreamModel,
+          outboundEffort: "", jevLatencyMs: 0, fallback: null, outcome: "request_too_large" }));
+        return;
+      }
+      let raw: string;
+      try {
+        raw = await readBody(request, options.maxRequestBytes ?? 1_048_576);
+      } catch (error) {
+        if (!(error instanceof BodyTooLargeError)) throw error;
+        response.setHeader("connection", "close");
+        writeJson(response, 413, { error: "request_too_large" });
+        options.onEvidence?.(buildEvidence({ requestId: randomUUID(), outboundModel: options.upstreamModel,
+          outboundEffort: "", jevLatencyMs: 0, fallback: null, outcome: "request_too_large" }));
+        return;
+      }
       let parsed: unknown;
       try {
         parsed = JSON.parse(raw);
@@ -186,8 +253,10 @@ async function handle(
         authorization: request.headers.authorization,
         body: JSON.stringify(rewritten),
         signal: clientAbort.signal,
+        headerTimeoutMs: options.upstreamHeaderTimeoutMs ?? 10_000,
+        idleTimeoutMs: options.upstreamIdleTimeoutMs ?? 60_000,
       });
-      emit(forwardOutcome === "forwarded" ? "completed" : "failed");
+      emit(forwardOutcome === "forwarded" ? "completed" : forwardOutcome === "upstream_timeout" ? "upstream_timeout" : "failed");
       return;
     }
 

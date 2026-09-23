@@ -10,6 +10,7 @@ import {
 export const UPSTREAM_UNAVAILABLE_BODY = JSON.stringify({
   error: "upstream_unavailable",
 });
+export const UPSTREAM_TIMEOUT_BODY = JSON.stringify({ error: "upstream_timeout" });
 
 export interface UpstreamCall {
   method: string;
@@ -17,13 +18,16 @@ export interface UpstreamCall {
   authorization: string | undefined;
   body: string | undefined;
   signal: AbortSignal;
+  headerTimeoutMs?: number;
+  idleTimeoutMs?: number;
 }
 
 export type UpstreamOutcome =
   | "forwarded"
   | "upstream_unavailable"
   | "mid_stream_failure"
-  | "client_disconnected";
+  | "client_disconnected"
+  | "upstream_timeout";
 
 export function forwardUpstream(
   response: ServerResponse,
@@ -41,13 +45,46 @@ export function forwardUpstream(
     let settled = false;
     let upstreamComplete = false;
     let headersForwarded = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let upstreamRequest: http.ClientRequest;
+
+    const clearDeadline = (): void => {
+      if (timer !== undefined) clearTimeout(timer);
+      timer = undefined;
+    };
+    const onAbort = (): void => {
+      upstreamRequest.destroy();
+      if (!response.writableEnded) response.destroy();
+      settle("client_disconnected");
+    };
 
     const settle = (outcome: UpstreamOutcome): void => {
       if (settled) {
         return;
       }
       settled = true;
+      clearDeadline();
+      call.signal.removeEventListener("abort", onAbort);
       resolve(outcome);
+    };
+
+    const deadline = (ms: number | undefined): void => {
+      clearDeadline();
+      if (ms === undefined || settled) return;
+      timer = setTimeout(() => {
+        if (call.signal.aborted) {
+          onAbort();
+          return;
+        }
+        settle("upstream_timeout");
+        if (headersForwarded) {
+          response.destroy();
+        } else {
+          response.writeHead(504, { "content-type": "application/json" });
+          response.end(UPSTREAM_TIMEOUT_BODY);
+        }
+        upstreamRequest.destroy();
+      }, ms);
     };
 
     const failMidStream = (): void => {
@@ -56,7 +93,7 @@ export function forwardUpstream(
     };
 
     const transport = call.url.protocol === "https:" ? https : http;
-    const upstreamRequest = transport.request(
+    upstreamRequest = transport.request(
       {
         protocol: call.url.protocol,
         hostname: call.url.hostname,
@@ -67,6 +104,7 @@ export function forwardUpstream(
       },
       (upstreamResponse) => {
         headersForwarded = true;
+        deadline(call.idleTimeoutMs);
         response.writeHead(
           upstreamResponse.statusCode ?? 502,
           pickResponseHeaders(upstreamResponse.rawHeaders),
@@ -75,7 +113,14 @@ export function forwardUpstream(
         upstreamResponse.on("data", (chunk: Buffer) => {
           if (!response.write(chunk)) {
             upstreamResponse.pause();
-            response.once("drain", () => upstreamResponse.resume());
+            clearDeadline();
+            response.once("drain", () => {
+              if (settled) return;
+              deadline(call.idleTimeoutMs);
+              upstreamResponse.resume();
+            });
+          } else {
+            deadline(call.idleTimeoutMs);
           }
         });
 
@@ -100,6 +145,7 @@ export function forwardUpstream(
     );
 
     upstreamRequest.on("error", () => {
+      if (settled) return;
       if (headersForwarded) {
         failMidStream();
         return;
@@ -113,18 +159,9 @@ export function forwardUpstream(
       settle("upstream_unavailable");
     });
 
-    call.signal.addEventListener(
-      "abort",
-      () => {
-        upstreamRequest.destroy();
-        if (!response.writableEnded) {
-          response.destroy();
-        }
-        settle("client_disconnected");
-      },
-      { once: true },
-    );
+    call.signal.addEventListener("abort", onAbort, { once: true });
 
+    deadline(call.headerTimeoutMs);
     upstreamRequest.end(call.body);
   });
 }

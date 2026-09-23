@@ -6,6 +6,7 @@ import {
 
 import type { Effort } from "./rewrite.js";
 import type { EffortDecision, EffortSelector } from "./server.js";
+import { EffortCache } from "./effort-cache.js";
 
 const EFFORTS = ["low", "medium", "high", "xhigh", "max"] as const;
 const EFFORT_SET: ReadonlySet<string> = new Set(EFFORTS);
@@ -43,6 +44,8 @@ export interface JevClassifierOptions {
   apiKey: string;
   timeoutMs: number;
   fetch?: Fetch;
+  cacheEntries?: number;
+  cacheTtlMs?: number;
 }
 
 export interface JevClassifier {
@@ -192,7 +195,7 @@ export function createJevClassifier(
     ...(options.fetch ? { fetch: options.fetch } : {}),
   });
 
-  const previousEfforts = new Map<string, Effort>();
+  const previousEfforts = new EffortCache(options.cacheEntries ?? 256, options.cacheTtlMs ?? 600_000);
 
   const select: EffortSelector = async ({ body, signal }) => {
     const startedAt = performance.now();

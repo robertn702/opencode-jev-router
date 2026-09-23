@@ -4,7 +4,7 @@ const FALLBACK_CODES = new Set([
   "jev_invalid_output",
 ]);
 
-const OUTCOMES = new Set(["completed", "failed"]);
+const OUTCOMES = new Set(["completed", "failed", "request_too_large", "overloaded", "upstream_timeout"]);
 
 export interface Evidence {
   request_id: string;
