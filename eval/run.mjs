@@ -12,8 +12,8 @@ const prepareOnly = args.includes("--prepare-only");
 const taskId = option("--task");
 const model = option("--model");
 const arm = option("--arm");
-if (!taskId || !["gpt-6-astra", "gpt-6-sol"].includes(model) || !["medium", "high", "jev"].includes(arm)) {
-  throw new Error("Usage: node eval/run.mjs --task ID --model gpt-6-astra|gpt-6-sol --arm medium|high|jev [--prepare-only]");
+if (!taskId || !["gpt-6-astra", "gpt-6-sol"].includes(model) || !["medium", "high", "xhigh", "jev"].includes(arm)) {
+  throw new Error("Usage: node eval/run.mjs --task ID --model gpt-6-astra|gpt-6-sol --arm medium|high|xhigh|jev [--prepare-only]");
 }
 const manifest = JSON.parse(await readFile(resolve(option("--manifest") ?? join(root, "eval/tasks.json")), "utf8"));
 const task = manifest.tasks.find((item) => item.id === taskId);
@@ -24,7 +24,8 @@ if (!task || !/^[a-zA-Z0-9_-]+$/.test(task.id) || !/^\w{40}$/.test(task.commit) 
     typeof task.prompt !== "string" || !task.prompt.trim() ||
     !Array.isArray(grader) || !grader.length || !grader.every((v) => typeof v === "string" && v.length > 0) ||
     !grader[0].startsWith("/") || grader.some((arg) => arg === task.repo || arg.startsWith(`${task.repo}/`)) ||
-    resolve(task.repo) === root || root.startsWith(`${resolve(task.repo)}/`)) {
+    resolve(task.repo) === root || root.startsWith(`${resolve(task.repo)}/`) ||
+    (task.agentTimeoutMinutes !== undefined && (!Number.isSafeInteger(task.agentTimeoutMinutes) || task.agentTimeoutMinutes < 1 || task.agentTimeoutMinutes > 60))) {
   throw new Error("Task missing or invalid: require pinned repo, commit, prompt, independent absolute grader argv");
 }
 const runId = `${task.id}-${model}-${arm}-${randomUUID()}`;
@@ -73,7 +74,7 @@ try {
     for (const name of ["config", "data", "cache", "state"]) await mkdir(join(home, name), { mode: 0o700 });
     const start = performance.now();
     const oc = await run("opencode", ["run", "--dir", worktree, "--model", `jev-router/${model}`, "--format", "json", task.prompt], {
-      cwd: worktree, timeoutMs: 15 * 60_000,
+      cwd: worktree, timeoutMs: (task.agentTimeoutMinutes ?? 15) * 60_000,
       env: { PATH: process.env.PATH, HOME: home, XDG_CONFIG_HOME: join(home, "config"), XDG_DATA_HOME: join(home, "data"), XDG_CACHE_HOME: join(home, "cache"), XDG_STATE_HOME: join(home, "state"),
         CLIPROXY_KEY: process.env.CLIPROXY_KEY, ...(arm === "jev" ? { JEV_API_KEY: process.env.JEV_API_KEY } : {}),
         OPENCODE_CONFIG: join(dir, "opencode.json"), OPENCODE_DISABLE_PROJECT_CONFIG: "1", OPENCODE_DISABLE_DEFAULT_PLUGINS: "1" },
@@ -126,6 +127,7 @@ try {
     result.auxiliary_requests = reconciliation?.auxiliary ?? null;
     result.evidence_valid = events.length > 0 && events.every((e) => e.model === model && e.outcome === "completed" && (arm === "jev" || e.effort === arm)) &&
       reconciliation !== null;
+    result.agent_usage = result.evidence_valid ? reconciliation.agent : null;
     if (!result.evidence_valid) { result.input_tokens = null; result.cached_input_tokens = null; result.output_tokens = null; }
   }
 } finally {
