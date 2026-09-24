@@ -55,6 +55,9 @@ try {
 const classifier = createJevClassifier({
   ...jev,
   timeoutMs: config.jevTimeoutMs,
+  maxRetries: config.maxRetries,
+  fallbackMode: config.fallbackMode,
+  fallbackEffort: config.fallbackEffort,
   cacheEntries: config.effortCacheEntries,
   cacheTtlMs: config.effortCacheTtlMs,
 });

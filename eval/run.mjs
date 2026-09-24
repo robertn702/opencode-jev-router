@@ -60,7 +60,7 @@ try {
   const config = {
     $schema: "https://opencode.ai/config.json",
     plugin: [[join(root, "dist/plugin.js"), {
-      ...(arm === "jev" ? { jevApiKey: "{env:JEV_API_KEY}", jevBaseUrl: process.env.JEV_BASE_URL ?? "https://ai-gateway.vercel.sh/typesafe" } : { fixedEffort: arm }),
+      ...(arm === "jev" ? { jevApiKey: "{env:JEV_API_KEY}", jevBaseUrl: process.env.JEV_BASE_URL ?? "https://ai-gateway.vercel.sh/typesafe", maxRetries: 3, fallbackMode: "error", jevTimeoutMs: 10_000 } : { fixedEffort: arm }),
       upstreamBaseURL: process.env.UPSTREAM_BASE_URL ?? "http://127.0.0.1:8317/v1",
       upstreamApiKey: "{env:CLIPROXY_KEY}", decisionsLogPath: join(dir, "decisions.jsonl"),
     }]], model: `jev-router/${model}`,
@@ -89,7 +89,16 @@ try {
     const patch = await git(["diff", "--binary", task.commit], worktree);
     if (patch.code !== 0) throw new Error(`Failed to capture patch: ${patch.stderr}`);
     await save("patch.diff", patch.stdout);
-    if (oc.code === 0 && !oc.timedOut) {
+    const agentError = oc.stdout.split("\n").some((line) => {
+      try { return JSON.parse(line).type === "error"; } catch { return false; }
+    });
+    result.agent_error = agentError;
+    let classificationErrors = 0;
+    try {
+      classificationErrors = (await readFile(join(dir, "decisions.jsonl"), "utf8")).trim().split("\n").map(JSON.parse).filter((e) => e.outcome === "classification_failed").length;
+    } catch { /* Missing evidence is rejected during reconciliation below. */ }
+    result.classification_errors = classificationErrors;
+    if (oc.code === 0 && !oc.timedOut && !agentError && !classificationErrors) {
       // The grader runs outside the agent-writable checkout and receives only
       // its patch and pinned source. An adapter must apply the patch to a fresh
       // checkout and use tests that are not taken from agent-modified files.

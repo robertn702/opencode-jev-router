@@ -23,7 +23,7 @@ describe("registered model isolation", () => {
   it("uses model-specific choices and globally bounded model-local fallback history", async () => {
     let answer = "high";
     const requests: any[] = [];
-    const classifier = createJevClassifier({ apiKey: "test", baseURL: "https://api.typesafe.ai", model: "jev-latest", timeoutMs: 1000, cacheEntries: 2,
+    const classifier = createJevClassifier({ apiKey: "test", baseURL: "https://api.typesafe.ai", model: "jev-latest", timeoutMs: 1000, cacheEntries: 2, fallbackMode: "previous", fallbackEffort: "medium",
       fetch: async (_url, init) => {
         requests.push(JSON.parse(String(init?.body)));
         return new Response(JSON.stringify({ model: "jev-latest", answers: { effort: { type: "choice", choice: answer, confidence: 1, probabilities: {} } }, usage: { input_tokens: 1, output_tokens: 1 } }), { headers: { "content-type": "application/json" } });

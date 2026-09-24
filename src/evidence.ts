@@ -4,13 +4,15 @@ const FALLBACK_CODES = new Set([
   "jev_invalid_output",
 ]);
 
-const OUTCOMES = new Set(["completed", "failed", "request_too_large", "overloaded", "upstream_timeout"]);
+const OUTCOMES = new Set(["completed", "failed", "request_too_large", "overloaded", "upstream_timeout", "classification_failed"]);
 const JEV_ERROR_CATEGORIES = new Set([
   "http_auth", "http_rate_limit", "http_4xx", "http_5xx", "http_other",
   "connection", "sdk_timeout", "sdk_abort", "unknown",
 ]);
 
 export interface Evidence {
+  jev_attempts?: number;
+  fallback_source?: string;
   request_id: string;
   session: string | null;
   turn_id: string | null;
@@ -29,6 +31,8 @@ export interface Evidence {
 }
 
 export function buildEvidence(parts: {
+  jevAttempts?: number;
+  fallbackSource?: string;
   requestId: string;
   session?: string | null;
   turnId?: string | null;
@@ -50,6 +54,8 @@ export function buildEvidence(parts: {
   const outcome = OUTCOMES.has(parts.outcome) ? parts.outcome : "failed";
 
   return {
+    ...(parts.jevAttempts === undefined ? {} : { jev_attempts: parts.jevAttempts }),
+    ...(parts.fallbackSource === undefined ? {} : { fallback_source: parts.fallbackSource }),
     request_id: parts.requestId,
     session: parts.session ?? null,
     turn_id: parts.turnId ?? null,
@@ -77,6 +83,8 @@ export function formatEvidence(evidence: Evidence): string {
 
 export function formatDecisionEvent(evidence: Evidence, now = new Date()): string {
   return JSON.stringify({
+    ...(evidence.jev_attempts === undefined ? {} : { jev_attempts: evidence.jev_attempts }),
+    ...(evidence.fallback_source === undefined ? {} : { fallback_source: evidence.fallback_source }),
     ts: now.toISOString(),
     event: "JevDecision",
     request_id: evidence.request_id,

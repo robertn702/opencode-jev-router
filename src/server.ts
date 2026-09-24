@@ -286,6 +286,10 @@ async function handle(
           scope: session || cacheKey ? [options.upstreamBaseUrl, body.model, options.baseEffort ?? model.defaultBaseEffort, authorization ?? "", session ?? "", cacheKey ?? "", body.instructions ?? null, body.tools ?? null] : null,
         });
       } catch (error) {
+        if (error instanceof Error && error.message === "jev_classification_failed") {
+          writeJson(response, 502, { error: "jev_classification_failed" });
+          return;
+        }
         if (error instanceof UnsupportedInputError) {
           writeJson(response, 400, {
             error: "invalid_request",

@@ -12,6 +12,8 @@ import type { Effort } from "./rewrite.js";
 import type { EffortDecision, EffortSelector } from "./server.js";
 import { EffortCache } from "./effort-cache.js";
 import { supportsEffort, type ModelProfile } from "./models.js";
+import { classificationPolicy, ClassificationFailedError, type ClassificationPolicyOptions } from "./classification-policy.js";
+import { setTimeout as delay } from "node:timers/promises";
 
 const EXCERPT_LIMIT = 1600;
 const USER_TEXT_LIMIT = 2000;
@@ -55,7 +57,7 @@ export type JevState = {
   failure_state: { failed_count: number; last_failure_excerpt: string };
 };
 
-export interface JevClassifierOptions {
+export interface JevClassifierOptions extends ClassificationPolicyOptions {
   apiKey: string;
   baseURL: string;
   model: string;
@@ -209,6 +211,8 @@ function usableCacheKey(value: unknown): string | null {
 export function createJevClassifier(
   options: JevClassifierOptions,
 ): JevClassifier {
+  const policy = classificationPolicy(options);
+  if (!Number.isSafeInteger(options.timeoutMs) || options.timeoutMs < 1) throw new Error("timeoutMs must be a positive integer");
   const client = new TypeSafeClient({
     apiKey: options.apiKey,
     baseURL: options.baseURL,
@@ -244,12 +248,31 @@ export function createJevClassifier(
     });
     const combined = AbortSignal.any([signal, deadline.signal]);
 
-    const call = client
-      .systemOne({ state, questions }, { signal: combined })
-      .then(
-        (result: unknown) => ({ kind: "result" as const, result }),
-        (error: unknown) => ({ kind: "error" as const, category: errorCategory(error) }),
-      );
+    let attempts = 0;
+    const call = (async () => {
+      for (;;) {
+        if (combined.aborted) return { kind: "error" as const, category: "sdk_abort" as const };
+        attempts++;
+        try {
+          return { kind: "result" as const, result: await client.systemOne({ state, questions }, { signal: combined }) };
+        } catch (error) {
+          const category = errorCategory(error);
+          const retryable = ["http_5xx", "http_rate_limit", "connection", "sdk_timeout"].includes(category);
+          if (!retryable || attempts > policy.maxRetries || combined.aborted) return { kind: "error" as const, category };
+          let waitMs = Math.min(2000, 200 * 2 ** (attempts - 1)) * (0.75 + Math.random() * 0.5);
+          if (error instanceof APIError) {
+            const retryAfter = error.headers?.get("retry-after");
+            if (retryAfter) {
+              const seconds = Number(retryAfter);
+              const advised = Number.isFinite(seconds) ? seconds * 1000 : Date.parse(retryAfter) - Date.now();
+              if (Number.isFinite(advised)) waitMs = Math.max(waitMs, advised);
+            }
+          }
+          try { await delay(Math.min(waitMs, options.timeoutMs), undefined, { signal: combined }); }
+          catch { return { kind: "error" as const, category: "sdk_abort" as const }; }
+        }
+      }
+    })();
 
     try {
       const outcome = await Promise.race([call, timeoutPromise]);
@@ -260,14 +283,19 @@ export function createJevClassifier(
 
       const fallback = (
         code: "jev_timeout" | "jev_error" | "jev_invalid_output",
-      ): EffortDecision => ({
+      ): EffortDecision => {
+        if (policy.fallbackMode === "error") throw new ClassificationFailedError(code, attempts, latency());
+        return ({
         effort: (() => {
-          const previous = cacheKey ? previousEfforts.get(cacheKey) : undefined;
-          return supportsEffort(model, previous) ? previous : model.fallbackEffort;
+          const previous = policy.fallbackMode === "previous" && cacheKey ? previousEfforts.get(cacheKey) : undefined;
+          return supportsEffort(model, previous) ? previous : policy.fallbackEffort;
         })(),
         jevLatencyMs: latency(),
+        jevAttempts: attempts,
+        fallbackSource: policy.fallbackMode === "previous" && cacheKey && supportsEffort(model, previousEfforts.get(cacheKey)) ? "previous" : "fixed",
         fallback: code,
       });
+      };
 
       if (outcome === "timeout") {
         return fallback("jev_timeout");
@@ -284,7 +312,7 @@ export function createJevClassifier(
       if (cacheKey !== null) {
         previousEfforts.set(cacheKey, effort);
       }
-      return { effort, jevLatencyMs: latency(), fallback: null };
+      return { effort, jevLatencyMs: latency(), jevAttempts: attempts, fallback: null };
     } finally {
       if (timer !== undefined) {
         clearTimeout(timer);

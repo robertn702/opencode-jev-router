@@ -1,10 +1,11 @@
 import type { Effort } from "./rewrite.js";
 import { isAbsolute } from "node:path";
 import { MODELS, supportsEffort } from "./models.js";
+import { classificationPolicy, type ClassificationPolicyOptions } from "./classification-policy.js";
 
 const EFFORTS: readonly string[] = ["low", "medium", "high", "xhigh", "max"];
 
-export interface AppConfig {
+export interface AppConfig extends ClassificationPolicyOptions {
   port: number;
   upstreamBaseUrl: string;
   upstreamAuth: UpstreamAuth;
@@ -86,6 +87,7 @@ function parseEffort(raw: string | undefined): Effort | undefined {
 }
 
 export function loadConfig(env: Record<string, string | undefined>): AppConfig {
+  const jevPolicy = classificationPolicy({ maxRetries: env.JEV_MAX_RETRIES === undefined ? undefined : Number(env.JEV_MAX_RETRIES), fallbackMode: env.JEV_FALLBACK_MODE as ClassificationPolicyOptions["fallbackMode"], fallbackEffort: env.JEV_FALLBACK_EFFORT as Effort | undefined });
   for (const name of ["UPSTREAM_MODEL", "UPSTREAM_MODELS", "ALLOWED_MODELS"]) {
     if (env[name] !== undefined) throw new Error(`${name} is unsupported; select a registered model through request.model`);
   }
@@ -128,6 +130,7 @@ export function loadConfig(env: Record<string, string | undefined>): AppConfig {
   }
 
   return {
+    ...jevPolicy,
     port: parsePort(env.JEV_PROXY_PORT),
     upstreamBaseUrl,
     upstreamAuth: policy === "bearer"

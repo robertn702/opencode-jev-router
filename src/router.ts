@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { ClassificationFailedError } from "./classification-policy.js";
 
 import { buildEvidence, type Evidence } from "./evidence.js";
 import { LineageStore } from "./lineage.js";
@@ -11,6 +12,8 @@ export interface EffortDecision {
   effort: Effort;
   jevLatencyMs: number;
   fallback: "jev_timeout" | "jev_error" | "jev_invalid_output" | null;
+  jevAttempts?: number;
+  fallbackSource?: "fixed" | "previous";
   jevErrorCategory?: "http_auth" | "http_rate_limit" | "http_4xx" | "http_5xx" | "http_other" | "connection" | "sdk_timeout" | "sdk_abort" | "unknown";
 }
 
@@ -49,8 +52,12 @@ export class ResponsesRouter {
     let decision: EffortDecision;
     try {
       decision = await this.options.selectEffort({ model, body, signal: request.signal, cacheScope: request.cacheScope });
-    } catch {
+    } catch (error) {
       if (request.signal.aborted) return null;
+      if (error instanceof ClassificationFailedError) {
+        this.options.onEvidence?.(buildEvidence({ requestId: randomUUID(), outboundModel: model.id, outboundEffort: "", jevLatencyMs: error.latencyMs, jevAttempts: error.attempts, fallback: null, outcome: "classification_failed" }));
+        throw error;
+      }
       throw new Error("effort selection must resolve");
     }
     if (request.signal.aborted) return null;
@@ -81,6 +88,7 @@ export class ResponsesRouter {
           outboundModel: rewritten.model, outboundEffort: decision.effort,
           jevLatencyMs: decision.jevLatencyMs, fallback: decision.fallback,
           jevErrorCategory: decision.jevErrorCategory, outcome,
+          jevAttempts: decision.jevAttempts, fallbackSource: decision.fallbackSource,
         }));
       },
     };
