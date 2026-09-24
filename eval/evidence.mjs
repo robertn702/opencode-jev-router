@@ -16,34 +16,43 @@ export function reconcileEvidence(events, output) {
     }
   }
   if (!steps.length || starts.size) return null;
-  let auxiliary = 0;
-  const firstContinuation = steps[1]?.start ?? steps[0].end + 10_000;
-  const within = steps.map(() => []);
-  for (const event of events) {
+  // The observed run shape has exactly one additional provider call. Its
+  // completion may occur before, during, or just after the second agent step.
+  if (events.length !== steps.length + 1) return null;
+  const candidates = steps.map(() => []);
+  for (const [eventIndex, event] of events.entries()) {
     const time = Date.parse(event.ts);
     if (!Number.isFinite(time)) return null;
-    // Router log completion can precede OpenCode's step_start emission by a
-    // few milliseconds; keep a small clock/serialization allowance.
-    const index = steps.findIndex((step) => time >= step.start - 100 && time <= step.end);
-    if (index < 0) {
-      if (time >= firstContinuation) return null;
-      auxiliary++;
-      continue;
+    for (const [index, step] of steps.entries()) {
+      // Allow a small log/step serialization difference, but never match by
+      // usage alone across unrelated steps.
+      if (time < step.start - 100 || time > step.end) continue;
+      const tokens = step.tokens;
+      if (!tokens || !Number.isFinite(tokens.input) || !Number.isFinite(tokens.output) ||
+          !Number.isFinite(tokens.reasoning) || !Number.isFinite(tokens.cache?.read) || !Number.isFinite(tokens.cache?.write)) return null;
+      if (event.input_tokens === tokens.input + tokens.cache.read + tokens.cache.write &&
+          event.cached_input_tokens === tokens.cache.read && event.output_tokens === tokens.output + tokens.reasoning) {
+        candidates[index].push(eventIndex);
+      }
     }
-    within[index].push(event);
   }
-  for (const [index, decisions] of within.entries()) {
-    const tokens = steps[index].tokens;
-    if (!tokens || !Number.isFinite(tokens.input) || !Number.isFinite(tokens.output) ||
-        !Number.isFinite(tokens.reasoning) || !Number.isFinite(tokens.cache?.read) || !Number.isFinite(tokens.cache?.write)) return null;
-    const matching = decisions.filter((event) => event.input_tokens === tokens.input + tokens.cache.read + tokens.cache.write &&
-      event.cached_input_tokens === tokens.cache.read && event.output_tokens === tokens.output + tokens.reasoning);
-    if (matching.length !== 1) return null;
-    if (decisions.length > 1 && index !== 0) return null;
-    auxiliary += decisions.length - 1;
+  if (candidates.some((matches) => matches.length !== 1)) return null;
+  const matched = candidates.map(([index]) => index);
+  if (new Set(matched).size !== steps.length || matched.some((index, i) => i > 0 && index <= matched[i - 1])) return null;
+  const extraIndex = events.findIndex((_, index) => !matched.includes(index));
+  const extra = events[extraIndex];
+  const extraTime = Date.parse(extra.ts);
+  const second = steps[1] ?? steps[0];
+  const next = steps[2]?.start ?? Infinity;
+  if (extraTime >= next || extraTime > second.end + 10_000) return null;
+  if (steps.some(({ tokens }) => extra.input_tokens === tokens.input + tokens.cache.read + tokens.cache.write &&
+      extra.cached_input_tokens === tokens.cache.read && extra.output_tokens === tokens.output + tokens.reasoning)) return null;
+  // The extra call cannot be silently substituted for a missing step call;
+  // every step above must have its own unique usage-and-time match.
+  const agent = { input_tokens: 0, cached_input_tokens: 0, output_tokens: 0 };
+  for (const index of matched) {
+    const event = events[index];
+    for (const field of Object.keys(agent)) agent[field] += event[field];
   }
-  // The observed OpenCode run shape has one early auxiliary request. Requiring
-  // that count and position prevents it replacing a missing step decision.
-  // This is a shape check, not a claim to know the auxiliary request's purpose.
-  return auxiliary === 1 ? { auxiliary } : null;
+  return { auxiliary: 1, agent };
 }

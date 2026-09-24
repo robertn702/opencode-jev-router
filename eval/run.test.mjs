@@ -28,6 +28,11 @@ test("prepare-only creates an isolated task checkout and config without credenti
     assert.deepEqual((await readdir(join(resolve(path, "..")))).sort(), ["opencode.json", "result.json"]);
     assert.equal(execFileSync("git", ["-C", repo, "worktree", "list", "--porcelain"], { encoding: "utf8" }).match(/worktree /g)?.length, 1);
     await rm(resolve(path, ".."), { recursive: true, force: true });
+    const xhighPath = execFileSync("node", ["eval/run.mjs", "--manifest", manifest, "--task", "offline-fixture", "--model", "gpt-6-astra", "--arm", "xhigh", "--prepare-only"], { cwd: root, encoding: "utf8" }).trim();
+    const xhighConfig = JSON.parse(await readFile(join(resolve(xhighPath, ".."), "opencode.json"), "utf8"));
+    assert.equal(xhighConfig.plugin[0][1].fixedEffort, "xhigh");
+    assert.equal(xhighConfig.plugin[0][1].jevApiKey, undefined);
+    await rm(resolve(xhighPath, ".."), { recursive: true, force: true });
   } finally { await rm(temp, { recursive: true, force: true }); }
 });
 
@@ -58,6 +63,7 @@ test("offline agent attempt grades an immutable patch and rejects missing router
       assert.equal(result.evidence_valid, withEvidence);
       assert.equal(result.output_tokens, withEvidence ? 9 : null);
       assert.equal(result.auxiliary_requests, withEvidence ? 1 : null);
+      assert.deepEqual(result.agent_usage, withEvidence ? { input_tokens: 3, cached_input_tokens: 0, output_tokens: 2 } : null);
       assert.equal((await readFile(join(resolve(path, ".."), "patch.diff"), "utf8")).includes("+after"), true);
       assert.equal(execFileSync("git", ["-C", repo, "worktree", "list", "--porcelain"], { encoding: "utf8" }).match(/worktree /g)?.length, 1);
       await rm(resolve(path, ".."), { recursive: true, force: true });

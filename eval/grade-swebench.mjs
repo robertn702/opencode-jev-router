@@ -23,7 +23,10 @@ if (!/^[a-zA-Z0-9_-]+$/.test(id ?? "") || !dataset || !process.env.EVAL_PATCH_PA
   process.exit(2);
 }
 const contents = readFileSync(dataset);
-const expected = readFileSync(join(root, "swebench-verified-pilot.sha256"), "utf8").trim();
+const digestFile = ["django__django-14631", "pytest-dev__pytest-5787"].includes(id) ? "swebench-astra.sha256" :
+  id.startsWith("astropy__astropy-") ? "swebench-candidates.sha256" :
+  id === "pydata__xarray-6992" ? "swebench-xarray.sha256" : "swebench-verified-pilot.sha256";
+const expected = readFileSync(join(root, digestFile), "utf8").trim();
 if (createHash("sha256").update(contents).digest("hex") !== expected) {
   console.error("Pinned SWE-bench dataset digest mismatch");
   process.exit(2);

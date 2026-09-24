@@ -1,0 +1,16 @@
+{
+  "tasks": [
+    {
+      "id": "astropy__astropy-12907",
+      "repo": "https://github.com/astropy/astropy.git",
+      "commit": "d16bfe05a744909de4b27f5875fe0d4ed41ce607",
+      "grade": "swebench"
+    },
+    {
+      "id": "astropy__astropy-13579",
+      "repo": "https://github.com/astropy/astropy.git",
+      "commit": "0df94ff7097961e92fd7812036a24b145bc13ca8",
+      "grade": "swebench"
+    }
+  ]
+}
