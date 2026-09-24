@@ -100,10 +100,10 @@ Docker and the official SWE-bench harness (pilot revision
 the interpreter with `swebench` installed, if not available through `python3`.
 Check the gold prediction and the unmodified base against the installed harness
 before spending model runs. Configure
-`JEV_API_KEY` for the adaptive arm and `CLIPROXY_KEY` for every arm. The eval
+`JEV_ROUTER_API_KEY` for the adaptive arm and `CLIPROXY_KEY` for every arm. The eval
 defaults Jev to Vercel AI Gateway (`https://ai-gateway.vercel.sh/typesafe`);
-set `JEV_BASE_URL=https://api.typesafe.ai` only for a direct TypeSafe key. The default
-upstream is `http://127.0.0.1:8317/v1` (override with `UPSTREAM_BASE_URL`).
+set `JEV_ROUTER_BASE_URL=https://api.typesafe.ai` only for a direct TypeSafe key. The default
+upstream is `http://127.0.0.1:8317/v1` (override with `JEV_ROUTER_UPSTREAM_BASE_URL`).
 The baseline arms do not contact Jev. OpenCode config is generated for each
 attempt and project config loading is disabled to avoid task-local overrides.
 

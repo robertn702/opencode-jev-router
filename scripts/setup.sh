@@ -41,7 +41,7 @@ shopt -u nullglob
 
 if [[ ! -e "$REPO_ROOT/.env" && -f "$REPO_ROOT/.env.example" ]]; then
   cp "$REPO_ROOT/.env.example" "$REPO_ROOT/.env"
-  echo 'Setup: Created .env from .env.example (set JEV_API_KEY before running).'
+  echo 'Setup: Created .env from .env.example (set JEV_ROUTER_API_KEY before running).'
 fi
 
 if [[ -d "$MAIN_REPO/.scratch/shared" && ! -e "$REPO_ROOT/.scratch/shared" && ! -L "$REPO_ROOT/.scratch/shared" ]]; then

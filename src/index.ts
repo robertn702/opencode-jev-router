@@ -13,23 +13,26 @@ if (process.argv.includes("--help") || process.argv.includes("-h")) {
 Start the local Jev-powered Responses API proxy.
 
 Environment:
-  JEV_API_KEY        Required Jev classifier key (separate from upstream/client keys)
-  JEV_BASE_URL       Jev API root (default: https://api.typesafe.ai)
+  JEV_ROUTER_API_KEY        Required Jev classifier key (separate from upstream/client keys)
+  JEV_ROUTER_BASE_URL       Jev API root (default: https://api.typesafe.ai)
                      Vercel: https://ai-gateway.vercel.sh/typesafe
-  JEV_PROXY_PORT     Listening port (default: 4320)
-  UPSTREAM_BASE_URL  Responses-compatible base URL (default: http://127.0.0.1:8317/v1)
-  UPSTREAM_AUTH      forward (default, loopback only) or bearer
-  UPSTREAM_API_KEY   Required for bearer policy; replaces the client's bearer key
-  BASE_EFFORT        Optional base effort override supported by every model
-  JEV_TIMEOUT_MS     Jev timeout in milliseconds (default: 4000)
-  JEV_DECISIONS_LOG_PATH  Optional absolute path for local decision JSONL
-  MAX_REQUEST_BYTES  Maximum POST body bytes (default: 1048576)
-  MAX_IN_FLIGHT      Maximum active proxy requests (default: 32)
-  UPSTREAM_HEADER_TIMEOUT_MS  Upstream header deadline (default: 10000)
-  UPSTREAM_IDLE_TIMEOUT_MS    Upstream response idle deadline (default: 60000)
-  EFFORT_CACHE_ENTRIES        Previous-effort cache capacity (default: 256)
-  EFFORT_CACHE_TTL_MS         Previous-effort expiry (default: 600000)
-  SHUTDOWN_GRACE_MS           Drain deadline (default: 30000)`);
+  JEV_ROUTER_PORT     Listening port (default: 4320)
+  JEV_ROUTER_UPSTREAM_BASE_URL  Responses-compatible base URL (default: http://127.0.0.1:8317/v1)
+  JEV_ROUTER_UPSTREAM_AUTH      forward (default, loopback only) or bearer
+  JEV_ROUTER_UPSTREAM_API_KEY   Required for bearer policy; replaces the client's bearer key
+  JEV_ROUTER_BASE_EFFORT        Optional base effort override supported by every model
+  JEV_ROUTER_CLASSIFICATION_TIMEOUT_MS     Jev timeout in milliseconds (default: 4000)
+  JEV_ROUTER_MAX_RETRIES      Additional transient-error attempts (default: 1)
+  JEV_ROUTER_FALLBACK_MODE    fixed (default), previous, or error
+  JEV_ROUTER_FALLBACK_EFFORT  Backup effort (default: high)
+  JEV_ROUTER_DECISIONS_LOG_PATH  Optional absolute path for local decision JSONL
+  JEV_ROUTER_MAX_REQUEST_BYTES  Maximum POST body bytes (default: 1048576)
+  JEV_ROUTER_MAX_IN_FLIGHT      Maximum active proxy requests (default: 32)
+  JEV_ROUTER_UPSTREAM_HEADER_TIMEOUT_MS  Upstream header deadline (default: 10000)
+  JEV_ROUTER_UPSTREAM_IDLE_TIMEOUT_MS    Upstream response idle deadline (default: 60000)
+  JEV_ROUTER_EFFORT_CACHE_ENTRIES        Previous-effort cache capacity (default: 256)
+  JEV_ROUTER_EFFORT_CACHE_TTL_MS         Previous-effort expiry (default: 600000)
+  JEV_ROUTER_SHUTDOWN_GRACE_MS           Drain deadline (default: 30000)`);
   process.exit(0);
 }
 
