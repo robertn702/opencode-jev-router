@@ -23,7 +23,8 @@ if (!/^[a-zA-Z0-9_-]+$/.test(id ?? "") || !dataset || !process.env.EVAL_PATCH_PA
   process.exit(2);
 }
 const contents = readFileSync(dataset);
-const digestFile = ["django__django-14631", "pytest-dev__pytest-5787"].includes(id) ? "swebench-astra.sha256" :
+const digestFile = ["sympy__sympy-13878", "sphinx-doc__sphinx-7590", "scikit-learn__scikit-learn-25102", "sphinx-doc__sphinx-11510", "pytest-dev__pytest-6197"].includes(id) ? "swebench-boundary.sha256" :
+  ["django__django-14631", "pytest-dev__pytest-5787"].includes(id) ? "swebench-astra.sha256" :
   id.startsWith("astropy__astropy-") ? "swebench-candidates.sha256" :
   id === "pydata__xarray-6992" ? "swebench-xarray.sha256" : "swebench-verified-pilot.sha256";
 const expected = readFileSync(process.env.EVAL_DATASET_DIGEST_FILE ?? join(root, digestFile), "utf8").trim();
