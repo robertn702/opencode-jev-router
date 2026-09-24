@@ -1,6 +1,6 @@
 {
   "$schema": "https://opencode.ai/config.json",
-  "plugin": [["@robertn702/opencode-jev-router", {
+  "plugin": [["@robertn702/opencode-jev-router@0.2.0", {
     "jevApiKey": "{env:JEV_API_KEY}",
     "jevBaseUrl": "https://ai-gateway.vercel.sh/typesafe",
     "upstreamBaseURL": "http://127.0.0.1:8317/v1",

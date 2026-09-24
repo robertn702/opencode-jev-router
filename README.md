@@ -44,11 +44,25 @@ and correctness over fixed effort has not yet been established by a task benchma
 
 ## Quick start: OpenCode plugin
 
-Install Node.js 24.x, make `JEV_API_KEY` available in the environment that
-starts OpenCode, and add the plugin to your OpenCode configuration. The key
-can come from your shell configuration or a secret manager; it does not have
-to live at a particular file path. The example below uses CLIProxyAPI as the
-Responses upstream and a Vercel AI Gateway key for Jev classification:
+Use Node.js 24.x and an OpenCode setup with a working GPT-6 Responses upstream.
+This uses the published `@robertn702/opencode-jev-router@0.2.0` plugin; the
+source-compatibility smoke test targets OpenCode 1.18.32 (see
+[compatibility](#plugin-compatibility-and-telemetry)). You need separate
+credentials for classification and generation:
+
+```text
+OpenCode -> Jev Router plugin -> CLIProxyAPI (Codex OAuth) or OpenAI Responses API
+                 |                  CLIPROXY_KEY         OPENAI_API_KEY
+                 +-> Jev: direct TypeSafe or Vercel AI Gateway
+                          JEV_API_KEY (key for the chosen endpoint)
+```
+
+1. Make the keys available in the environment that starts OpenCode (for
+   example, via your shell or secret manager). Choose one Jev endpoint. This
+   example uses a [Vercel AI Gateway key](https://vercel.com/docs/ai-gateway/sdks-and-apis/typesafe)
+   for `JEV_API_KEY` and CLIProxyAPI on `127.0.0.1:8317` with `CLIPROXY_KEY`
+   for generation. Add this to your OpenCode configuration, replacing the log
+   path with a writable absolute path:
 
 ```jsonc
 {
@@ -56,20 +70,38 @@ Responses upstream and a Vercel AI Gateway key for Jev classification:
     "jevApiKey": "{env:JEV_API_KEY}",
     "jevBaseUrl": "https://ai-gateway.vercel.sh/typesafe",
     "upstreamBaseURL": "http://127.0.0.1:8317/v1",
-    "upstreamApiKey": "{env:CLIPROXY_KEY}"
+    "upstreamApiKey": "{env:CLIPROXY_KEY}",
+    "decisionsLogPath": "/absolute/path/to/jev-plugin-decisions.jsonl"
   }]],
   "model": "jev-router/gpt-6-astra"
 }
 ```
 
-Use a [**Vercel AI Gateway key**](https://vercel.com/docs/ai-gateway/sdks-and-apis/typesafe)
-for `JEV_API_KEY` in this example. `CLIPROXY_KEY` is the separate credential
-for the local CLIProxyAPI upstream. The plugin
-uses Vercel's `typesafe-ai/jev` model identifier automatically. For a **direct
-TypeSafe key**, remove `jevBaseUrl`; the default endpoint is
-`https://api.typesafe.ai` and the model identifier is `jev-latest`. A key for
-one endpoint will not authenticate with the other. Restart OpenCode after
-changing the key or plugin configuration.
+   For **direct TypeSafe** classification instead, use a TypeSafe key for
+   `JEV_API_KEY` and remove the `jevBaseUrl` line. The default endpoint is
+   `https://api.typesafe.ai` with model identifier `jev-latest`. With Vercel,
+   the plugin uses `typesafe-ai/jev` automatically. Keys for the two endpoints
+   are not interchangeable.
+
+   For **direct OpenAI** generation instead of CLIProxyAPI, replace the two
+   upstream lines with `"upstreamBaseURL": "https://api.openai.com/v1"` and
+   `"upstreamApiKey": "{env:OPENAI_API_KEY}"`. That key needs access to the
+   selected GPT-6 model. Direct API usage is billed independently of a Codex
+   subscription. Keep the Jev settings you chose above.
+
+2. Restart OpenCode, select `jev-router/gpt-6-astra` (or `...-luna` / `...-sol`),
+   and ask **“Reply with exactly OK.”** Wait for the response to complete.
+   The plugin installs through OpenCode; no separate router process is needed.
+
+3. Open the JSONL file at `decisionsLogPath` and find the latest line with
+   `"event":"JevDecision"`. Check `model`, `effort`, `fallback`, and `outcome`.
+   A successful classified request has the selected model, `"fallback":null`,
+   and `"outcome":"completed"`; `effort` is Jev's selected effort. A non-null
+   `fallback` means that effort was a fallback, not a Jev selection. The log
+   contains metadata, not prompts or credentials. The response's reported
+   `reasoning.effort` is the stable base, **not** Jev's selection. If no event
+   appears, check the absolute log path, write permissions, and provider
+   selection; writes are asynchronous, so allow a moment after completion.
 
 OpenCode expands `{env:NAME}` and `{file:path}` in plugin options. If you
 prefer a key file, replace `"{env:JEV_API_KEY}"` with a file reference such
@@ -80,22 +112,23 @@ The plugin registers the `jev-router` provider and its Astra/Luna/Sol model
 catalog. `jevApiKey` is used only for classification. `upstreamBaseURL`
 points to the Responses upstream, while `upstreamApiKey` authenticates to
 that upstream; it may be omitted if OpenCode supplies the provider credential
-through its normal auth handling. For direct OpenAI instead of CLIProxyAPI,
-set `upstreamBaseURL` to `https://api.openai.com/v1` and `upstreamApiKey` to
-an environment reference containing an OpenAI API key. Direct OpenAI usage is
-billed to that API account independently of a Codex subscription.
+through its normal auth handling.
 
-The plugin installs through OpenCode. There is no separate proxy process to
-start. See [`examples/opencode.jsonc`](examples/opencode.jsonc) for the
-copyable Vercel configuration.
+See [`examples/opencode.jsonc`](examples/opencode.jsonc) for the copyable
+Vercel/CLIProxyAPI configuration.
 
 ### Plugin compatibility and telemetry
 
-The plugin's source compatibility is pinned to OpenCode 1.18.32's plugin and
-provider-fetch behavior. `scripts/plugin-smoke.mjs` successfully exercised an
-isolated local-file plugin load, configuration hook, rewritten fake Responses
-SSE, and independent `./server` import resolution against that runtime. This
-does not test an npm-registry installation or real services.
+| OpenCode path | Documented verification |
+| --- | --- |
+| 1.18.32, local-file plugin | `scripts/plugin-smoke.mjs`: plugin load, configuration hook, rewritten fake Responses SSE, and independent `./server` import resolution. |
+| npm-registry plugin with real services | No versioned reproduction recorded here yet. |
+| OpenCode v2 | Not verified; do not assume this v1-style `plugin` config applies to v2. |
+
+The source-compatibility smoke is pinned to OpenCode 1.18.32's plugin and
+provider-fetch behavior; it does not exercise a registry installation or
+real services. Record the OpenCode version, upstream, classification endpoint,
+and completed-request outcome when reproducing a clean install.
 
 Set the optional plugin `decisionsLogPath` to an **absolute** local path
 to append timestamped, metadata-only `JevDecision` JSONL events. Omit it to
