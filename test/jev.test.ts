@@ -4,7 +4,7 @@ import { createJevClassifier as createClassifier, buildJevState } from "../src/j
 import { findModel } from "../src/models.js";
 
 function createJevClassifier(options: Omit<Parameters<typeof createClassifier>[0], "baseURL" | "model"> & Partial<Pick<Parameters<typeof createClassifier>[0], "baseURL" | "model">>) {
-  const classifier = createClassifier({ baseURL: "https://api.typesafe.ai", model: "jev-latest", ...options });
+  const classifier = createClassifier({ baseURL: "https://api.typesafe.ai", model: "jev-latest", maxRetries: 0, fallbackMode: "previous", fallbackEffort: "medium", ...options });
   return { ...classifier, select: (args: Omit<Parameters<typeof classifier.select>[0], "model">) =>
     classifier.select({ ...args, model: findModel(args.body.model ?? "gpt-6-astra")! }) };
 }
@@ -86,6 +86,7 @@ describe("Jev classifier", () => {
     expect(decision).toEqual({
       effort: "high",
       jevLatencyMs: expect.any(Number),
+      jevAttempts: 1,
       fallback: null,
     });
     expect(client.retry.maxRetries).toBe(0);
@@ -504,6 +505,7 @@ describe("evidence privacy under inherited debug logging", () => {
       "fallback",
       "history_updates_replayed",
       "input_tokens",
+      "jev_attempts",
       "jev_error_category",
       "jev_latency_ms",
       "lineage_status",

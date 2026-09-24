@@ -232,7 +232,7 @@ describe("jev-router plugin", () => {
       expect(lines).toHaveLength(1);
       const event = JSON.parse(lines[0]!);
       expect(event).toMatchObject({ event: "JevDecision", session: "ses_plugin", turn_id: output.headers["x-jev-turn-id"], model: "gpt-6-astra", effort: "high", fallback: null, outcome: "completed", input_tokens: 7, cached_input_tokens: 3, output_tokens: 2 });
-      expect(Object.keys(event).sort()).toEqual(["ts", "event", "request_id", "session", "turn_id", "model", "effort", "fallback", "jev_latency_ms", "jev_error_category", "outcome", "input_tokens", "cached_input_tokens", "output_tokens", "previous_effort", "lineage_status", "history_updates_replayed"].sort());
+      expect(Object.keys(event).sort()).toEqual(["ts", "event", "request_id", "session", "turn_id", "model", "effort", "fallback", "jev_attempts", "jev_latency_ms", "jev_error_category", "outcome", "input_tokens", "cached_input_tokens", "output_tokens", "previous_effort", "lineage_status", "history_updates_replayed"].sort());
       expect(lines[0]).not.toMatch(/private|authorization|prompt_cache_key/);
       hooks.dispose();
     } finally { await rm(dir, { recursive: true, force: true }); }
@@ -253,7 +253,7 @@ describe("jev-router plugin", () => {
       await vi.waitFor(async () => expect((await readFile(path, "utf8")).trim()).not.toBe(""));
       const lines = (await readFile(path, "utf8")).trim().split("\n");
       expect(lines).toHaveLength(1);
-      expect(JSON.parse(lines[0]!)).toMatchObject({ session: null, turn_id: null, effort: "medium", fallback: "jev_invalid_output", outcome: "failed" });
+      expect(JSON.parse(lines[0]!)).toMatchObject({ session: null, turn_id: null, effort: "high", fallback: "jev_invalid_output", outcome: "failed" });
       expect(lines[0]).not.toContain("secret upstream error");
       hooks.dispose();
     } finally { await rm(dir, { recursive: true, force: true }); }

@@ -4,13 +4,14 @@ import { resolveJevConnection, upstreamHostname } from "./config.js";
 import { createDecisionLogger } from "./decision-log.js";
 import { buildPluginUpstreamRequestHeaders, pickFetchResponseHeaders } from "./headers.js";
 import { createJevClassifier } from "./jev.js";
+import type { ClassificationPolicyOptions } from "./classification-policy.js";
 import { MODELS, supportsEffort, type Effort } from "./models.js";
 import { UnsupportedInputError } from "./rewrite.js";
 import { ResponsesRouter, type PreparedRequest } from "./router.js";
 import { UsageObserver } from "./usage.js";
 import { resolveModel, validateResponsesRequest } from "./validate.js";
 
-type PluginOptions = { jevApiKey?: string; jevBaseUrl?: string; jevModel?: string; baseEffort?: Effort; fixedEffort?: Effort; maxRequestBytes?: number; maxInFlight?: number; upstreamHeaderTimeoutMs?: number; upstreamIdleTimeoutMs?: number; upstreamBaseURL?: string; upstreamApiKey?: string; decisionsLogPath?: string };
+type PluginOptions = ClassificationPolicyOptions & { jevTimeoutMs?: number; jevApiKey?: string; jevBaseUrl?: string; jevModel?: string; baseEffort?: Effort; fixedEffort?: Effort; maxRequestBytes?: number; maxInFlight?: number; upstreamHeaderTimeoutMs?: number; upstreamIdleTimeoutMs?: number; upstreamBaseURL?: string; upstreamApiKey?: string; decisionsLogPath?: string };
 type ProviderConfig = { npm?: string; name?: string; options?: Record<string, unknown>; models?: Record<string, unknown> };
 type OpenCodeConfig = { provider?: Record<string, ProviderConfig> };
 type HeaderHook = { sessionID: string; model: { providerID?: string; provider?: string }; provider: { id?: string } };
@@ -95,7 +96,7 @@ export default async function jevRouterPlugin(_input: unknown, options: PluginOp
   const maxInFlight = positive(options.maxInFlight, 32, "maxInFlight");
   const headerTimeoutMs = positive(options.upstreamHeaderTimeoutMs, 10_000, "upstreamHeaderTimeoutMs");
   const idleTimeoutMs = positive(options.upstreamIdleTimeoutMs, 60_000, "upstreamIdleTimeoutMs");
-  const selectEffort = connection ? createJevClassifier({ ...connection, timeoutMs: 4_000 }).select : async () => ({ effort: options.fixedEffort!, jevLatencyMs: 0, fallback: null });
+  const selectEffort = connection ? createJevClassifier({ ...connection, maxRetries: options.maxRetries, fallbackMode: options.fallbackMode, fallbackEffort: options.fallbackEffort, timeoutMs: options.jevTimeoutMs ?? 4_000 }).select : async () => ({ effort: options.fixedEffort!, jevLatencyMs: 0, fallback: null });
   const onEvidence = options.decisionsLogPath === undefined ? undefined : createDecisionLogger(options.decisionsLogPath);
   const router = new ResponsesRouter({ baseEffort: options.baseEffort, selectEffort, onEvidence });
   const controllers = new Set<AbortController>();
@@ -153,6 +154,7 @@ export default async function jevRouterPlugin(_input: unknown, options: PluginOp
       return new Response(stream, { status: upstream.status, statusText: upstream.statusText, headers: pickFetchResponseHeaders(upstream.headers) });
     } catch (cause) {
       discard("failed");
+      if (cause instanceof Error && cause.message === "jev_classification_failed") return error("jev_classification_failed", 502, "jev_classification_failed");
       if (cause instanceof UnsupportedInputError) return error(cause.message);
       if (timedOut) return error("upstream_timeout", 504, "upstream_timeout");
       if (signal.aborted) return error("request cancelled", 499, "cancelled");
