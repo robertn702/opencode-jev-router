@@ -10,6 +10,12 @@ Across all five attempts per arm, Jev used **6.2% more output tokens and 11.2% m
 
 ## Protocol
 
+### Observed Jev efforts
+
+The five Sphinx confirmation runs recorded **164 generation decisions: high 142, medium 7, low 15, xhigh 0, max 0**. There were 20 additional classification attempts and zero fallback events. These counts come from the saved decision logs, not the provider's reported response effort.
+
+For comparison, the five strict pytest #5787 runs in the preceding PR recorded high 84, medium 33, low 8, xhigh 0, max 0. Across these ten fallback-free Jev runs, **Jev never selected xhigh**. The fixed-xhigh screening and confirmation arms were explicit baselines, not Jev selections. This search therefore did not demonstrate router escalation to xhigh.
+
 Run set: `astra-boundary-2026-09-24`. Dataset revision: `78f471bf655a3137b2e8a75af1501690ec009ec3`. Candidate order: sympy__sympy-13878, sphinx-doc__sphinx-7590, scikit-learn__scikit-learn-25102, sphinx-doc__sphinx-11510, pytest-dev__pytest-6197.
 
 Predeclared screen: medium 0/2 and xhigh 2/2, with all four runs graded and evidence-valid. Qualifying cases receive five fresh attempts per arm. Confirmation: medium at most 1/5, and high or xhigh at least 4/5, with all 20 runs graded and evidence-valid. Stop after the first confirmed fixed-effort boundary, independent of whether Jev wins, or after five candidates. Failed preflight consumes a candidate slot.
