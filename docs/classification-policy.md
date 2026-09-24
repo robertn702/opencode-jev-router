@@ -9,9 +9,9 @@ Retry-After is respected within the total classification deadline.
 
 | Plugin option | CLI environment | Default |
 | --- | --- | --- |
-| `maxRetries` | `JEV_MAX_RETRIES` | 1 (0–10 additional attempts) |
-| `fallbackMode` | `JEV_FALLBACK_MODE` | `fixed` |
-| `fallbackEffort` | `JEV_FALLBACK_EFFORT` | `high` |
+| `maxRetries` | `JEV_ROUTER_MAX_RETRIES` | 1 (0–10 additional attempts) |
+| `fallbackMode` | `JEV_ROUTER_FALLBACK_MODE` | `fixed` |
+| `fallbackEffort` | `JEV_ROUTER_FALLBACK_EFFORT` | `high` |
 | `jevTimeoutMs` | `JEV_TIMEOUT_MS` | 4000, total budget including backoff |
 
 Modes: `fixed` uses the configured effort; `previous` uses the last successful

@@ -87,7 +87,7 @@ function parseEffort(raw: string | undefined): Effort | undefined {
 }
 
 export function loadConfig(env: Record<string, string | undefined>): AppConfig {
-  const jevPolicy = classificationPolicy({ maxRetries: env.JEV_MAX_RETRIES === undefined ? undefined : Number(env.JEV_MAX_RETRIES), fallbackMode: env.JEV_FALLBACK_MODE as ClassificationPolicyOptions["fallbackMode"], fallbackEffort: env.JEV_FALLBACK_EFFORT as Effort | undefined });
+  const jevPolicy = classificationPolicy({ maxRetries: env.JEV_ROUTER_MAX_RETRIES === undefined ? undefined : Number(env.JEV_ROUTER_MAX_RETRIES), fallbackMode: env.JEV_ROUTER_FALLBACK_MODE as ClassificationPolicyOptions["fallbackMode"], fallbackEffort: env.JEV_ROUTER_FALLBACK_EFFORT as Effort | undefined });
   for (const name of ["UPSTREAM_MODEL", "UPSTREAM_MODELS", "ALLOWED_MODELS"]) {
     if (env[name] !== undefined) throw new Error(`${name} is unsupported; select a registered model through request.model`);
   }
