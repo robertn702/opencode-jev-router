@@ -44,7 +44,7 @@ and correctness over fixed effort has not yet been established by a task benchma
 
 ## Quick start: OpenCode plugin
 
-Install Node.js 24.x, make `JEV_API_KEY` available in the environment that
+Install Node.js 24.x, make `JEV_ROUTER_API_KEY` available in the environment that
 starts OpenCode, and add the plugin to your OpenCode configuration. The key
 can come from your shell configuration or a secret manager; it does not have
 to live at a particular file path. The example below uses CLIProxyAPI as the
@@ -53,7 +53,7 @@ Responses upstream and a Vercel AI Gateway key for Jev classification:
 ```jsonc
 {
   "plugin": [["@robertn702/opencode-jev-router@0.2.0", {
-    "jevApiKey": "{env:JEV_API_KEY}",
+    "jevApiKey": "{env:JEV_ROUTER_API_KEY}",
     "jevBaseUrl": "https://ai-gateway.vercel.sh/typesafe",
     "upstreamBaseURL": "http://127.0.0.1:8317/v1",
     "upstreamApiKey": "{env:CLIPROXY_KEY}"
@@ -63,7 +63,7 @@ Responses upstream and a Vercel AI Gateway key for Jev classification:
 ```
 
 Use a [**Vercel AI Gateway key**](https://vercel.com/docs/ai-gateway/sdks-and-apis/typesafe)
-for `JEV_API_KEY` in this example. `CLIPROXY_KEY` is the separate credential
+for `JEV_ROUTER_API_KEY` in this example. `CLIPROXY_KEY` is the separate credential
 for the local CLIProxyAPI upstream. The plugin
 uses Vercel's `typesafe-ai/jev` model identifier automatically. For a **direct
 TypeSafe key**, remove `jevBaseUrl`; the default endpoint is
@@ -72,7 +72,7 @@ one endpoint will not authenticate with the other. Restart OpenCode after
 changing the key or plugin configuration.
 
 OpenCode expands `{env:NAME}` and `{file:path}` in plugin options. If you
-prefer a key file, replace `"{env:JEV_API_KEY}"` with a file reference such
+prefer a key file, replace `"{env:JEV_ROUTER_API_KEY}"` with a file reference such
 as `"{file:~/.config/jev-router/api-key}"`; create the file yourself and
 restrict its permissions. The path is an example, not a router requirement.
 
@@ -106,7 +106,7 @@ which appear as `session` and `turn_id`. The session can be used to associate
 decisions with OpenCode turns; `turn_id` identifies a routed request and is not
 guaranteed to equal an `LLMTurn` identifier. A turn may have multiple
 requests/decisions. Invalid or missing headers yield null IDs.
-`JEV_DECISIONS_LOG_PATH` configures the **standalone CLI** only; the plugin
+`JEV_ROUTER_DECISIONS_LOG_PATH` configures the **standalone CLI** only; the plugin
 does not read it. The plugin does not print per-request evidence to stdout,
 whereas the standalone CLI does so even without its optional JSONL path.
 Provider `jev-router` or the response's reported effort alone does not reveal
@@ -155,51 +155,51 @@ npm install @robertn702/opencode-jev-router
 npx opencode-jev-router
 ```
 
-Set `JEV_API_KEY` in the environment or put it in a `.env` file in the
+Set `JEV_ROUTER_API_KEY` in the environment or put it in a `.env` file in the
 working directory before starting the proxy. For direct TypeSafe, no other Jev
-setting is needed. The standalone proxy uses `JEV_BASE_URL`, while the plugin
+setting is needed. The standalone proxy uses `JEV_ROUTER_BASE_URL`, while the plugin
 uses `jevBaseUrl` in OpenCode configuration.
 
 To classify through [Vercel AI Gateway's TypeSafe-compatible endpoint](https://vercel.com/docs/ai-gateway/sdks-and-apis/typesafe),
 use its AI Gateway key and set:
 
 ```dotenv
-JEV_API_KEY=your-ai-gateway-key
-JEV_BASE_URL=https://ai-gateway.vercel.sh/typesafe
+JEV_ROUTER_API_KEY=your-ai-gateway-key
+JEV_ROUTER_BASE_URL=https://ai-gateway.vercel.sh/typesafe
 ```
 
 The router uses Vercel's `typesafe-ai/jev` identifier automatically. Only these
 two Jev endpoints are supported. `TYPESAFE_API_KEY` is no longer accepted;
-rename it to `JEV_API_KEY` for direct TypeSafe access. The Jev key is used only
-for classification; it is never reused as `UPSTREAM_API_KEY` or OpenCode's
+rename it to `JEV_ROUTER_API_KEY` for direct TypeSafe access. The Jev key is used only
+for classification; it is never reused as `JEV_ROUTER_UPSTREAM_API_KEY` or OpenCode's
 `CLIPROXY_KEY`.
 
 Choose one Responses upstream independently:
 
 ```dotenv
 # CLIProxyAPI (default)
-UPSTREAM_BASE_URL=http://127.0.0.1:8317/v1
-UPSTREAM_AUTH=forward
+JEV_ROUTER_UPSTREAM_BASE_URL=http://127.0.0.1:8317/v1
+JEV_ROUTER_UPSTREAM_AUTH=forward
 ```
 
 ```dotenv
 # Direct OpenAI (billed to your API account, independent of a Codex subscription)
-UPSTREAM_BASE_URL=https://api.openai.com/v1
-UPSTREAM_AUTH=bearer
-UPSTREAM_API_KEY=sk-...
+JEV_ROUTER_UPSTREAM_BASE_URL=https://api.openai.com/v1
+JEV_ROUTER_UPSTREAM_AUTH=bearer
+JEV_ROUTER_UPSTREAM_API_KEY=sk-...
 ```
 
-The upstream contract is `UPSTREAM_BASE_URL` and `UPSTREAM_AUTH`, shared by all
+The upstream contract is `JEV_ROUTER_UPSTREAM_BASE_URL` and `JEV_ROUTER_UPSTREAM_AUTH`, shared by all
 three registered models. The default `forward` policy passes the
 client Authorization header to a **loopback-only** upstream. The `bearer` policy
-replaces it with `Bearer UPSTREAM_API_KEY`, regardless of the client credential;
+replaces it with `Bearer JEV_ROUTER_UPSTREAM_API_KEY`, regardless of the client credential;
 it permits HTTPS upstreams (including direct OpenAI or an external gateway) and
 loopback HTTP for local testing. An external gateway can own account or provider
 selection; the router only chooses effort and rewrites Responses requests.
 Unknown policies, stale `UPSTREAM_MODE`/`OPENAI_API_KEY` settings, missing or
 misplaced keys, and unsafe endpoint/policy pairs fail at startup. Migrate old
-`openai` settings to `UPSTREAM_AUTH=bearer` and `UPSTREAM_API_KEY`; old
-`cliproxyapi` settings to `UPSTREAM_AUTH=forward` (or omit it). The CLI listens on
+`openai` settings to `JEV_ROUTER_UPSTREAM_AUTH=bearer` and `JEV_ROUTER_UPSTREAM_API_KEY`; old
+`cliproxyapi` settings to `JEV_ROUTER_UPSTREAM_AUTH=forward` (or omit it). The CLI listens on
 `http://127.0.0.1:4320` by default; check `curl http://127.0.0.1:4320/health`.
 Use `curl --fail http://127.0.0.1:4320/ready` to check readiness.
 Run `opencode-jev-router --help` for environment options.
@@ -208,7 +208,7 @@ Run `opencode-jev-router --help` for environment options.
 
 ```bash
 npm ci
-cp .env.example .env   # then fill in JEV_API_KEY
+cp .env.example .env   # then fill in JEV_ROUTER_API_KEY
 npm run check          # typecheck + tests
 npm run build          # compile the CLI to dist/
 npm start              # http://127.0.0.1:4320
@@ -260,8 +260,8 @@ See [`.env.example`](.env.example) for all limits and connection settings.
 ### Effort updates and cache lineage
 
 Every execution request uses its resolved model with a stable request-level
-`reasoning.effort` (profile default `medium`). Optional `BASE_EFFORT` must be
-supported by every registered profile; fallback remains independently `medium`.
+`reasoning.effort` (profile default `medium`). Optional `JEV_ROUTER_BASE_EFFORT` must be
+supported by every registered profile; fallback is independently configurable and defaults to fixed `high`.
 Astra supports `low`, `medium`, `high`, `xhigh`, and `max`; Luna and Sol also
 support `none`. Existing
 reasoning `configuration_update` items in history are preserved in their original
@@ -314,13 +314,15 @@ OpenCode's turn aggregates. The observer never logs response content.
 - `@typesafe-ai/sdk` is configured with `retry: { maxRetries: 0 }` and
   `logLevel: "off"` explicitly (SDK logging is suppressed even when
   `TYPESAFE_LOG_LEVEL` is inherited as `debug`).
-- One aborting total deadline (`JEV_TIMEOUT_MS`, default `4000` ms) covers the
-  whole classifier call through body consumption. There is no promise race that
-  leaves the request running and no retry loop.
+- One aborting total deadline (`JEV_ROUTER_CLASSIFICATION_TIMEOUT_MS`, default `4000` ms) covers the
+  whole classifier operation, including bounded retries and backoff. The router
+  defaults to one retry for transient failures; SDK retries remain disabled.
 - On timeout (`jev_timeout`), error (`jev_error`), or invalid output
-  (`jev_invalid_output`), the previous validated effort for the same usable
-  tuple `[resolved model ID, prompt_cache_key]` is reused; otherwise the profile
-  fallback. Tuple encoding is collision-safe; the upstream key is unchanged.
+  (`jev_invalid_output`), fallback defaults to fixed high. Optional `previous`
+  mode reuses the previous validated effort for the same credential/model/cache
+  context, otherwise the configured fallback effort. `error` mode disables
+  fallback and returns a classification error without generating upstream.
+  See [retry and fallback configuration](docs/classification-policy.md).
   Missing/blank keys disable history. Only successful classifications write or
   renew TTL; fallback does not. The globally shared in-memory previous-effort
   cache is limited to 256 entries and 10 minutes by default, with LRU eviction
@@ -347,7 +349,7 @@ stdout; when configured, the CLI or plugin also appends a `JevDecision` event co
 
 Prompt content, tool content, credentials, cache keys, raw SDK errors, and bodies
 are never logged.
-Set CLI `JEV_DECISIONS_LOG_PATH` or plugin `decisionsLogPath` to an absolute
+Set CLI `JEV_ROUTER_DECISIONS_LOG_PATH` or plugin `decisionsLogPath` to an absolute
 path to enable JSONL (`ts`, `event`, and the fields above). The directory is
 created if needed; writes are asynchronous and limited to 256 pending records
 per instance (excess records are dropped). A write failure reports only
@@ -369,13 +371,13 @@ All limits are positive integers configured through environment variables:
 
 | Variable | Default | Behavior |
 | --- | ---: | --- |
-| `MAX_REQUEST_BYTES` | 1048576 (1 MiB) | Maximum JSON request-body bytes; larger `POST /v1/responses` returns `413` with `{"error":"request_too_large"}`. Counts bytes, including chunked uploads. |
-| `MAX_IN_FLIGHT` | 32 | Concurrent `/v1/responses` and `/v1/models` requests, including body reading, classification and forwarding; excess returns `503` with `{"error":"overloaded"}` before Jev/upstream work. |
-| `UPSTREAM_HEADER_TIMEOUT_MS` | 10000 | Deadline from upstream request start until response headers. |
-| `UPSTREAM_IDLE_TIMEOUT_MS` | 60000 | Maximum gap between upstream response chunks after headers; resets on each chunk and pauses while downstream backpressure pauses upstream reads. No total stream deadline is imposed. |
-| `EFFORT_CACHE_ENTRIES` | 256 | Maximum stored previous efforts (LRU). |
-| `EFFORT_CACHE_TTL_MS` | 600000 (10 min) | Previous-effort expiry from the last successful selection for the key. |
-| `SHUTDOWN_GRACE_MS` | 30000 (30 sec) | Time for active requests and SSE streams to finish after SIGINT/SIGTERM before remaining classifier and upstream work is aborted. |
+| `JEV_ROUTER_MAX_REQUEST_BYTES` | 1048576 (1 MiB) | Maximum JSON request-body bytes; larger `POST /v1/responses` returns `413` with `{"error":"request_too_large"}`. Counts bytes, including chunked uploads. |
+| `JEV_ROUTER_MAX_IN_FLIGHT` | 32 | Concurrent `/v1/responses` and `/v1/models` requests, including body reading, classification and forwarding; excess returns `503` with `{"error":"overloaded"}` before Jev/upstream work. |
+| `JEV_ROUTER_UPSTREAM_HEADER_TIMEOUT_MS` | 10000 | Deadline from upstream request start until response headers. |
+| `JEV_ROUTER_UPSTREAM_IDLE_TIMEOUT_MS` | 60000 | Maximum gap between upstream response chunks after headers; resets on each chunk and pauses while downstream backpressure pauses upstream reads. No total stream deadline is imposed. |
+| `JEV_ROUTER_EFFORT_CACHE_ENTRIES` | 256 | Maximum stored previous efforts (LRU). |
+| `JEV_ROUTER_EFFORT_CACHE_TTL_MS` | 600000 (10 min) | Previous-effort expiry from the last successful selection for the key. |
+| `JEV_ROUTER_SHUTDOWN_GRACE_MS` | 30000 (30 sec) | Time for active requests and SSE streams to finish after SIGINT/SIGTERM before remaining classifier and upstream work is aborted. |
 
 An upstream deadline before headers returns `504` with
 `{"error":"upstream_timeout"}`. After headers, the client stream closes
@@ -385,7 +387,7 @@ without injecting a replacement response.
 
 `SIGINT` and `SIGTERM` start the same idempotent drain: readiness turns false,
 new connections stop, idle keep-alive connections close, and accepted requests
-and streams can finish until `SHUTDOWN_GRACE_MS` expires. At the deadline,
+and streams can finish until `JEV_ROUTER_SHUTDOWN_GRACE_MS` expires. At the deadline,
 remaining work is aborted and connections close. A completed intentional
 shutdown exits cleanly; invalid configuration and listener startup failures exit
 non-zero. Fixed lifecycle events (`shutdown_started`, `shutdown_deadline`,
@@ -410,7 +412,7 @@ livenessProbe:
   httpGet: { path: /health, port: 4320 }
 readinessProbe:
   httpGet: { path: /ready, port: 4320 }
-terminationGracePeriodSeconds: 35 # longer than SHUTDOWN_GRACE_MS
+terminationGracePeriodSeconds: 35 # longer than JEV_ROUTER_SHUTDOWN_GRACE_MS
 ```
 
 For a systemd service, use `ExecStartPost=/usr/bin/curl --fail
@@ -421,8 +423,8 @@ http://127.0.0.1:4320/ready` as a startup check, `Restart=on-failure`, and
 ### Forwarding
 
 - `POST /v1/responses` and `GET /v1/models` on localhost; the client's bearer
-  credential is forwarded only under `UPSTREAM_AUTH=forward`. Under
-  `UPSTREAM_AUTH=bearer`, the router sends its own API key instead. Neither
+  credential is forwarded only under `JEV_ROUTER_UPSTREAM_AUTH=forward`. Under
+  `JEV_ROUTER_UPSTREAM_AUTH=bearer`, the router sends its own API key instead. Neither
   credential is logged.
 - Upstream HTTP statuses and bodies pass through unchanged, including errors.
 - SSE streams incrementally with write/drain backpressure: a slow client pauses

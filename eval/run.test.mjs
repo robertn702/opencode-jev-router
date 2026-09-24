@@ -47,7 +47,7 @@ test("offline agent attempt grades an immutable patch and rejects missing router
     execFileSync("git", ["-C", repo, "add", "file.txt"]);
     execFileSync("git", ["-C", repo, "-c", "user.name=Eval", "-c", "user.email=eval@example.test", "commit", "-qm", "fixture"]);
     const commit = execFileSync("git", ["-C", repo, "rev-parse", "HEAD"], { encoding: "utf8" }).trim();
-    await writeFile(grader, `import {readFileSync} from 'node:fs'; if (process.env.CLIPROXY_KEY || process.env.JEV_API_KEY || process.env.UNRELATED_HOST_SECRET) process.exit(2); if (!readFileSync(process.env.EVAL_PATCH_PATH, 'utf8').includes('+after')) process.exit(1);`);
+    await writeFile(grader, `import {readFileSync} from 'node:fs'; if (process.env.CLIPROXY_KEY || process.env.JEV_ROUTER_API_KEY || process.env.UNRELATED_HOST_SECRET) process.exit(2); if (!readFileSync(process.env.EVAL_PATCH_PATH, 'utf8').includes('+after')) process.exit(1);`);
     await writeFile(manifest, JSON.stringify({ tasks: [{ id: "fake-agent", repo, commit, prompt: "Change file", grade: [process.execPath, grader] }] }));
     const fake = join(bin, "opencode");
     await writeFile(fake, `#!${process.execPath}\nconst fs=require('node:fs'); fs.writeFileSync('file.txt','after\\n'); const start=Date.now()-100; console.log(JSON.stringify({type:'step_start',timestamp:start,part:{messageID:'step'}})); if(fs.existsSync(${JSON.stringify(join(temp, "evidence-on"))})){ const conf=JSON.parse(fs.readFileSync(process.env.OPENCODE_CONFIG)); const p=conf.plugin[0][1].decisionsLogPath; const rows=[{ts:new Date(start+50).toISOString(),model:'gpt-6-sol',effort:'high',outcome:'completed',input_tokens:3,cached_input_tokens:0,output_tokens:2},{ts:new Date(start+200).toISOString(),model:'gpt-6-sol',effort:'high',outcome:'completed',input_tokens:5,cached_input_tokens:0,output_tokens:7}]; fs.writeFileSync(p,rows.map(JSON.stringify).join('\\n')+'\\n'); } console.log(JSON.stringify({type:'step_finish',timestamp:start+100,part:{messageID:'step',tokens:{input:3,output:2,reasoning:0,cache:{read:0,write:0}}}}));`);
@@ -108,7 +108,7 @@ test("adaptive preparation selects Gateway endpoint for Gateway key", async () =
     execFileSync("git", ["-C", repo, "-c", "user.name=Eval", "-c", "user.email=eval@example.test", "commit", "-qm", "fixture"]);
     const commit = execFileSync("git", ["-C", repo, "rev-parse", "HEAD"], { encoding: "utf8" }).trim();
     await writeFile(manifest, JSON.stringify({ tasks: [{ id: "gateway", repo, commit, prompt: "Fix issue", grade: [process.execPath, "--version"] }] }));
-    const { JEV_BASE_URL: ignored, ...env } = process.env;
+    const { JEV_ROUTER_BASE_URL: ignored, ...env } = process.env;
     const output = execFileSync(process.execPath, ["eval/run.mjs", "--manifest", manifest, "--task", "gateway", "--model", "gpt-6-sol", "--arm", "jev", "--prepare-only"], {
       cwd: root, encoding: "utf8", env: { ...env, EVAL_RUN_SET: "gateway-check" },
     }).trim();

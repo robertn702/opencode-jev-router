@@ -7,7 +7,7 @@
 // metadata is emitted. Evidence is prompt-free/credential-free: scenario IDs and
 // efforts only.
 //
-// Usage: node test/eval/live-matrix.mjs   (requires JEV_API_KEY + CLIPROXY_KEY)
+// Usage: node test/eval/live-matrix.mjs   (requires JEV_ROUTER_API_KEY + CLIPROXY_KEY)
 import { spawn } from "node:child_process";
 import { once } from "node:events";
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
@@ -19,7 +19,7 @@ try {
 }
 
 const PORT = 4321;
-const BASE_EFFORT = process.env.BASE_EFFORT ?? "medium";
+const JEV_ROUTER_BASE_EFFORT = process.env.JEV_ROUTER_BASE_EFFORT ?? "medium";
 const UPSTREAM_MODEL = process.env.UPSTREAM_MODEL ?? "gpt-6-astra";
 const ALLOWED_KEYS = [
   "effort",
@@ -93,7 +93,7 @@ const evidence = { versions: {}, steps: {}, pass: {} };
 
 const proxy = spawn("npx", ["tsx", "src/index.ts"], {
   cwd: new URL("../..", import.meta.url).pathname,
-  env: { ...process.env, JEV_PROXY_PORT: PORT },
+  env: { ...process.env, JEV_ROUTER_PORT: PORT },
   stdio: ["ignore", "pipe", "pipe"],
   detached: true,
 });
@@ -296,7 +296,7 @@ try {
     (p) => p.reasoning_effort_reported,
   );
   const topLevelStable =
-    topLevels.length === TIERS.length && topLevels.every((v) => v === BASE_EFFORT);
+    topLevels.length === TIERS.length && topLevels.every((v) => v === JEV_ROUTER_BASE_EFFORT);
 
   const probeEfforts = TIERS.map((t) => probeResults[t.id].selected_effort);
   const firstTurnEfforts = TIERS.map((t) => taskResults[t.id].first_turn_effort);

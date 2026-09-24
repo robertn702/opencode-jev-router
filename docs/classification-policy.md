@@ -12,7 +12,7 @@ Retry-After is respected within the total classification deadline.
 | `maxRetries` | `JEV_ROUTER_MAX_RETRIES` | 1 (0–10 additional attempts) |
 | `fallbackMode` | `JEV_ROUTER_FALLBACK_MODE` | `fixed` |
 | `fallbackEffort` | `JEV_ROUTER_FALLBACK_EFFORT` | `high` |
-| `jevTimeoutMs` | `JEV_TIMEOUT_MS` | 4000, total budget including backoff |
+| `jevTimeoutMs` | `JEV_ROUTER_CLASSIFICATION_TIMEOUT_MS` | 4000, total budget including backoff |
 
 Modes: `fixed` uses the configured effort; `previous` uses the last successful
 selection for the same credential/model/cache context, otherwise the configured
