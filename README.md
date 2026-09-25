@@ -8,12 +8,17 @@
 each OpenCode step, so one router can handle straightforward edits and harder
 debugging without manually switching effort levels.
 
-![Jev and fixed-high GPT-6 Astra each solved 44 of 44 tested attempts. Jev averaged 1,748 output tokens per attempt versus 2,040 for fixed high, a 14% reduction.](readme-token-savings.svg)
+![On pytest #5262, Jev used 42% fewer output tokens and 40% less time than fixed high, with both solving 6/6. On a separately selected hard case, Jev solved 5/5 versus 1/5 for fixed medium; that exploratory result does not establish a general reliability benefit.](readme-token-savings.svg)
 
-On our tested SWE-bench Astra task mix, both arms solved **44/44 attempts**;
+On the largest task-level saving in our replicated comparison, Jev used **42%
+fewer output tokens** and **40% less time** than fixed high, with both solving
+all six attempts. On a separately
+selected harder task, Jev solved **5/5** attempts versus **1/5** at fixed medium;
+this exploratory case does not establish a general reduction in failed runs.
+Across the tested Astra mix, Jev and fixed high each solved **44/44 attempts**;
 Jev used **14% fewer output tokens** and finished **9% faster** on average.
-Output includes reasoning tokens. These are observed results on a limited task
-mix, not a guarantee of equal success or savings on other work.
+Output includes reasoning tokens. These results do not guarantee equal success
+or savings on other work.
 [See the evaluation](eval/results/router-consolidated-2026-09-25.md) ·
 [Install the OpenCode plugin](#quick-start-opencode-plugin)
 
