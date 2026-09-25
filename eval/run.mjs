@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { readFile, mkdir, writeFile, chmod } from "node:fs/promises";
+import { readFile, mkdir, writeFile, chmod, rm } from "node:fs/promises";
 import { resolve, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { reconcileEvidence } from "./evidence.mjs";
@@ -12,6 +12,14 @@ const prepareOnly = args.includes("--prepare-only");
 const taskId = option("--task");
 const model = option("--model");
 const arm = option("--arm");
+const containerImage = process.env.EVAL_AGENT_IMAGE;
+let activeContainer = null;
+const activeChildren = new Set();
+process.on("SIGTERM", () => {
+  for (const child of activeChildren) { try { process.kill(-child.pid, "SIGKILL"); } catch { /* exited */ } }
+  if (activeContainer) spawn("docker", ["rm", "-f", activeContainer], { stdio: "ignore" }).on("close", () => process.exit(143));
+  else process.exit(143);
+});
 if (!taskId || !["gpt-6-astra", "gpt-6-sol"].includes(model) || !["medium", "high", "xhigh", "jev"].includes(arm)) {
   throw new Error("Usage: node eval/run.mjs --task ID --model gpt-6-astra|gpt-6-sol --arm medium|high|xhigh|jev [--prepare-only]");
 }
@@ -36,14 +44,16 @@ await mkdir(dir, { recursive: true, mode: 0o700 });
 await chmod(dir, 0o700);
 const save = async (name, contents) => writeFile(join(dir, name), contents, { mode: 0o600 });
 const run = (command, argv, opts = {}) => new Promise((done, reject) => {
-  const child = spawn(command, argv, { cwd: opts.cwd ?? root, env: opts.env ?? process.env, stdio: ["ignore", "pipe", "pipe"] });
+  const child = spawn(command, argv, { cwd: opts.cwd ?? root, env: opts.env ?? process.env, stdio: ["ignore", "pipe", "pipe"], detached: true });
+  activeChildren.add(child);
   const stdout = []; const stderr = [];
   child.stdout.on("data", (part) => stdout.push(part));
   child.stderr.on("data", (part) => stderr.push(part));
   let timedOut = false;
-  const timer = opts.timeoutMs ? setTimeout(() => { timedOut = true; child.kill("SIGKILL"); }, opts.timeoutMs) : null;
-  child.on("error", (error) => { if (timer) clearTimeout(timer); reject(error); });
-  child.on("close", (code) => { if (timer) clearTimeout(timer); done({ code, timedOut, stdout: Buffer.concat(stdout).toString(), stderr: Buffer.concat(stderr).toString() }); });
+  const stop = () => { try { process.kill(-child.pid, "SIGKILL"); } catch { /* exited */ } };
+  const timer = opts.timeoutMs ? setTimeout(() => { timedOut = true; stop(); }, opts.timeoutMs) : null;
+  child.on("error", (error) => { activeChildren.delete(child); if (timer) clearTimeout(timer); reject(error); });
+  child.on("close", (code) => { activeChildren.delete(child); if (timer) clearTimeout(timer); done({ code, timedOut, stdout: Buffer.concat(stdout).toString(), stderr: Buffer.concat(stderr).toString() }); });
 });
 const git = (argv, cwd) => run("git", argv, { cwd });
 if (remote) {
@@ -59,7 +69,7 @@ const result = { run_id: runId, run_set: process.env.EVAL_RUN_SET ?? null, task:
 try {
   const config = {
     $schema: "https://opencode.ai/config.json",
-    plugin: [[join(root, "dist/plugin.js"), {
+    plugin: [[containerImage ? "/router/dist/plugin.js" : join(root, "dist/plugin.js"), {
       ...(arm === "jev" ? { jevApiKey: "{env:JEV_ROUTER_API_KEY}", jevBaseUrl: process.env.JEV_ROUTER_BASE_URL ?? "https://ai-gateway.vercel.sh/typesafe", maxRetries: 3, fallbackMode: "error", jevTimeoutMs: 10_000 } : { fixedEffort: arm }),
       upstreamBaseURL: process.env.JEV_ROUTER_UPSTREAM_BASE_URL ?? "http://127.0.0.1:8317/v1",
       upstreamApiKey: "{env:CLIPROXY_KEY}", decisionsLogPath: join(dir, "decisions.jsonl"),
@@ -73,12 +83,26 @@ try {
     await mkdir(home, { mode: 0o700 });
     for (const name of ["config", "data", "cache", "state"]) await mkdir(join(home, name), { mode: 0o700 });
     const start = performance.now();
-    const oc = await run("opencode", ["run", "--dir", worktree, "--model", `jev-router/${model}`, "--format", "json", task.prompt], {
+    const agentEnv = { PATH: process.env.PATH, HOME: home, XDG_CONFIG_HOME: join(home, "config"), XDG_DATA_HOME: join(home, "data"), XDG_CACHE_HOME: join(home, "cache"), XDG_STATE_HOME: join(home, "state"),
+      CLIPROXY_KEY: process.env.CLIPROXY_KEY, ...(arm === "jev" ? { JEV_ROUTER_API_KEY: process.env.JEV_ROUTER_API_KEY } : {}),
+      OPENCODE_CONFIG: join(dir, "opencode.json"), OPENCODE_DISABLE_PROJECT_CONFIG: "1", OPENCODE_DISABLE_DEFAULT_PLUGINS: "1" };
+    const containerName = `jev-agent-${randomUUID()}`;
+    activeContainer = containerImage ? containerName : null;
+    const dockerArgs = ["run", "--rm", "--name", containerName, "--network", "host", "--user", `${process.getuid()}:${process.getgid()}`,
+      "--mount", `type=bind,src=${dir},dst=${dir}`, "--mount", `type=bind,src=${process.env.EVAL_BUILD_DIR ?? join(root, "dist")},dst=/router/dist,readonly`,
+      "--mount", `type=bind,src=${join(root, "node_modules")},dst=/router/node_modules,readonly`,
+      "--mount", `type=bind,src=${process.env.EVAL_OPENCODE_BIN ?? "/home/robert/.opencode/bin/opencode"},dst=/usr/local/bin/opencode,readonly`,
+      "--tmpfs", "/tmp:rw,nosuid,nodev,size=512m", "--workdir", worktree,
+      ...Object.entries(agentEnv).filter(([, value]) => value !== undefined).flatMap(([key, value]) => ["--env", `${key}=${value}`]),
+      containerImage, "opencode", "run", "--dir", worktree, "--model", `jev-router/${model}`, "--format", "json", task.prompt];
+    let oc;
+    try { oc = await run(containerImage ? "docker" : "opencode", containerImage ? dockerArgs : ["run", "--dir", worktree, "--model", `jev-router/${model}`, "--format", "json", task.prompt], {
       cwd: worktree, timeoutMs: (task.agentTimeoutMinutes ?? 15) * 60_000,
-      env: { PATH: process.env.PATH, HOME: home, XDG_CONFIG_HOME: join(home, "config"), XDG_DATA_HOME: join(home, "data"), XDG_CACHE_HOME: join(home, "cache"), XDG_STATE_HOME: join(home, "state"),
-        CLIPROXY_KEY: process.env.CLIPROXY_KEY, ...(arm === "jev" ? { JEV_ROUTER_API_KEY: process.env.JEV_ROUTER_API_KEY } : {}),
-        OPENCODE_CONFIG: join(dir, "opencode.json"), OPENCODE_DISABLE_PROJECT_CONFIG: "1", OPENCODE_DISABLE_DEFAULT_PLUGINS: "1" },
-    });
+      env: containerImage ? process.env : agentEnv,
+    }); } finally {
+      if (containerImage) await run("docker", ["rm", "-f", containerName], { timeoutMs: 15_000 });
+      activeContainer = null;
+    }
     result.elapsed_ms = Math.round(performance.now() - start);
     result.exit_code = oc.code; result.timed_out = oc.timedOut;
     await save("output.jsonl", oc.stdout);
@@ -107,6 +131,7 @@ try {
         env: { PATH: process.env.PATH, HOME: process.env.HOME, ...dockerEnv,
           ...(process.env.SWE_BENCH_DATASET_PATH ? { SWE_BENCH_DATASET_PATH: process.env.SWE_BENCH_DATASET_PATH } : {}),
           ...(process.env.SWE_BENCH_PYTHON ? { SWE_BENCH_PYTHON: process.env.SWE_BENCH_PYTHON } : {}),
+          ...(process.env.EVAL_DATASET_DIGEST_FILE ? { EVAL_DATASET_DIGEST_FILE: process.env.EVAL_DATASET_DIGEST_FILE } : {}),
           EVAL_PATCH_PATH: join(dir, "patch.diff"), EVAL_TASK_REPO: taskRepo, EVAL_TASK_COMMIT: task.commit } });
       result.grader_error = grade.timedOut || (grade.code !== 0 && grade.code !== 1);
       result.grade_passed = result.grader_error ? null : grade.code === 0;
