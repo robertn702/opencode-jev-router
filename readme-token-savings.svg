@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="278" viewBox="0 0 760 278" role="img" aria-labelledby="title description">
+  <title id="title">Jev used 14% fewer output tokens than fixed high effort</title>
+  <desc id="description">On 44 Astra coding-agent attempts per arm, both Jev and fixed high solved 44 of 44. Fixed high averaged 2,040 output tokens per attempt; Jev averaged 1,748, or 14.3 percent fewer. Output includes reasoning tokens.</desc>
+  <rect width="760" height="278" rx="16" fill="#f8fafc"/>
+  <text x="28" y="44" font-family="system-ui,sans-serif" font-size="25" font-weight="700" fill="#0f172a">14% fewer output tokens</text>
+  <text x="28" y="70" font-family="system-ui,sans-serif" font-size="14" fill="#475569">Same result on the tested tasks: 44/44 solved by each arm</text>
+  <text x="28" y="119" font-family="system-ui,sans-serif" font-size="15" font-weight="600" fill="#334155">Fixed high</text>
+  <rect x="151" y="100" width="400" height="30" rx="5" fill="#94a3b8"/>
+  <text x="566" y="121" font-family="system-ui,sans-serif" font-size="18" font-weight="700" fill="#334155">2,040</text>
+  <text x="28" y="177" font-family="system-ui,sans-serif" font-size="15" font-weight="600" fill="#0f766e">Jev router</text>
+  <rect x="151" y="158" width="343" height="30" rx="5" fill="#0f766e"/>
+  <text x="509" y="179" font-family="system-ui,sans-serif" font-size="18" font-weight="700" fill="#0f766e">1,748</text>
+  <path d="M28 215H732" stroke="#cbd5e1"/>
+  <text x="28" y="240" font-family="system-ui,sans-serif" font-size="13" fill="#475569">Mean output tokens per attempt, including reasoning · GPT-6 Astra · 44 attempts per arm</text>
+  <text x="28" y="260" font-family="system-ui,sans-serif" font-size="12" fill="#64748b">Observed on this task mix; not a guaranteed saving or a general solve-rate estimate.</text>
+</svg>
