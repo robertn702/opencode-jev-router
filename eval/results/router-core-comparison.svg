@@ -1,0 +1,38 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="850" height="460" viewBox="0 0 850 460" role="img" aria-labelledby="title desc">
+  <title id="title">Current Jev versus fixed high on 44 attempts per arm</title>
+  <desc id="desc">Both arms solved 44 of 44 attempts. Relative to fixed high at 100 percent, Jev used 79.8 percent of input tokens, 85.7 percent of output tokens, and 91.3 percent of elapsed time. Cached input is part of input.</desc>
+  <rect width="850" height="460" rx="18" fill="#f8fafc"/>
+  <text x="36" y="49" font-family="system-ui,sans-serif" font-size="24" font-weight="700" fill="#0f172a">Same solves, less usage and time</text>
+  <text x="36" y="78" font-family="system-ui,sans-serif" font-size="14" fill="#475569">Development + preselected holdout · 44 attempts per arm · fixed high = 100%</text>
+  <rect x="36" y="98" width="778" height="50" rx="10" fill="#e0f2fe"/>
+  <text x="52" y="130" font-family="system-ui,sans-serif" font-size="16" font-weight="650" fill="#0c4a6e">Success: Jev 44/44</text>
+  <text x="445" y="130" font-family="system-ui,sans-serif" font-size="16" font-weight="650" fill="#0c4a6e">Fixed high 44/44</text>
+  <g font-family="system-ui,sans-serif" font-size="16" fill="#0f172a">
+    <text x="36" y="194" font-weight="600">Input tokens</text>
+    <text x="36" y="278" font-weight="600">Output tokens</text>
+    <text x="36" y="362" font-weight="600">Time</text>
+  </g>
+  <g fill="#cbd5e1">
+    <rect x="200" y="169" width="450" height="24" rx="5"/>
+    <rect x="200" y="253" width="450" height="24" rx="5"/>
+    <rect x="200" y="337" width="450" height="24" rx="5"/>
+  </g>
+  <g fill="#087e8b">
+    <rect x="200" y="199" width="359" height="24" rx="5"/>
+    <rect x="200" y="283" width="386" height="24" rx="5"/>
+    <rect x="200" y="367" width="411" height="24" rx="5"/>
+  </g>
+  <g font-family="system-ui,sans-serif" font-size="14" fill="#334155">
+    <text x="663" y="187">283,578 / attempt</text>
+    <text x="572" y="217">226,177 (−20.2%)</text>
+    <text x="663" y="271">2,040 / attempt</text>
+    <text x="599" y="301">1,748 (−14.3%)</text>
+    <text x="663" y="355">138.5 s / attempt</text>
+    <text x="624" y="385">126.4 s (−8.7%)</text>
+  </g>
+  <rect x="36" y="418" width="15" height="15" rx="2" fill="#cbd5e1"/>
+  <text x="59" y="431" font-family="system-ui,sans-serif" font-size="13" fill="#475569">Fixed high</text>
+  <rect x="162" y="418" width="15" height="15" rx="2" fill="#087e8b"/>
+  <text x="185" y="431" font-family="system-ui,sans-serif" font-size="13" fill="#475569">Current Jev</text>
+  <text x="490" y="431" font-family="system-ui,sans-serif" font-size="12" fill="#64748b">Bars share a 0–100% scale within each metric</text>
+</svg>
