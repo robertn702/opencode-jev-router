@@ -26,7 +26,7 @@ const contents = readFileSync(dataset);
 const digestFile = ["django__django-14631", "pytest-dev__pytest-5787"].includes(id) ? "swebench-astra.sha256" :
   id.startsWith("astropy__astropy-") ? "swebench-candidates.sha256" :
   id === "pydata__xarray-6992" ? "swebench-xarray.sha256" : "swebench-verified-pilot.sha256";
-const expected = readFileSync(join(root, digestFile), "utf8").trim();
+const expected = readFileSync(process.env.EVAL_DATASET_DIGEST_FILE ?? join(root, digestFile), "utf8").trim();
 if (createHash("sha256").update(contents).digest("hex") !== expected) {
   console.error("Pinned SWE-bench dataset digest mismatch");
   process.exit(2);
