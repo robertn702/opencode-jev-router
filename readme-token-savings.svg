@@ -1,16 +1,31 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="760" height="278" viewBox="0 0 760 278" role="img" aria-labelledby="title description">
-  <title id="title">Jev used 14% fewer output tokens than fixed high effort</title>
-  <desc id="description">On 44 Astra coding-agent attempts per arm, both Jev and fixed high solved 44 of 44. Fixed high averaged 2,040 output tokens per attempt; Jev averaged 1,748, or 14.3 percent fewer. Output includes reasoning tokens.</desc>
-  <rect width="760" height="278" rx="16" fill="#f8fafc"/>
-  <text x="28" y="44" font-family="system-ui,sans-serif" font-size="25" font-weight="700" fill="#0f172a">14% fewer output tokens</text>
-  <text x="28" y="70" font-family="system-ui,sans-serif" font-size="14" fill="#475569">Same result on the tested tasks: 44/44 solved by each arm</text>
-  <text x="28" y="119" font-family="system-ui,sans-serif" font-size="15" font-weight="600" fill="#334155">Fixed high</text>
-  <rect x="151" y="100" width="400" height="30" rx="5" fill="#94a3b8"/>
-  <text x="566" y="121" font-family="system-ui,sans-serif" font-size="18" font-weight="700" fill="#334155">2,040</text>
-  <text x="28" y="177" font-family="system-ui,sans-serif" font-size="15" font-weight="600" fill="#0f766e">Jev router</text>
-  <rect x="151" y="158" width="343" height="30" rx="5" fill="#0f766e"/>
-  <text x="509" y="179" font-family="system-ui,sans-serif" font-size="18" font-weight="700" fill="#0f766e">1,748</text>
-  <path d="M28 215H732" stroke="#cbd5e1"/>
-  <text x="28" y="240" font-family="system-ui,sans-serif" font-size="13" fill="#475569">Mean output tokens per attempt, including reasoning · GPT-6 Astra · 44 attempts per arm</text>
-  <text x="28" y="260" font-family="system-ui,sans-serif" font-size="12" fill="#64748b">Observed on this task mix; not a guaranteed saving or a general solve-rate estimate.</text>
+<svg xmlns="http://www.w3.org/2000/svg" width="840" height="338" viewBox="0 0 840 338" role="img" aria-labelledby="title description">
+  <title id="title">Observed Jev routing results: up to 42 percent fewer output tokens, up to 40 percent less time, and five of five hard-case solves</title>
+  <desc id="description">On pytest issue 5262, Jev versus fixed high averaged 1,112 versus 1,908 output tokens, 42 percent fewer, and about 40 percent less elapsed time, across six successful attempts per arm. Separately, on selected harder pytest issue 5787, Jev solved five of five attempts versus one of five at fixed medium. This selected-case comparison does not establish a general reliability improvement. Across ten issues and 44 attempts per arm, Jev and fixed high each solved 44 of 44, with Jev averaging 14 percent fewer output tokens and 9 percent less time.</desc>
+  <rect width="840" height="338" rx="18" fill="#f8fafc"/>
+  <text x="28" y="43" font-family="system-ui,sans-serif" font-size="24" font-weight="700" fill="#0f172a">The upside of routing effort</text>
+  <text x="28" y="68" font-family="system-ui,sans-serif" font-size="14" fill="#475569">Observed coding-agent results with GPT-6 Astra · task-specific, not guaranteed</text>
+
+  <rect x="24" y="90" width="255" height="177" rx="12" fill="#e0f2fe"/>
+  <text x="40" y="124" font-family="system-ui,sans-serif" font-size="35" font-weight="750" fill="#075985">42% fewer</text>
+  <text x="40" y="151" font-family="system-ui,sans-serif" font-size="16" font-weight="650" fill="#0f172a">output tokens</text>
+  <text x="40" y="187" font-family="system-ui,sans-serif" font-size="13" fill="#334155">pytest #5262 · Jev vs fixed high</text>
+  <text x="40" y="210" font-family="system-ui,sans-serif" font-size="13" fill="#334155">1,112 vs 1,908 / attempt</text>
+  <text x="40" y="242" font-family="system-ui,sans-serif" font-size="12" fill="#475569">Both solved 6/6 attempts</text>
+
+  <rect x="292" y="90" width="255" height="177" rx="12" fill="#ccfbf1"/>
+  <text x="308" y="124" font-family="system-ui,sans-serif" font-size="35" font-weight="750" fill="#0f766e">40% faster</text>
+  <text x="308" y="151" font-family="system-ui,sans-serif" font-size="16" font-weight="650" fill="#0f172a">elapsed time</text>
+  <text x="308" y="187" font-family="system-ui,sans-serif" font-size="13" fill="#334155">pytest #5262 · Jev vs fixed high</text>
+  <text x="308" y="210" font-family="system-ui,sans-serif" font-size="13" fill="#334155">Same six attempts per arm</text>
+  <text x="308" y="242" font-family="system-ui,sans-serif" font-size="12" fill="#475569">Largest in the 44-attempt comparison</text>
+
+  <rect x="560" y="90" width="255" height="177" rx="12" fill="#fef3c7"/>
+  <text x="576" y="124" font-family="system-ui,sans-serif" font-size="35" font-weight="750" fill="#92400e">5/5 vs 1/5</text>
+  <text x="576" y="151" font-family="system-ui,sans-serif" font-size="16" font-weight="650" fill="#0f172a">solved attempts</text>
+  <text x="576" y="187" font-family="system-ui,sans-serif" font-size="13" fill="#334155">Selected pytest #5787</text>
+  <text x="576" y="210" font-family="system-ui,sans-serif" font-size="13" fill="#334155">Jev vs fixed medium</text>
+  <text x="576" y="242" font-family="system-ui,sans-serif" font-size="12" fill="#475569">Exploratory hard-case result</text>
+
+  <text x="28" y="300" font-family="system-ui,sans-serif" font-size="14" font-weight="650" fill="#0f172a">Across the tested mix: Jev and fixed high each solved 44/44; Jev used 14% fewer output tokens and 9% less time.</text>
+  <text x="28" y="322" font-family="system-ui,sans-serif" font-size="12" fill="#64748b">Output includes reasoning. Selected hard case is not evidence of a general reduction in failed runs.</text>
 </svg>
