@@ -1,0 +1,36 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="850" height="420" viewBox="0 0 850 420" role="img" aria-labelledby="title desc">
+  <title id="title">Output-token and time savings by evaluation cohort</title>
+  <desc id="desc">Jev versus fixed high: holdout 16.3 percent fewer output tokens and 6.3 percent less time over 36 attempts per arm; development 9.1 percent fewer output tokens and 14.5 percent less time over 8 attempts per arm; two-case pilot 18.9 percent fewer output tokens and 14.4 percent less time over 2 attempts per arm; selected pytest case 4.8 percent fewer output tokens and 9.0 percent less time over 5 attempts per arm. Every arm solved every attempt in these cohorts.</desc>
+  <rect width="850" height="420" rx="18" fill="#f8fafc"/>
+  <text x="36" y="49" font-family="system-ui,sans-serif" font-size="24" font-weight="700" fill="#0f172a">Savings differ across cohorts</text>
+  <text x="36" y="77" font-family="system-ui,sans-serif" font-size="14" fill="#475569">Current Jev versus fixed high · percent lower mean output and elapsed time</text>
+  <g font-family="system-ui,sans-serif" font-size="15" fill="#0f172a">
+    <text x="36" y="134" font-weight="600">Holdout</text><text x="36" y="154" font-size="12" fill="#64748b">36 per arm</text>
+    <text x="36" y="209" font-weight="600">Development</text><text x="36" y="229" font-size="12" fill="#64748b">8 per arm</text>
+    <text x="36" y="284" font-weight="600">Two-case pilot</text><text x="36" y="304" font-size="12" fill="#64748b">2 per arm</text>
+    <text x="36" y="359" font-weight="600">Selected pytest</text><text x="36" y="379" font-size="12" fill="#64748b">5 per arm</text>
+  </g>
+  <g font-family="system-ui,sans-serif" font-size="12" fill="#64748b">
+    <text x="255" y="105">0%</text><text x="455" y="105">10%</text><text x="655" y="105">20%</text>
+  </g>
+  <g stroke="#cbd5e1" stroke-dasharray="3 5"><path d="M260 111v270 M460 111v270 M660 111v270"/></g>
+  <g fill="#087e8b">
+    <rect x="260" y="119" width="326" height="19" rx="4"/><rect x="260" y="194" width="182" height="19" rx="4"/>
+    <rect x="260" y="269" width="377" height="19" rx="4"/><rect x="260" y="344" width="96" height="19" rx="4"/>
+  </g>
+  <g fill="#b45309">
+    <rect x="260" y="143" width="125" height="19" rx="4"/><rect x="260" y="218" width="291" height="19" rx="4"/>
+    <rect x="260" y="293" width="288" height="19" rx="4"/><rect x="260" y="368" width="180" height="19" rx="4"/>
+  </g>
+  <g font-family="system-ui,sans-serif" font-size="13" fill="#334155">
+    <text x="594" y="134">16.3%</text><text x="393" y="158">6.3%</text>
+    <text x="450" y="209">9.1%</text><text x="559" y="233">14.5%</text>
+    <text x="645" y="284">18.9%</text><text x="556" y="308">14.4%</text>
+    <text x="364" y="359">4.8%</text><text x="448" y="383">9.0%</text>
+  </g>
+  <rect x="645" y="57" width="12" height="12" rx="2" fill="#087e8b"/>
+  <text x="665" y="68" font-family="system-ui,sans-serif" font-size="12" fill="#475569">Output</text>
+  <rect x="735" y="57" width="12" height="12" rx="2" fill="#b45309"/>
+  <text x="755" y="68" font-family="system-ui,sans-serif" font-size="12" fill="#475569">Time</text>
+  <text x="36" y="407" font-family="system-ui,sans-serif" font-size="12" fill="#64748b">Pilot and selected pytest cohorts are exploratory; task repetition is not a new task sample.</text>
+</svg>
