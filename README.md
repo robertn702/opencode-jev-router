@@ -4,7 +4,18 @@
 [![npm](https://img.shields.io/npm/v/%40robertn702%2Fopencode-jev-router)](https://www.npmjs.com/package/@robertn702/opencode-jev-router)
 [![MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-Adaptive reasoning effort for OpenCode with request-local GPT-6 model selection.
+**Keep the quality. Spend less reasoning.** Jev chooses reasoning effort for
+each OpenCode step, so one router can handle straightforward edits and harder
+debugging without manually switching effort levels.
+
+![Jev and fixed-high GPT-6 Astra each solved 44 of 44 tested attempts. Jev averaged 1,748 output tokens per attempt versus 2,040 for fixed high, a 14% reduction.](readme-token-savings.svg)
+
+On our tested SWE-bench Astra task mix, both arms solved **44/44 attempts**;
+Jev used **14% fewer output tokens** and finished **9% faster** on average.
+Output includes reasoning tokens. These are observed results on a limited task
+mix, not a guarantee of equal success or savings on other work.
+[See the evaluation](eval/results/router-consolidated-2026-09-25.md) ·
+[Install the OpenCode plugin](#quick-start-opencode-plugin)
 
 ```text
 OpenCode selects Astra/Luna/Sol -> one opencode-jev-router -> one Responses upstream
@@ -30,8 +41,8 @@ and remaining validation gaps.
 
 The goal is faster **successful task completion**, not higher tokens per second.
 Lower effort can reduce unnecessary reasoning; higher effort may avoid failed
-attempts or extra tool calls. Whether adaptive effort improves end-to-end time
-and correctness over fixed effort has not yet been established by a task benchmark.
+attempts or extra tool calls. The task benchmark above shows a time and token
+reduction on the tested mix; broader workload performance remains unestablished.
 
 ## Requirements
 
