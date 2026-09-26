@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.4.0
 
 - OpenCode V2 support. The package's default export now serves both majors:
   V1 1.18.29+ calls `server()` and V2 calls `setup()`. In V2 the plugin
