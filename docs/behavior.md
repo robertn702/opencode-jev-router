@@ -147,7 +147,8 @@ as `failed`.
 When OpenCode supplies `x-jev-session-id` and `x-jev-turn-id` headers, validated
 IDs appear as `session` and `turn_id` in the event. A turn can contain multiple
 router requests; requests without these headers have null IDs. These headers
-are not forwarded to the upstream.
+are not forwarded to the upstream. The V2 plugin instead takes `session` from the
+native HTTP hook's session ID and assigns each request a new `turn_id`.
 Local request-size, overload, and upstream deadline failures use the fixed
 `request_too_large`, `overloaded`, and `upstream_timeout` outcome codes.
 
@@ -229,3 +230,31 @@ http://127.0.0.1:4320/ready` as a startup check, `Restart=on-failure`, and
 - Native Node HTTP/fetch and stream primitives only — no proxy framework, no
   upstream retries.
 
+## OpenCode plugin adapters
+
+The package default export serves both OpenCode majors from one shared runtime
+(validation, Jev selection, rewrite, lineage, limits, and usage observation):
+
+- **V1** (`server()`, 1.18.29+) registers `provider["jev-router"]` with
+  `@ai-sdk/openai`, `useResponses: true`, and a fetch adapter that performs the
+  upstream request itself. `chat.headers` adds the internal correlation headers.
+- **V2** (`id: "jev-router"`, `setup()`) registers the provider through
+  `ctx.provider.transform` on `@opencode/ai/providers/openai/responses` with
+  `transport: "http"`, then scopes `http.request` and `http.response` session
+  hooks to that provider. OpenCode performs the fetch between them:
+  - `http.request` reads and validates the body, calls Jev, and replaces the
+    one-shot request with the rewritten body. Its signal follows the session's,
+    plus plugin cleanup and the header timeout. A local rejection throws, so
+    OpenCode reports the error and never contacts the upstream.
+  - `http.response` wraps the body for usage observation without buffering and
+    keeps the status, body bytes, and filtered headers. OpenCode cancels the body
+    after `response.completed`; a cancellation after the terminal event is
+    recorded as `completed` and commits lineage.
+  - A transport failure produces no response event. The exchange then settles
+    at the header timeout as `failed`, and a session cancellation before headers
+    settles it immediately. Plugin cleanup aborts and records every open
+    exchange. A response that arrives after its exchange settled is cancelled
+    and reported as an error rather than streamed.
+
+V1 and V2 each read `server()` or `setup()` and ignore the other, so a host
+never registers the provider twice.

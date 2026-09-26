@@ -1,0 +1,18 @@
+{
+  // OpenCode V2 only. Use examples/opencode.jsonc if you also run V1.
+  "$schema": "https://opencode.ai/config.json",
+  "plugins": [{
+    "package": "@robertn702/opencode-jev-router",
+    "options": {
+      // Jev classifier key. For a direct TypeSafe key, delete jevBaseUrl.
+      "jevApiKey": "{env:JEV_ROUTER_API_KEY}",
+      "jevBaseUrl": "https://ai-gateway.vercel.sh/typesafe",
+      // Any Responses API-compatible endpoint that serves GPT-6 models.
+      "upstreamBaseURL": "https://api.openai.com/v1",
+      "upstreamApiKey": "{env:OPENAI_API_KEY}"
+      // Optional: an absolute path for metadata-only JevDecision JSONL events.
+      // "decisionsLogPath": "/absolute/path/to/jev-decisions.jsonl"
+    }
+  }],
+  "model": "jev-router/gpt-6-astra"
+}

@@ -27,7 +27,7 @@ describe("jev-router plugin", () => {
     });
     globalThis.fetch = upstream as typeof fetch;
     try {
-      const hooks = await plugin({}, { fixedEffort: "high", decisionsLogPath: log, ...upstreamOptions });
+      const hooks = await plugin.server({}, { fixedEffort: "high", decisionsLogPath: log, ...upstreamOptions });
       const config: any = {}; hooks.config(config);
       const response = await config.provider["jev-router"].options.fetch("https://upstream.test/v1/responses", { method: "POST", body: JSON.stringify(request) });
       await response.text();
@@ -55,7 +55,7 @@ describe("jev-router plugin", () => {
       if (String(input).includes("api.typesafe.ai")) return new Response(JSON.stringify({ answers: { effort: { choice: "high" } } }));
       return upstream(input, init);
     }) as typeof fetch;
-    const hooks = await plugin({}, { jevApiKey: "jev", ...upstreamOptions });
+    const hooks = await plugin.server({}, { jevApiKey: "jev", ...upstreamOptions });
     const config: any = {};
     hooks.config(config);
     const response = await config.provider["jev-router"].options.fetch("https://upstream.test/v1/responses", {
@@ -68,7 +68,7 @@ describe("jev-router plugin", () => {
   });
 
   it("registers the shared model catalog with plugin upstream defaults", async () => {
-    const hooks = await plugin({}, { jevApiKey: "jev", upstreamBaseURL: "http://127.0.0.1:8080/v1", upstreamApiKey: "upstream" });
+    const hooks = await plugin.server({}, { jevApiKey: "jev", upstreamBaseURL: "http://127.0.0.1:8080/v1", upstreamApiKey: "upstream" });
     const config: any = {};
     hooks.config(config);
     const provider = config.provider["jev-router"];
@@ -81,7 +81,7 @@ describe("jev-router plugin", () => {
   });
 
   it("keeps explicit upstream and model metadata overrides while enforcing the Responses interceptor", async () => {
-    const hooks = await plugin({}, { jevApiKey: "jev", upstreamBaseURL: "http://127.0.0.1:8080/v1", upstreamApiKey: "default" });
+    const hooks = await plugin.server({}, { jevApiKey: "jev", upstreamBaseURL: "http://127.0.0.1:8080/v1", upstreamApiKey: "default" });
     const config: any = { provider: { "jev-router": { options: { baseURL: "http://127.0.0.1:8318/v1", apiKey: "custom" }, models: { "gpt-6-astra": { name: "Custom Astra", reasoning: false, options: {} }, "astra-alias": { provider: { npm: "@ai-sdk/openai" }, options: {} } } } } };
     hooks.config(config);
     expect(config.provider["jev-router"].options).toMatchObject({ baseURL: "http://127.0.0.1:8318/v1", apiKey: "custom" });
@@ -91,12 +91,12 @@ describe("jev-router plugin", () => {
   });
 
   it("allows OpenCode to resolve an omitted upstream key but rejects invalid explicit keys", async () => {
-    const hooks = await plugin({}, { jevApiKey: "jev", upstreamBaseURL: "http://127.0.0.1:8080/v1" });
+    const hooks = await plugin.server({}, { jevApiKey: "jev", upstreamBaseURL: "http://127.0.0.1:8080/v1" });
     const config: any = {};
     hooks.config(config);
     expect(config.provider["jev-router"].options.apiKey).toBeUndefined();
     hooks.dispose();
-    const invalid = await plugin({}, { jevApiKey: "jev", upstreamBaseURL: "http://127.0.0.1:8080/v1", upstreamApiKey: " " });
+    const invalid = await plugin.server({}, { jevApiKey: "jev", upstreamBaseURL: "http://127.0.0.1:8080/v1", upstreamApiKey: " " });
     expect(() => invalid.config({})).toThrow("upstreamApiKey");
     invalid.dispose();
   });
@@ -109,7 +109,7 @@ describe("jev-router plugin", () => {
     { provider: { "jev-router": { options: { baseURL: "http://127.0.0.1:8080/v1", apiKey: "key" }, models: { "astra-alias": { provider: { options: { useResponses: false } } } } } } },
     { provider: { "jev-router": { options: { baseURL: "http://127.0.0.1:8080/v1", apiKey: "key" }, models: { "astra-alias": { provider: { options: { fetch: () => new Response() } } } } } } },
   ])("rejects SDK, Responses, and fetch bypass overrides", async (config: any) => {
-    const hooks = await plugin({}, { jevApiKey: "jev", ...upstreamOptions });
+    const hooks = await plugin.server({}, { jevApiKey: "jev", ...upstreamOptions });
     expect(() => hooks.config(config)).toThrow();
     hooks.dispose();
   });
@@ -120,7 +120,7 @@ describe("jev-router plugin", () => {
       if (String(input).includes("api.typesafe.ai")) return new Promise((_resolve, reject) => init?.signal?.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError"))));
       return upstream(input, init);
     }) as typeof fetch;
-    const hooks = await plugin({}, { jevApiKey: "jev", ...upstreamOptions });
+    const hooks = await plugin.server({}, { jevApiKey: "jev", ...upstreamOptions });
     const config: any = {}; hooks.config(config);
     const abort = new AbortController();
     const call = config.provider["jev-router"].options.fetch("https://upstream.test/v1/responses", { method: "POST", signal: abort.signal, body: JSON.stringify(request) });
@@ -132,14 +132,14 @@ describe("jev-router plugin", () => {
 
   it.each([null, 1, [], "request"])("rejects invalid JSON shapes locally before Jev", async (body) => {
     const fetcher = vi.fn(); globalThis.fetch = fetcher as typeof fetch;
-    const hooks = await plugin({}, { jevApiKey: "jev", ...upstreamOptions }); const config: any = {}; hooks.config(config);
+    const hooks = await plugin.server({}, { jevApiKey: "jev", ...upstreamOptions }); const config: any = {}; hooks.config(config);
     const response = await config.provider["jev-router"].options.fetch("https://upstream.test/v1/responses", { method: "POST", body: JSON.stringify(body) });
     expect(response.status).toBe(400); expect(fetcher).not.toHaveBeenCalled(); hooks.dispose();
   });
 
   it("rejects non-Responses endpoints rather than bypassing the dedicated provider", async () => {
     const fetcher = vi.fn(); globalThis.fetch = fetcher as typeof fetch;
-    const hooks = await plugin({}, { jevApiKey: "jev", ...upstreamOptions }); const config: any = {}; hooks.config(config);
+    const hooks = await plugin.server({}, { jevApiKey: "jev", ...upstreamOptions }); const config: any = {}; hooks.config(config);
     expect((await config.provider["jev-router"].options.fetch("https://upstream.test/v1/chat/completions", { method: "POST" })).status).toBe(400);
     expect(fetcher).not.toHaveBeenCalled(); hooks.dispose();
   });
@@ -152,7 +152,7 @@ describe("jev-router plugin", () => {
       if (attempts === 1) throw new Error("offline");
       return new Response(JSON.stringify({ status: "completed" }), { headers: { "content-type": "application/json" } });
     }) as typeof fetch;
-    const hooks = await plugin({}, { jevApiKey: "jev", ...upstreamOptions }); const config: any = {}; hooks.config(config);
+    const hooks = await plugin.server({}, { jevApiKey: "jev", ...upstreamOptions }); const config: any = {}; hooks.config(config);
     const init = { method: "POST", headers: { "x-jev-session-id": "ses_retry" }, body: JSON.stringify(request) };
     expect((await config.provider["jev-router"].options.fetch("https://upstream.test/v1/responses", init)).status).toBe(502);
     effort = "low";
@@ -166,7 +166,7 @@ describe("jev-router plugin", () => {
     globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => String(input).includes("api.typesafe.ai")
       ? new Response(JSON.stringify({ answers: { effort: { choice: "high" } } }))
       : new Response(upstreamBody, { headers: { "content-type": "text/event-stream" } })) as typeof fetch;
-    const hooks = await plugin({}, { jevApiKey: "jev", ...upstreamOptions }); const config: any = {}; hooks.config(config);
+    const hooks = await plugin.server({}, { jevApiKey: "jev", ...upstreamOptions }); const config: any = {}; hooks.config(config);
     const response = await config.provider["jev-router"].options.fetch("https://upstream.test/v1/responses", { method: "POST", body: JSON.stringify(request) });
     const reader = response.body!.getReader(); push(new TextEncoder().encode("data: {\"type\":\"response.completed\"}\n\n"));
     expect(new TextDecoder().decode((await reader.read()).value)).toContain("response.completed");
@@ -180,14 +180,14 @@ describe("jev-router plugin", () => {
       init!.signal!.addEventListener("abort", () => { aborted = true; });
       return Promise.resolve(new Response(new ReadableStream()));
     }) as typeof fetch;
-    const hooks = await plugin({}, { jevApiKey: "jev", ...upstreamOptions }); const config: any = {}; hooks.config(config);
+    const hooks = await plugin.server({}, { jevApiKey: "jev", ...upstreamOptions }); const config: any = {}; hooks.config(config);
     await config.provider["jev-router"].options.fetch("https://upstream.test/v1/responses", { method: "POST", body: JSON.stringify(request) });
     hooks.dispose(); expect(aborted).toBe(true);
   });
 
   it("enforces declared body limits without reading or classifying", async () => {
     const fetcher = vi.fn(); globalThis.fetch = fetcher as typeof fetch;
-    const hooks = await plugin({}, { jevApiKey: "jev", maxRequestBytes: 2, ...upstreamOptions }); const config: any = {}; hooks.config(config);
+    const hooks = await plugin.server({}, { jevApiKey: "jev", maxRequestBytes: 2, ...upstreamOptions }); const config: any = {}; hooks.config(config);
     const response = await config.provider["jev-router"].options.fetch("https://upstream.test/v1/responses", { method: "POST", headers: { "content-length": "999" }, body: "{}" });
     expect(response.status).toBe(413); expect(fetcher).not.toHaveBeenCalled(); hooks.dispose();
   });
@@ -198,13 +198,13 @@ describe("jev-router plugin", () => {
       if (String(input).includes("api.typesafe.ai")) return Promise.resolve(new Response(JSON.stringify({ answers: { effort: { choice: "high" } } })));
       received = new Headers(init!.headers); return new Promise((_resolve, reject) => init!.signal!.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError"))));
     }) as typeof fetch;
-    const hooks = await plugin({}, { jevApiKey: "jev", upstreamHeaderTimeoutMs: 1, ...upstreamOptions }); const config: any = {}; hooks.config(config);
+    const hooks = await plugin.server({}, { jevApiKey: "jev", upstreamHeaderTimeoutMs: 1, ...upstreamOptions }); const config: any = {}; hooks.config(config);
     const response = await config.provider["jev-router"].options.fetch("https://upstream.test/v1/responses", { method: "POST", headers: { authorization: "Bearer a", "openai-project": "project", "openai-organization": "org", "x-jev-session-id": "ses_secret", "x-opencode-session-id": "private", connection: "x-hop", "x-hop": "no", "transfer-encoding": "chunked", "x-random": "kept" }, body: JSON.stringify(request) });
     expect(response.status).toBe(504); expect(received!.get("authorization")).toBe("Bearer a"); expect(received!.get("openai-project")).toBe("project"); expect(received!.get("openai-organization")).toBe("org"); expect(received!.get("x-random")).toBe("kept"); expect(received!.get("x-jev-session-id")).toBeNull(); expect(received!.get("x-opencode-session-id")).toBeNull(); expect(received!.get("connection")).toBeNull(); expect(received!.get("x-hop")).toBeNull(); expect(received!.get("transfer-encoding")).toBeNull(); hooks.dispose();
   });
 
   it("adds provider-gated session and turn correlation headers", async () => {
-    const hooks = await plugin({}, { jevApiKey: "jev", ...upstreamOptions });
+    const hooks = await plugin.server({}, { jevApiKey: "jev", ...upstreamOptions });
     const output = { headers: {} as Record<string, string> };
     await hooks["chat.headers"]({ sessionID: "ses_chat", model: { providerID: "jev-router" }, provider: {} }, output);
     expect(output.headers["x-jev-session-id"]).toBe("ses_chat"); expect(output.headers["x-jev-turn-id"]).toMatch(/^[0-9a-f-]{36}$/);
@@ -218,7 +218,7 @@ describe("jev-router plugin", () => {
       globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => String(input).includes("api.typesafe.ai")
         ? new Response(JSON.stringify({ answers: { effort: { choice: "high" } } }))
         : new Response('data: {"type":"response.completed","response":{"usage":{"input_tokens":7,"input_tokens_details":{"cached_tokens":3},"output_tokens":2}}}\n\n', { headers: { "content-type": "text/event-stream" } })) as typeof fetch;
-      const hooks = await plugin({}, { jevApiKey: "jev", decisionsLogPath: path, ...upstreamOptions });
+      const hooks = await plugin.server({}, { jevApiKey: "jev", decisionsLogPath: path, ...upstreamOptions });
       const config: any = {}; hooks.config(config);
       const output = { headers: {} as Record<string, string> };
       await hooks["chat.headers"]({ sessionID: "ses_plugin", model: { providerID: "jev-router" }, provider: {} }, output);
@@ -246,7 +246,7 @@ describe("jev-router plugin", () => {
         if (String(input).includes("api.typesafe.ai")) return new Response(JSON.stringify({ answers: { effort: { choice: "invalid" } } }));
         throw new Error("secret upstream error");
       }) as typeof fetch;
-      const hooks = await plugin({}, { jevApiKey: "jev", decisionsLogPath: path, ...upstreamOptions });
+      const hooks = await plugin.server({}, { jevApiKey: "jev", decisionsLogPath: path, ...upstreamOptions });
       const config: any = {}; hooks.config(config);
       const response = await config.provider["jev-router"].options.fetch("https://upstream.test/v1/responses", { method: "POST", body: JSON.stringify(request) });
       expect(response.status).toBe(502);
@@ -268,7 +268,7 @@ describe("jev-router plugin", () => {
       globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => String(input).includes("api.typesafe.ai")
         ? new Response(JSON.stringify({ answers: { effort: { choice: "high" } } }))
         : new Response(new ReadableStream<Uint8Array>({ start(controller) { controller.enqueue(new TextEncoder().encode("chunk")); controller.close(); } }), { headers: { "content-type": "text/event-stream" } })) as typeof fetch;
-      const hooks = await plugin({}, { jevApiKey: "jev", decisionsLogPath: path, ...upstreamOptions });
+      const hooks = await plugin.server({}, { jevApiKey: "jev", decisionsLogPath: path, ...upstreamOptions });
       const config: any = {}; hooks.config(config);
       const response = await config.provider["jev-router"].options.fetch("https://upstream.test/v1/responses", { method: "POST", body: JSON.stringify(request) });
       expect(await response.text()).toBe("chunk");
@@ -286,7 +286,7 @@ describe("jev-router plugin", () => {
       globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => String(input).includes("api.typesafe.ai")
         ? new Response(JSON.stringify({ answers: { effort: { choice: "high" } } }))
         : new Response(new ReadableStream<Uint8Array>({ start(controller) { controller.enqueue(new TextEncoder().encode("chunk")); } }), { headers: { "content-type": "text/event-stream" } })) as typeof fetch;
-      const hooks = await plugin({}, { jevApiKey: "jev", decisionsLogPath: path, ...upstreamOptions });
+      const hooks = await plugin.server({}, { jevApiKey: "jev", decisionsLogPath: path, ...upstreamOptions });
       const config: any = {}; hooks.config(config);
       const response = await config.provider["jev-router"].options.fetch("https://upstream.test/v1/responses", { method: "POST", body: JSON.stringify(request) });
       const reader = response.body!.getReader();
@@ -302,6 +302,6 @@ describe("jev-router plugin", () => {
   });
 
   it("requires an absolute plugin decision log path", async () => {
-    await expect(plugin({}, { jevApiKey: "jev", decisionsLogPath: "relative.jsonl" })).rejects.toThrow("decisionsLogPath must be an absolute path");
+    await expect(plugin.server({}, { jevApiKey: "jev", decisionsLogPath: "relative.jsonl" })).rejects.toThrow("decisionsLogPath must be an absolute path");
   });
 });

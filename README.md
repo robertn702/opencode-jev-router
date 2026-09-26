@@ -33,7 +33,9 @@ If Jev is slow or unavailable, the request continues at a fallback effort
 
 ## Requirements
 
-- **OpenCode.** The plugin is tested with OpenCode 1.18.32.
+- **OpenCode.** One package supports both majors: V1 1.18.29 or newer (tested
+  with 1.18.32) and V2 (tested with 2.0.18). V1 support continues through the
+  0.x releases; its removal will be announced in the changelog first.
 - **A Jev key**, from either:
   - [TypeSafe](https://typesafe.ai/) (direct), or
   - [Vercel AI Gateway](https://vercel.com/docs/ai-gateway/sdks-and-apis/typesafe)
@@ -59,7 +61,9 @@ export OPENAI_API_KEY=...       # key for your Responses API endpoint
 ```
 
 **2. Add the plugin** to your OpenCode config: `~/.config/opencode/opencode.json`
-for all projects, or `opencode.json` in a project root.
+for all projects, or `opencode.json` in a project root. This V1 `plugin` tuple
+also works in V2, which normalizes it; for a V2-only config, see
+[OpenCode V2](#opencode-v2).
 
 ```jsonc
 {
@@ -102,6 +106,32 @@ once you're satisfied, or keep it for metrics.
 
 A copy of this config is in [`examples/opencode.jsonc`](examples/opencode.jsonc).
 
+### OpenCode V2
+
+V2 reads the same options from the object form of `plugins`:
+
+```jsonc
+{
+  "$schema": "https://opencode.ai/config.json",
+  "plugins": [{
+    "package": "@robertn702/opencode-jev-router",
+    "options": {
+      "jevApiKey": "{env:JEV_ROUTER_API_KEY}",
+      "jevBaseUrl": "https://ai-gateway.vercel.sh/typesafe",
+      "upstreamBaseURL": "https://api.openai.com/v1",
+      "upstreamApiKey": "{env:OPENAI_API_KEY}",
+      "decisionsLogPath": "/tmp/jev-decisions.jsonl"
+    }
+  }],
+  "model": "jev-router/gpt-6-astra"
+}
+```
+
+This config is V2-only; keep the `plugin` tuple above if you also run V1. A copy is in
+[`examples/opencode-v2.jsonc`](examples/opencode-v2.jsonc). In V2 the plugin
+registers the provider on OpenCode's native OpenAI Responses runtime and routes
+its HTTP requests; the models, options, and decision log are the same.
+
 ## Models
 
 The plugin registers a `jev-router` provider with three models:
@@ -136,7 +166,8 @@ the effort Jev selected; use the decision log to see the selection.
 
 ## Configuration
 
-Plugin options go in the second element of the `plugin` tuple.
+Plugin options go in the second element of the `plugin` tuple, or in `options`
+of a V2 `plugins` entry.
 
 | Option | Default | Purpose |
 | --- | --- | --- |
@@ -162,12 +193,21 @@ detailed in
 <details>
 <summary>Customizing the generated provider</summary>
 
-You may still declare `provider["jev-router"]` to override display names or
+**V1.** You may still declare `provider["jev-router"]` to override display names or
 model metadata. Provider `options.baseURL`/`options.apiKey` take precedence over
 `upstreamBaseURL`/`upstreamApiKey`. The plugin always uses `@ai-sdk/openai`, its
 own fetch adapter, and `useResponses: true`; a config that sets a different SDK,
 a custom fetch, or `useResponses: false` fails at startup rather than bypassing
 Jev.
+
+**V2.** `upstreamBaseURL` is required as a plugin option. A
+`providers["jev-router"]` block overlays the generated provider: its
+`settings.baseURL`/`settings.apiKey`, `headers`, and model fields such as `name`
+or `limit` take precedence over the plugin's values. The plugin uses
+`@opencode/ai/providers/openai/responses` over HTTP and checks every request
+before Jev sees it, so an override that reaches another route, a non-HTTPS remote
+endpoint, or an unregistered model ID fails that request locally instead of
+bypassing Jev.
 
 </details>
 
@@ -180,7 +220,9 @@ Jev.
 | OpenCode fails to start with a `jev-router` error | The message names the invalid option: usually a missing `upstreamBaseURL`, a non-HTTPS remote URL, or a conflicting `provider["jev-router"]` block. |
 | 401/403/404 from the model | The endpoint's response is passed through unchanged. Check `upstreamApiKey` and that the endpoint serves the selected model. |
 | Local 400 mentioning `reasoning.mode`, `truncation`, or the model | The request uses an unsupported mode or model; see [Models](#models). |
-| `jev-router supports POST /v1/responses only` | Something is calling Chat Completions through this provider. Remove any `useResponses: false` or custom SDK override. |
+| `jev-router supports POST /v1/responses only` | Something is calling Chat Completions through this provider. Remove any `useResponses: false`, custom SDK, or V2 `package` override. |
+| V2: `Model unavailable: jev-router/...` | The plugin did not load. Check the `plugins` entry and the OpenCode log for a `jev-router` setup error. |
+| V2: `Missing auth credential: apiKey` | Set `upstreamApiKey`, or `providers["jev-router"].settings.apiKey`. |
 | Config changes have no effect | Restart OpenCode; it loads plugins at startup. |
 
 ## Standalone proxy (optional)
@@ -247,8 +289,14 @@ npm ci
 npm run check           # typecheck + offline tests
 npm run build           # compile to dist/
 npm run smoke:package   # pack, install, and start the packaged CLI
-npm run smoke:plugin    # load the plugin in an isolated OpenCode runtime
+npm run smoke:plugin    # load the plugin in an isolated OpenCode 1.18.32 runtime
+npm run smoke:plugin:v2 # install the packed plugin in an isolated OpenCode 2.0.18
 ```
+
+The plugin smokes need `openssl` and an existing `/tmp/opencode`. The V1 smoke
+uses `opencode` on `PATH` (or `OPENCODE_BIN`) and a prior `npm run build`; the
+V2 smoke packs the plugin and installs `@opencode/cli@2.0.18` unless
+`OPENCODE_V2_BIN` is set.
 
 Tests use a fake upstream and a mocked Jev; they need no keys. To run the proxy
 from source, `cp .env.example .env`, fill in the keys, then `npm run build &&

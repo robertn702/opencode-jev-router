@@ -1,7 +1,7 @@
 {
   "name": "@robertn702/opencode-jev-router",
   "version": "0.3.0",
-  "description": "Adaptive reasoning effort for OpenCode with request-local GPT-6 model selection",
+  "description": "Adaptive reasoning effort for OpenCode V1 and V2 with request-local GPT-6 model selection",
   "type": "module",
   "private": false,
   "license": "MIT",
@@ -35,6 +35,7 @@
     "prepack": "npm run build",
     "smoke:package": "node scripts/smoke-package.mjs",
     "smoke:plugin": "node scripts/plugin-smoke.mjs",
+    "smoke:plugin:v2": "node scripts/plugin-smoke-v2.mjs",
     "eval": "tsx test/eval/jev-eval.ts",
     "eval:live": "node test/eval/live-matrix.mjs",
     "cache:validate": "tsx scripts/cache-validation.ts",
