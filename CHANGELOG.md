@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.3.0
 
 - **Breaking (standalone proxy):** router environment variables are now
   prefixed with `JEV_ROUTER_`, with no legacy aliases. For example,
@@ -10,7 +10,8 @@
 - **Breaking (standalone proxy):** `JEV_ROUTER_UPSTREAM_BASE_URL` is required;
   the proxy no longer defaults to a local gateway port.
 - Configurable Jev retries and fallback (`maxRetries`, `fallbackMode`,
-  `fallbackEffort` and their `JEV_ROUTER_*` equivalents).
+  `fallbackEffort` and their `JEV_ROUTER_*` equivalents). Decision events
+  include `jev_attempts` and, on fallback, `fallback_source`.
 - The README and example configuration now target any Responses
   API-compatible endpoint, with step-by-step setup and troubleshooting.
   Reference material moved to `docs/behavior.md` and `docs/verification.md`.

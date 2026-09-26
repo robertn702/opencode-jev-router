@@ -155,7 +155,7 @@ Plugin options go in the second element of the `plugin` tuple.
 | `upstreamHeaderTimeoutMs` | `10000` | Wait for endpoint response headers. |
 | `upstreamIdleTimeoutMs` | `60000` | Longest gap between streamed chunks. |
 
-\* Available from the release after 0.2.0. Retry and fallback behavior is
+\* Available from 0.3.0. Retry and fallback behavior is
 detailed in
 [`docs/classification-policy.md`](docs/classification-policy.md).
 
@@ -189,8 +189,8 @@ The same router can run as a local HTTP proxy for any Responses API client. It
 needs Node.js 24.x.
 
 > [!NOTE]
-> The `JEV_ROUTER_*` variable names below apply from the release after 0.2.0.
-> Version 0.2.0 uses unprefixed names; see [`CHANGELOG.md`](CHANGELOG.md).
+> The `JEV_ROUTER_*` variable names below apply from 0.3.0. Earlier versions
+> use unprefixed names; see [`CHANGELOG.md`](CHANGELOG.md).
 
 Create a `.env` in the directory you'll run from (or export the variables):
 
