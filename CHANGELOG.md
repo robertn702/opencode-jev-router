@@ -1,5 +1,23 @@
 # Changelog
 
+## Unreleased
+
+- OpenCode V2 support. The package's default export now serves both majors:
+  V1 1.18.29+ calls `server()` and V2 calls `setup()`. In V2 the plugin
+  registers `jev-router` through a provider transform on the native OpenAI
+  Responses runtime and routes requests with provider-scoped HTTP hooks. Options,
+  models, and decision events are unchanged. V2 users can use the object form of
+  `plugins` (`examples/opencode-v2.jsonc`); the V1 `plugin` tuple keeps working
+  in both. Tested with OpenCode 1.18.32 and 2.0.18.
+- The plugin default export is now an object, not a function. OpenCode loads
+  both forms; code that called the export directly should call `.server()`.
+- A stream the client cancels after the upstream's `response.completed` event is
+  now recorded as `completed` and commits lineage. OpenCode V2 cancels at that
+  point rather than reading to EOF.
+- CI runs the plugin smoke against pinned OpenCode 1.18.32 and 2.0.18
+  (`npm run smoke:plugin:v2` installs the packed plugin by name from a loopback
+  registry).
+
 ## 0.3.0
 
 - **Breaking (standalone proxy):** router environment variables are now

@@ -1,79 +1,14 @@
 import assert from "node:assert/strict";
-import { execFileSync, spawn } from "node:child_process";
-import { createServer } from "node:http";
-import { access, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { spawn } from "node:child_process";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { createServer as createTlsServer } from "node:tls";
+
+import { close, exists, fakeJevProxy, fakeResponsesUpstream, listen, run, sleep } from "./smoke-helpers.mjs";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const pluginPath = join(root, "dist", "plugin.js");
 const opencode = process.env.OPENCODE_BIN ?? "opencode";
-const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-
-async function listen(server) {
-  await new Promise((resolve, reject) => {
-    server.once("error", reject);
-    server.listen(0, "127.0.0.1", resolve);
-  });
-  return server.address().port;
-}
-
-async function close(server) {
-  await new Promise((resolve) => server.close(resolve));
-}
-
-function run(command, args, options = {}) {
-  return execFileSync(command, args, { encoding: "utf8", ...options });
-}
-
-async function exists(path) {
-  try { await access(path); return true; } catch { return false; }
-}
-
-// OpenCode's plugin config only permits the production TypeSafe URLs.  This
-// CONNECT proxy terminates TLS for that exact hostname, so the SDK exercises
-// its actual wire protocol while every connection remains on loopback.
-async function fakeJevProxy(caDir, observed) {
-  const key = join(caDir, "key.pem");
-  const cert = join(caDir, "cert.pem");
-  run("openssl", ["req", "-x509", "-newkey", "rsa:2048", "-nodes", "-days", "1", "-subj", "/CN=api.typesafe.ai", "-addext", "subjectAltName=DNS:api.typesafe.ai,DNS:models.opencode.ai,DNS:registry.npmjs.org", "-keyout", key, "-out", cert], { stdio: "ignore" });
-  const tls = createTlsServer({ key: await readFile(key), cert: await readFile(cert) }, (socket) => {
-    let raw = "";
-    socket.on("data", (chunk) => {
-      raw += chunk;
-      if (!raw.includes("\r\n\r\n")) return;
-      const [head, body = ""] = raw.split("\r\n\r\n", 2);
-      const length = Number(/\r\ncontent-length:\s*(\d+)/i.exec(`\r\n${head}`)?.[1] ?? 0);
-      if (body.length < length) return;
-      const requestLine = head.split("\r\n")[0];
-      if (socket.servername === "models.opencode.ai") {
-        observed.catalog = requestLine;
-        const response = "[]";
-        socket.end(`HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: ${Buffer.byteLength(response)}\r\nconnection: close\r\n\r\n${response}`);
-        return;
-      }
-      if (socket.servername === "registry.npmjs.org") {
-        observed.registry = requestLine;
-        const response = "{}";
-        socket.end(`HTTP/1.1 503 Service Unavailable\r\ncontent-type: application/json\r\ncontent-length: ${Buffer.byteLength(response)}\r\nconnection: close\r\n\r\n${response}`);
-        return;
-      }
-      observed.jev = { requestLine, body: JSON.parse(body) };
-      const response = JSON.stringify({ answers: { effort: { choice: "high" } } });
-      socket.end(`HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: ${Buffer.byteLength(response)}\r\nconnection: close\r\n\r\n${response}`);
-    });
-  });
-  const tlsPort = await listen(tls);
-  const proxy = createServer();
-  proxy.on("connect", (request, socket) => {
-    assert.ok(["api.typesafe.ai:443", "models.opencode.ai:443", "registry.npmjs.org:443"].includes(request.url), `blocked non-fake outbound host: ${request.url}`);
-    socket.write("HTTP/1.1 200 Connection Established\r\n\r\n");
-    tls.emit("connection", socket);
-  });
-  return { proxy, tls, port: await listen(proxy), cert };
-}
 
 const observed = {};
 let upstream;
@@ -99,24 +34,7 @@ try {
   const ca = join(temp, "ca");
   await Promise.all(["home", "config", "data", "cache", "ca", "empty-config-dir"].map((name) => mkdir(join(temp, name), { recursive: true })));
 
-  upstream = createServer(async (request, response) => {
-    assert.equal(request.method, "POST");
-    assert.equal(request.url, "/v1/responses");
-    let raw = "";
-    for await (const chunk of request) raw += chunk;
-    observed.upstreamCount = (observed.upstreamCount ?? 0) + 1;
-    observed.upstream = { headers: request.headers, body: JSON.parse(raw) };
-    const events = [
-      { type: "response.created", response: { id: "resp_smoke", object: "response", created_at: 0, status: "in_progress", model: "gpt-6-astra", output: [] } },
-      { type: "response.output_item.added", output_index: 0, item: { id: "msg_smoke", type: "message", role: "assistant", status: "in_progress", content: [] } },
-      { type: "response.content_part.added", item_id: "msg_smoke", output_index: 0, content_index: 0, part: { type: "output_text", text: "", annotations: [] } },
-      { type: "response.output_text.delta", item_id: "msg_smoke", output_index: 0, content_index: 0, delta: "smoke" },
-      { type: "response.completed", response: { id: "resp_smoke", object: "response", created_at: 0, status: "completed", model: "gpt-6-astra", output: [{ id: "msg_smoke", type: "message", role: "assistant", status: "completed", content: [{ type: "output_text", text: "smoke", annotations: [] }] }], usage: { input_tokens: 1, output_tokens: 1, total_tokens: 2 } } },
-    ];
-    response.writeHead(200, { "content-type": "text/event-stream" });
-    for (const event of events) response.write(`data: ${JSON.stringify(event)}\n\n`);
-    response.end();
-  });
+  upstream = fakeResponsesUpstream(observed);
   const upstreamPort = await listen(upstream);
   const fake = await fakeJevProxy(ca, observed);
   ({ proxy, tls } = fake);
@@ -146,6 +64,8 @@ try {
   const exit = await new Promise((resolve) => child.once("exit", resolve));
   assert.equal(exit, 0, `OpenCode failed:\n${output}`);
   assert.match(output, /smoke/, "OpenCode did not consume the fake Responses SSE completion");
+  assert.equal(observed.blocked, undefined, `blocked non-fake outbound hosts: ${observed.blocked}`);
+  assert.ok(observed.upstreams.every((request) => request.method === "POST" && request.url === "/v1/responses"));
   assert.ok(observed.jev, "the fake Jev classifier received no SDK request");
   assert.match(observed.jev.requestLine, /^POST /);
   assert.equal(observed.jev.body.questions.effort.type, "choice");

@@ -1,4 +1,6 @@
 {
+  // Works in OpenCode V1 and V2 (which normalizes this tuple).
+  // For V2-only config, see examples/opencode-v2.jsonc.
   "$schema": "https://opencode.ai/config.json",
   "plugin": [["@robertn702/opencode-jev-router", {
     // Jev classifier key. For a direct TypeSafe key, delete jevBaseUrl.
