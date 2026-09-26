@@ -4,565 +4,271 @@
 [![npm](https://img.shields.io/npm/v/%40robertn702%2Fopencode-jev-router)](https://www.npmjs.com/package/@robertn702/opencode-jev-router)
 [![MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-**Keep the quality. Spend less reasoning.** Jev chooses reasoning effort for
-each OpenCode step, so one router can handle straightforward edits and harder
-debugging without manually switching effort levels.
+**Keep the quality. Spend less reasoning.** An [OpenCode](https://opencode.ai)
+plugin that asks [Jev](https://typesafe.ai/) how much reasoning each step
+needs, so one model handles quick edits and hard debugging without you
+switching effort levels by hand.
 
 ![On pytest #5262, Jev used 42% fewer output tokens and 40% less time than fixed high, with both solving 6/6. On a separately selected hard case, Jev solved 5/5 versus 1/5 for fixed medium; that exploratory result does not establish a general reliability benefit.](readme-token-savings.svg)
 
-On the largest task-level saving in our replicated comparison, Jev used **42%
-fewer output tokens** and **40% less time** than fixed high, with both solving
-all six attempts. On a separately
-selected harder task, Jev solved **5/5** attempts versus **1/5** at fixed medium;
-this exploratory case does not establish a general reduction in failed runs.
-Across the tested Astra mix, Jev and fixed high each solved **44/44 attempts**;
-Jev used **14% fewer output tokens** and finished **9% faster** on average.
-Output includes reasoning tokens. These results do not guarantee equal success
-or savings on other work.
-[See the evaluation](eval/results/router-consolidated-2026-09-25.md) ·
-[Install the OpenCode plugin](#quick-start-opencode-plugin)
+Across the tested GPT-6 Astra task mix, Jev and fixed `high` effort each solved
+**44/44 attempts**, and Jev used **14% fewer output tokens** (including
+reasoning) and finished **9% faster** on average. Results on other workloads
+may differ. [See the evaluation](eval/results/router-consolidated-2026-09-25.md).
 
-```text
-OpenCode selects Astra/Luna/Sol -> one opencode-jev-router -> one Responses upstream
-```
+## How it works
 
-`opencode-jev-router` is an OpenCode plugin with an optional standalone Responses
-API proxy. For each `POST /v1/responses`, it asks [Jev](https://typesafe.ai/)
-how much reasoning the next step needs, pins
-execution to the resolved request model, and preserves historical effort updates.
-When needed, a `configuration_update` carries the selected effort before the
-current user message or after the tool results of a continuation. The request-level
-`reasoning.effort` stays at a stable base (`medium` by default), so the response's reported effort is the base
-setting, not the update-selected value.
+For every model request OpenCode makes, the plugin:
 
-## Status
+1. Sends a bounded summary of the recent conversation to Jev, which picks a
+   reasoning effort (for example `low` for a rename, `high` for a failing test).
+2. Adds that choice to the request as an OpenAI
+   [`configuration_update`](https://developers.openai.com/api/docs/guides/reasoning#change-reasoning-mid-conversation)
+   item, keeping earlier updates in place so the prompt prefix stays cacheable.
+3. Sends the request to your model endpoint and streams the response back
+   unchanged.
 
-Supports Astra, Luna, and Sol through a shared Responses upstream, with bounded
-classification, streaming passthrough, cache-lineage replay, and request-level
-usage telemetry. Offline tests and live checks cover protocol compatibility;
-controlled live cache trials found no systematic additional adaptive cache loss
-in the limited sample. See [Verified behavior](#verified-behavior) for the evidence
-and remaining validation gaps.
-
-The goal is faster **successful task completion**, not higher tokens per second.
-Lower effort can reduce unnecessary reasoning; higher effort may avoid failed
-attempts or extra tool calls. The task benchmark above shows a time and token
-reduction on the tested mix; broader workload performance remains unestablished.
+If Jev is slow or unavailable, the request continues at a fallback effort
+(`high` by default).
 
 ## Requirements
 
-- Node.js 24.x (runtime and development)
-- Either [CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI) with Codex OAuth
-  or an OpenAI API key with access to the selected GPT-6 model
-- A Jev classifier key. For direct TypeSafe access, use a TypeSafe key. For
-  Vercel, use an AI Gateway key and select Vercel's TypeSafe-compatible endpoint
-  as shown below.
+- **OpenCode.** The plugin is tested with OpenCode 1.18.32.
+- **A Jev key**, from either:
+  - [TypeSafe](https://typesafe.ai/) (direct), or
+  - [Vercel AI Gateway](https://vercel.com/docs/ai-gateway/sdks-and-apis/typesafe)
+    (a Gateway key, used with Vercel's TypeSafe-compatible endpoint).
 
-## Quick start: OpenCode plugin
+  Each routed request makes one classification call, billed by that provider.
+- **A Responses API-compatible endpoint** that serves GPT-6 Astra, Luna, or Sol
+  and accepts `configuration_update` input items, plus its API key. The OpenAI
+  API (`https://api.openai.com/v1`) works; so does any gateway that exposes the
+  same `POST /v1/responses` interface.
 
-Install Node.js 24.x, make `JEV_ROUTER_API_KEY` available in the environment that
-starts OpenCode, and add the plugin to your OpenCode configuration. The key
-can come from your shell configuration or a secret manager; it does not have
-to live at a particular file path. The example below uses CLIProxyAPI as the
-Responses upstream and a Vercel AI Gateway key for Jev classification:
+Node.js 24.x is needed only for the [standalone proxy](#standalone-proxy-optional)
+and for development.
+
+## Quick start
+
+**1. Export your keys** in the shell that launches OpenCode (or load them from
+a secret manager):
+
+```bash
+export JEV_ROUTER_API_KEY=...   # TypeSafe key or Vercel AI Gateway key
+export OPENAI_API_KEY=...       # key for your Responses API endpoint
+```
+
+**2. Add the plugin** to your OpenCode config: `~/.config/opencode/opencode.json`
+for all projects, or `opencode.json` in a project root.
 
 ```jsonc
 {
-  "plugin": [["@robertn702/opencode-jev-router@0.2.0", {
+  "$schema": "https://opencode.ai/config.json",
+  "plugin": [["@robertn702/opencode-jev-router", {
     "jevApiKey": "{env:JEV_ROUTER_API_KEY}",
     "jevBaseUrl": "https://ai-gateway.vercel.sh/typesafe",
-    "upstreamBaseURL": "http://127.0.0.1:8317/v1",
-    "upstreamApiKey": "{env:CLIPROXY_KEY}"
+    "upstreamBaseURL": "https://api.openai.com/v1",
+    "upstreamApiKey": "{env:OPENAI_API_KEY}",
+    "decisionsLogPath": "/tmp/jev-decisions.jsonl"
   }]],
   "model": "jev-router/gpt-6-astra"
 }
 ```
 
-Use a [**Vercel AI Gateway key**](https://vercel.com/docs/ai-gateway/sdks-and-apis/typesafe)
-for `JEV_ROUTER_API_KEY` in this example. `CLIPROXY_KEY` is the separate credential
-for the local CLIProxyAPI upstream. The plugin
-uses Vercel's `typesafe-ai/jev` model identifier automatically. For a **direct
-TypeSafe key**, remove `jevBaseUrl`; the default endpoint is
-`https://api.typesafe.ai` and the model identifier is `jev-latest`. A key for
-one endpoint will not authenticate with the other. Restart OpenCode after
-changing the key or plugin configuration.
+- **Using a direct TypeSafe key?** Delete the `jevBaseUrl` line. A key only
+  works with its own endpoint.
+- **Using another gateway?** Set `upstreamBaseURL` to its base URL (the part
+  before `/responses`) and `upstreamApiKey` to its key. Plain `http://` is
+  accepted only for `localhost`/`127.0.0.1`/`::1`.
+- `{env:NAME}` reads an environment variable; `{file:~/path}` reads a file
+  instead, if you prefer to keep keys on disk.
 
-OpenCode expands `{env:NAME}` and `{file:path}` in plugin options. If you
-prefer a key file, replace `"{env:JEV_ROUTER_API_KEY}"` with a file reference such
-as `"{file:~/.config/jev-router/api-key}"`; create the file yourself and
-restrict its permissions. The path is an example, not a router requirement.
+OpenCode installs the npm plugin on startup; there is nothing else to install
+or run. To pin a version, use `@robertn702/opencode-jev-router@<version>`.
 
-The plugin registers the `jev-router` provider and its Astra/Luna/Sol model
-catalog. `jevApiKey` is used only for classification. `upstreamBaseURL`
-points to the Responses upstream, while `upstreamApiKey` authenticates to
-that upstream; it may be omitted if OpenCode supplies the provider credential
-through its normal auth handling. For direct OpenAI instead of CLIProxyAPI,
-set `upstreamBaseURL` to `https://api.openai.com/v1` and `upstreamApiKey` to
-an environment reference containing an OpenAI API key. Direct OpenAI usage is
-billed to that API account independently of a Codex subscription.
+**3. Restart OpenCode** and confirm the model shows as `jev-router/gpt-6-astra`
+(or pick one with `/models`).
 
-The plugin installs through OpenCode. There is no separate proxy process to
-start. See [`examples/opencode.jsonc`](examples/opencode.jsonc) for the
-copyable Vercel configuration.
+**4. Check that routing works.** Send any prompt, then:
 
-### Plugin compatibility and telemetry
+```bash
+tail -n 1 /tmp/jev-decisions.jsonl
+```
 
-The plugin's source compatibility is pinned to OpenCode 1.18.32's plugin and
-provider-fetch behavior. `scripts/plugin-smoke.mjs` successfully exercised an
-isolated local-file plugin load, configuration hook, rewritten fake Responses
-SSE, and independent `./server` import resolution against that runtime. This
-does not test an npm-registry installation or real services.
+You should see a `JevDecision` event with `"effort"` set (for example
+`"low"`) and `"fallback": null`. A non-null `fallback` means Jev wasn't
+reached; see [Troubleshooting](#troubleshooting). Remove `decisionsLogPath`
+once you're satisfied, or keep it for metrics.
 
-Set the optional plugin `decisionsLogPath` to an **absolute** local path
-to append timestamped, metadata-only `JevDecision` JSONL events. Omit it to
-disable plugin logging.
+A copy of this config is in [`examples/opencode.jsonc`](examples/opencode.jsonc).
 
-OpenCode's `chat.headers` hook supplies the session ID and a request UUID,
-which appear as `session` and `turn_id`. The session can be used to associate
-decisions with OpenCode turns; `turn_id` identifies a routed request and is not
-guaranteed to equal an `LLMTurn` identifier. A turn may have multiple
-requests/decisions. Invalid or missing headers yield null IDs.
-`JEV_ROUTER_DECISIONS_LOG_PATH` configures the **standalone CLI** only; the plugin
-does not read it. The plugin does not print per-request evidence to stdout,
-whereas the standalone CLI does so even without its optional JSONL path.
-Provider `jev-router` or the response's reported effort alone does not reveal
-the selected effort or fallback.
+## Models
 
-Select `jev-router/gpt-6-astra`, `jev-router/gpt-6-luna`, or
-`jev-router/gpt-6-sol`, then restart OpenCode after changing its configuration.
-The plugin-generated model metadata marks all three models as reasoning-capable
-and enables `useResponses: true`.
+The plugin registers a `jev-router` provider with three models:
 
-Existing `provider["jev-router"]` and model entries remain supported for
-advanced customization. Explicit provider `options.baseURL` / `options.apiKey`
-override plugin `upstreamBaseURL` / `upstreamApiKey`; explicit provider name and
-model metadata override generated defaults. Missing values are generated or
-filled from plugin options. An upstream API key is optional to preserve
-OpenCode's normal provider credential resolution. The plugin always supplies
-`npm: "@ai-sdk/openai"`, the fetch adapter, and `useResponses: true`:
-conflicting provider SDK, provider/model fetch, model `provider.npm`, or
-`useResponses: false` configuration fails startup rather than bypassing Jev
-routing.
+| OpenCode model | Efforts Jev can choose |
+| --- | --- |
+| `jev-router/gpt-6-astra` | `low`, `medium`, `high`, `xhigh`, `max` |
+| `jev-router/gpt-6-luna` | `none`, `low`, `medium`, `high`, `xhigh`, `max` |
+| `jev-router/gpt-6-sol` | `none`, `low`, `medium`, `high`, `xhigh`, `max` |
 
-To migrate, move the old provider `options.baseURL` and `options.apiKey` to the
-plugin tuple and delete the provider block. Keep a provider/model block only
-for intentional metadata overrides; do not use it to select another SDK,
-endpoint adapter, or Chat Completions mode. See
-[`examples/opencode.jsonc`](examples/opencode.jsonc) for the minimal setup.
+See OpenAI's [Astra](https://developers.openai.com/api/docs/models/gpt-6-astra),
+[Luna](https://developers.openai.com/api/docs/models/gpt-6-luna), and
+[Sol](https://developers.openai.com/api/docs/models/gpt-6-sol) pages to choose
+between them. Your endpoint must grant access to the model you select.
+
+Only standard, single-agent mode is supported: pro models, other
+`reasoning.mode` values, and `truncation: "auto"` are rejected locally.
+OpenCode's own reasoning-effort variants are ignored for this provider, since
+Jev picks the effort. The response reports the base effort (`medium`), not
+the effort Jev selected; use the decision log to see the selection.
+
+## What is sent where
+
+- **To Jev (TypeSafe or Vercel):** bounded excerpts of recent user and assistant
+  text, up to 8 recent tool results (with tool names and error flags), a short
+  failure summary, and the model ID. Hosted-tool and computer-use payloads are
+  not sent.
+- **To your endpoint:** the full OpenCode request, with the effort update added.
+- **Stored locally:** nothing by default. With `decisionsLogPath`, metadata
+  only (IDs, model, effort, latency, token counts). Prompts, tool output,
+  credentials, and raw errors are never logged.
+
+## Configuration
+
+Plugin options go in the second element of the `plugin` tuple.
+
+| Option | Default | Purpose |
+| --- | --- | --- |
+| `jevApiKey` | `JEV_ROUTER_API_KEY` env | Jev classifier key. Required. |
+| `jevBaseUrl` | `https://api.typesafe.ai` | Set to `https://ai-gateway.vercel.sh/typesafe` for a Vercel key. No other values are accepted. |
+| `upstreamBaseURL` | none | Responses API base URL. Required. |
+| `upstreamApiKey` | OpenCode provider auth | Key for the endpoint. |
+| `decisionsLogPath` | off | Absolute path for metadata-only `JevDecision` JSONL. |
+| `baseEffort` | `medium` | Request-level effort reported by responses. |
+| `jevTimeoutMs` | `4000` | Total classification budget, including retries. |
+| `maxRetries`* | `1` | Extra attempts after transient Jev errors. |
+| `fallbackMode`* | `fixed` | `fixed`, `previous`, or `error` (fail the request). |
+| `fallbackEffort`* | `high` | Effort used when classification fails. |
+| `maxRequestBytes` | `1048576` | Largest request body. |
+| `maxInFlight` | `32` | Concurrent requests. |
+| `upstreamHeaderTimeoutMs` | `10000` | Wait for endpoint response headers. |
+| `upstreamIdleTimeoutMs` | `60000` | Longest gap between streamed chunks. |
+
+\* Available from the release after 0.2.0. Retry and fallback behavior is
+detailed in
+[`docs/classification-policy.md`](docs/classification-policy.md).
+
+<details>
+<summary>Customizing the generated provider</summary>
+
+You may still declare `provider["jev-router"]` to override display names or
+model metadata. Provider `options.baseURL`/`options.apiKey` take precedence over
+`upstreamBaseURL`/`upstreamApiKey`. The plugin always uses `@ai-sdk/openai`, its
+own fetch adapter, and `useResponses: true`; a config that sets a different SDK,
+a custom fetch, or `useResponses: false` fails at startup rather than bypassing
+Jev.
+
+</details>
+
+## Troubleshooting
+
+| Symptom | Fix |
+| --- | --- |
+| `fallback` is `jev_error` with `jev_error_category: "http_auth"` | The Jev key doesn't match the endpoint. Vercel keys need `jevBaseUrl`; TypeSafe keys must omit it. |
+| `fallback` is `jev_timeout` | Jev was slow or unreachable; requests still ran at the fallback effort. Raise `jevTimeoutMs` if it happens often. |
+| OpenCode fails to start with a `jev-router` error | The message names the invalid option: usually a missing `upstreamBaseURL`, a non-HTTPS remote URL, or a conflicting `provider["jev-router"]` block. |
+| 401/403/404 from the model | The endpoint's response is passed through unchanged. Check `upstreamApiKey` and that the endpoint serves the selected model. |
+| Local 400 mentioning `reasoning.mode`, `truncation`, or the model | The request uses an unsupported mode or model; see [Models](#models). |
+| `jev-router supports POST /v1/responses only` | Something is calling Chat Completions through this provider. Remove any `useResponses: false` or custom SDK override. |
+| Config changes have no effect | Restart OpenCode; it loads plugins at startup. |
 
 ## Standalone proxy (optional)
 
-The npm package is `@robertn702/opencode-jev-router`; the standalone command is
-`opencode-jev-router`. Choose one installation method:
+The same router can run as a local HTTP proxy for any Responses API client. It
+needs Node.js 24.x.
 
-```bash
-npm install -g @robertn702/opencode-jev-router
-opencode-jev-router --help
-opencode-jev-router
+> [!NOTE]
+> The `JEV_ROUTER_*` variable names below apply from the release after 0.2.0.
+> Version 0.2.0 uses unprefixed names; see [`CHANGELOG.md`](CHANGELOG.md).
+
+Create a `.env` in the directory you'll run from (or export the variables):
+
+```dotenv
+JEV_ROUTER_API_KEY=your-jev-key
+# JEV_ROUTER_BASE_URL=https://ai-gateway.vercel.sh/typesafe   # Vercel keys only
+JEV_ROUTER_UPSTREAM_BASE_URL=https://api.openai.com/v1
+JEV_ROUTER_UPSTREAM_AUTH=bearer
+JEV_ROUTER_UPSTREAM_API_KEY=your-endpoint-key
 ```
 
+Then start it:
+
 ```bash
-npx --yes @robertn702/opencode-jev-router --help
 npx --yes @robertn702/opencode-jev-router
 ```
 
-```bash
-npm install @robertn702/opencode-jev-router
-npx opencode-jev-router
-```
-
-Set `JEV_ROUTER_API_KEY` in the environment or put it in a `.env` file in the
-working directory before starting the proxy. For direct TypeSafe, no other Jev
-setting is needed. The standalone proxy uses `JEV_ROUTER_BASE_URL`, while the plugin
-uses `jevBaseUrl` in OpenCode configuration.
-
-To classify through [Vercel AI Gateway's TypeSafe-compatible endpoint](https://vercel.com/docs/ai-gateway/sdks-and-apis/typesafe),
-use its AI Gateway key and set:
-
-```dotenv
-JEV_ROUTER_API_KEY=your-ai-gateway-key
-JEV_ROUTER_BASE_URL=https://ai-gateway.vercel.sh/typesafe
-```
-
-The router uses Vercel's `typesafe-ai/jev` identifier automatically. Only these
-two Jev endpoints are supported. `TYPESAFE_API_KEY` is no longer accepted;
-rename it to `JEV_ROUTER_API_KEY` for direct TypeSafe access. The Jev key is used only
-for classification; it is never reused as `JEV_ROUTER_UPSTREAM_API_KEY` or OpenCode's
-`CLIPROXY_KEY`.
-
-Choose one Responses upstream independently:
-
-```dotenv
-# CLIProxyAPI (default)
-JEV_ROUTER_UPSTREAM_BASE_URL=http://127.0.0.1:8317/v1
-JEV_ROUTER_UPSTREAM_AUTH=forward
-```
-
-```dotenv
-# Direct OpenAI (billed to your API account, independent of a Codex subscription)
-JEV_ROUTER_UPSTREAM_BASE_URL=https://api.openai.com/v1
-JEV_ROUTER_UPSTREAM_AUTH=bearer
-JEV_ROUTER_UPSTREAM_API_KEY=sk-...
-```
-
-The upstream contract is `JEV_ROUTER_UPSTREAM_BASE_URL` and `JEV_ROUTER_UPSTREAM_AUTH`, shared by all
-three registered models. The default `forward` policy passes the
-client Authorization header to a **loopback-only** upstream. The `bearer` policy
-replaces it with `Bearer JEV_ROUTER_UPSTREAM_API_KEY`, regardless of the client credential;
-it permits HTTPS upstreams (including direct OpenAI or an external gateway) and
-loopback HTTP for local testing. An external gateway can own account or provider
-selection; the router only chooses effort and rewrites Responses requests.
-Unknown policies, stale `UPSTREAM_MODE`/`OPENAI_API_KEY` settings, missing or
-misplaced keys, and unsafe endpoint/policy pairs fail at startup. Migrate old
-`openai` settings to `JEV_ROUTER_UPSTREAM_AUTH=bearer` and `JEV_ROUTER_UPSTREAM_API_KEY`; old
-`cliproxyapi` settings to `JEV_ROUTER_UPSTREAM_AUTH=forward` (or omit it). The CLI listens on
-`http://127.0.0.1:4320` by default; check `curl http://127.0.0.1:4320/health`.
-Use `curl --fail http://127.0.0.1:4320/ready` to check readiness.
-Run `opencode-jev-router --help` for environment options.
-
-### Develop from source
+It listens on `http://127.0.0.1:4320`. Check it with:
 
 ```bash
-npm ci
-cp .env.example .env   # then fill in JEV_ROUTER_API_KEY
-npm run check          # typecheck + tests
-npm run build          # compile the CLI to dist/
-npm start              # http://127.0.0.1:4320
-curl http://127.0.0.1:4320/health
+curl --fail http://127.0.0.1:4320/ready
+curl http://127.0.0.1:4320/v1/responses \
+  -H 'content-type: application/json' -H 'authorization: Bearer unused' \
+  -d '{"model":"gpt-6-astra","input":[{"role":"user","content":"Say hi"}]}'
 ```
 
-`.env` is git-ignored; the proxy loads it at startup via `process.loadEnvFile()`.
-See [`.env.example`](.env.example) for all limits and connection settings.
+Point your client at `http://127.0.0.1:4320/v1`. Each request prints a metadata
+record to stdout; set `JEV_ROUTER_DECISIONS_LOG_PATH` to an absolute path to
+also write `JevDecision` JSONL.
 
-## Behavior
+**Upstream auth.** With `bearer`, the router replaces the client's credential
+with `JEV_ROUTER_UPSTREAM_API_KEY`; the endpoint must be HTTPS or loopback.
+With `forward` (the default), it passes the client's `Authorization` header
+through, and only to a loopback endpoint.
 
-### Scope
+Run `npx @robertn702/opencode-jev-router --help` for every variable, and see
+[`.env.example`](.env.example) for defaults. For health probes, shutdown
+behavior, and resource limits, see [`docs/behavior.md`](docs/behavior.md).
 
-- GPT-6 **standard, single-agent mode only** with either upstream connection. Requests
-  with `reasoning.mode` other than `standard` (pro, multi-agent, etc.), pro model
-  slugs, a missing or mismatched `model`, or `truncation: "auto"` are rejected with a local `400` before
-  classification or generation. OpenCode reasoning-effort variants are ignored
-  for this provider.
-- Array-form Responses `input` as emitted by OpenCode is supported, including tool
-  continuations (`function_call` / `function_call_output`, `custom_tool_call` /
-  `custom_tool_call_output`). Untyped messages require a supported role (`user`,
-  `assistant`, `system`, `developer`); typed messages also require one of these
-  roles. Non-message typed JSON objects with a non-empty string `type` pass through
-  unchanged: known examples include `reasoning`, `item_reference`, computer-use
-  call/output, hosted-tool calls (such as web/file search), and future item types.
-  Their nested content, metadata, and relative order are preserved; the selected
-  upstream remains responsible for accepting their individual schemas, enabled
-  tools, model capabilities, and reference IDs. This is a pass-through contract,
-  not a claim that every type is executable on every configured upstream.
-  String input, non-object items, missing/invalid typed discriminators, and
-  unsupported message roles receive a local `400`.
-- `configuration_update` is intentionally *not* opaque: only a model-valid
-  `reasoning.effort` update with no extra fields is accepted. `reasoning.mode`
-  must be `standard` if set; `truncation` must be `disabled` if set (`auto` can
-  drop injected history). Conflicting caller updates at an insertion boundary
-  receive a local `400`. No item fields are silently stripped to make these
-  combinations work.
-- Exact registered IDs are `gpt-6-astra`, `gpt-6-luna`, and `gpt-6-sol`.
-  Missing, malformed, unknown, and pro IDs fail locally before classification.
-  All registered models are available without model environment settings.
-  `UPSTREAM_MODEL`, `UPSTREAM_MODELS`, and `ALLOWED_MODELS` are rejected at startup
-  with value-free diagnostics directing selection through `request.model`.
-  There are no aliases or custom-model overrides. Upstream entitlement is separate.
-- `/v1/models` remains authenticated upstream passthrough: its inventory is not
-  the router capability registry. Independent same-model tool continuations are
-  supported; arbitrary cross-model encrypted reasoning or response-ID replay is
-  not guaranteed.
+## Further reading
 
-### Effort updates and cache lineage
-
-Every execution request uses its resolved model with a stable request-level
-`reasoning.effort` (profile default `medium`). Optional `JEV_ROUTER_BASE_EFFORT` must be
-supported by every registered profile; fallback is independently configurable and defaults to fixed `high`.
-Astra supports `low`, `medium`, `high`, `xhigh`, and `max`; Luna and Sol also
-support `none`. Existing
-reasoning `configuration_update` items in history are preserved in their original
-positions. A new update is inserted when the selected effort differs from the
-effective history: before the current user message, or at the tail after tool
-results when resuming an assistant without a new user message. Consecutive
-same-effort requests do not need another update. For example:
-
-```json
-{ "type": "configuration_update", "reasoning": { "effort": "high" } }
-```
-
-Other input items keep their order. This follows the
-[reasoning guide](https://developers.openai.com/api/docs/guides/reasoning#change-reasoning-mid-conversation): preserve updates with `previous_response_id`, or replay them in their original positions. It aims to preserve an eligible reusable prefix, but cannot promise upstream cache availability, hits, or savings. The fallback-effort cache is independent of prompt caching.
-
-The in-memory lineage store reconstructs router-inserted updates when the client
-does not send them back. It matches the longest known input ancestor using item
-hashes and update positions, scoped by upstream, model, base effort, authorization,
-session/cache identity, instructions, and tools. It retains up to 256 snapshots
-for 10 minutes and does not store histories over 20,000 content items. These
-limits are independent of the configurable fallback-effort cache below.
-
-Exact retries retain their original update boundary. Caller-supplied updates
-remain intact; a conflicting update at the selected boundary returns a local
-`400` after classification instead of inserting an adjacent update. Edited or
-compacted histories, expiry, eviction, ambiguous branches/concurrent attempts,
-and process restarts can lose lineage. Without a usable session ID or cache key,
-requests are untracked. Replaying history preserves cache eligibility, not a
-guaranteed cache hit.
-
-Run the repeatable metadata-only comparison before drawing a cache conclusion;
-see [Cache validation](docs/cache-validation.md). Prefix byte/item measurements
-are eligibility measurements, not rendered-token counts or cache-hit claims.
-
-Decision telemetry includes `input_tokens`, `cached_input_tokens`, and
-`output_tokens` from upstream JSON or SSE usage, plus `previous_effort`,
-`lineage_status`, and `history_updates_replayed`. Missing or oversized usage
-events yield null counts, not zero. These are request-level counters, not
-OpenCode's turn aggregates. The observer never logs response content.
-
-### Classification
-
-- Bounded Jev state (recent user text, assistant progress, up to 8 tool results
-  with names and error flags, failure summary) with excerpt caps. Only untyped or
-  `message` user/assistant text parts and function/custom tool outputs are
-  classified. Opaque typed items, including hosted-tool and computer-use payloads,
-  are not copied into Jev state even if they contain `role`, `content`, or `output`.
-- One Jev question limited to the resolved model's supported efforts; bounded
-  classifier state includes that model's registered ID.
-- `@typesafe-ai/sdk` is configured with `retry: { maxRetries: 0 }` and
-  `logLevel: "off"` explicitly (SDK logging is suppressed even when
-  `TYPESAFE_LOG_LEVEL` is inherited as `debug`).
-- One aborting total deadline (`JEV_ROUTER_CLASSIFICATION_TIMEOUT_MS`, default `4000` ms) covers the
-  whole classifier operation, including bounded retries and backoff. The router
-  defaults to one retry for transient failures; SDK retries remain disabled.
-- On timeout (`jev_timeout`), error (`jev_error`), or invalid output
-  (`jev_invalid_output`), fallback defaults to fixed high. Optional `previous`
-  mode reuses the previous validated effort for the same credential/model/cache
-  context, otherwise the configured fallback effort. `error` mode disables
-  fallback and returns a classification error without generating upstream.
-  See [retry and fallback configuration](docs/classification-policy.md).
-  Missing/blank keys disable history. Only successful classifications write or
-  renew TTL; fallback does not. The globally shared in-memory previous-effort
-  cache is limited to 256 entries and 10 minutes by default, with LRU eviction
-  and lazy expiry across all models. This is fallback-effort state, not prompt/KV
-  caching or cache lineage.
-- Client cancellation is separate from classifier failure: a disconnect aborts
-  classification and any upstream request and never fails open into generation,
-  including at the timeout-to-fallback boundary. Late classifier results cannot
-  change a settled fallback or start duplicate generation.
-
-### Evidence
-
-Per prepared execution request the standalone proxy emits a metadata record to
-stdout; when configured, the CLI or plugin also appends a `JevDecision` event containing:
-
-- `request_id`, `session`, and `turn_id` for correlation.
-- `model`, `effort`, `jev_latency_ms`, `fallback`, `jev_error_category`, and
-  `outcome` for routing. The category is a fixed label for `jev_error` (HTTP
-  authentication, rate limit, other 4xx/5xx, connection, SDK timeout/abort, or
-  unknown); it is null for other decisions. No error messages or response bodies
-  are recorded.
-- `input_tokens`, `cached_input_tokens`, and `output_tokens` from upstream usage.
-- `previous_effort`, `lineage_status`, and `history_updates_replayed` for lineage.
-
-Prompt content, tool content, credentials, cache keys, raw SDK errors, and bodies
-are never logged.
-Set CLI `JEV_ROUTER_DECISIONS_LOG_PATH` or plugin `decisionsLogPath` to an absolute
-path to enable JSONL (`ts`, `event`, and the fields above). The directory is
-created if needed; writes are asynchronous and limited to 256 pending records
-per instance (excess records are dropped). A write failure reports only
-`decision_log_failed` and does not interrupt generation. This records the
-selected effort, not a measure of the model's internally applied
-reasoning effort. Requests rejected before classification/rewrite have no
-decision event; a prepared request can record upstream failure or cancellation
-as `failed`.
-When OpenCode supplies `x-jev-session-id` and `x-jev-turn-id` headers, validated
-IDs appear as `session` and `turn_id` in the event. A turn can contain multiple
-router requests; requests without these headers have null IDs. These headers
-are not forwarded to the upstream.
-Local request-size, overload, and upstream deadline failures use the fixed
-`request_too_large`, `overloaded`, and `upstream_timeout` outcome codes.
-
-### Resource limits
-
-All limits are positive integers configured through environment variables:
-
-| Variable | Default | Behavior |
-| --- | ---: | --- |
-| `JEV_ROUTER_MAX_REQUEST_BYTES` | 1048576 (1 MiB) | Maximum JSON request-body bytes; larger `POST /v1/responses` returns `413` with `{"error":"request_too_large"}`. Counts bytes, including chunked uploads. |
-| `JEV_ROUTER_MAX_IN_FLIGHT` | 32 | Concurrent `/v1/responses` and `/v1/models` requests, including body reading, classification and forwarding; excess returns `503` with `{"error":"overloaded"}` before Jev/upstream work. |
-| `JEV_ROUTER_UPSTREAM_HEADER_TIMEOUT_MS` | 10000 | Deadline from upstream request start until response headers. |
-| `JEV_ROUTER_UPSTREAM_IDLE_TIMEOUT_MS` | 60000 | Maximum gap between upstream response chunks after headers; resets on each chunk and pauses while downstream backpressure pauses upstream reads. No total stream deadline is imposed. |
-| `JEV_ROUTER_EFFORT_CACHE_ENTRIES` | 256 | Maximum stored previous efforts (LRU). |
-| `JEV_ROUTER_EFFORT_CACHE_TTL_MS` | 600000 (10 min) | Previous-effort expiry from the last successful selection for the key. |
-| `JEV_ROUTER_SHUTDOWN_GRACE_MS` | 30000 (30 sec) | Time for active requests and SSE streams to finish after SIGINT/SIGTERM before remaining classifier and upstream work is aborted. |
-
-An upstream deadline before headers returns `504` with
-`{"error":"upstream_timeout"}`. After headers, the client stream closes
-without injecting a replacement response.
-
-### Shutdown and probes
-
-`SIGINT` and `SIGTERM` start the same idempotent drain: readiness turns false,
-new connections stop, idle keep-alive connections close, and accepted requests
-and streams can finish until `JEV_ROUTER_SHUTDOWN_GRACE_MS` expires. At the deadline,
-remaining work is aborted and connections close. A completed intentional
-shutdown exits cleanly; invalid configuration and listener startup failures exit
-non-zero. Fixed lifecycle events (`shutdown_started`, `shutdown_deadline`,
-`shutdown_complete`, `shutdown_failed`, `startup_failed`) contain no request data.
-
-`GET /health` returns `200 {"status":"ok"}` while the HTTP loop responds, without
-checking dependencies. `GET /ready` returns `200 {"status":"ready"}` only while
-listening, configured, not draining, and the upstream TCP port is reachable.
-Otherwise it returns `503 {"status":"not_ready","reason":"..."}` with one of
-`starting`, `missing_configuration`, `draining`, or `dependency_unavailable`.
-The upstream probe is bounded to 500 ms and cached for two seconds; it sends no
-model or Jev requests. The CLI validates configuration (including the required
-Jev key) before listening, so missing configuration normally prevents startup
-rather than serving an endpoint. The TCP check verifies connectivity, not
-upstream authentication or model availability.
-
-For a container orchestrator, use `/health` for liveness and `/ready` for
-readiness, for example:
-
-```yaml
-livenessProbe:
-  httpGet: { path: /health, port: 4320 }
-readinessProbe:
-  httpGet: { path: /ready, port: 4320 }
-terminationGracePeriodSeconds: 35 # longer than JEV_ROUTER_SHUTDOWN_GRACE_MS
-```
-
-For a systemd service, use `ExecStartPost=/usr/bin/curl --fail
-http://127.0.0.1:4320/ready` as a startup check, `Restart=on-failure`, and
-`TimeoutStopSec=35` (longer than the configured drain deadline). Monitor
-`/health` separately for liveness; systemd sends SIGTERM on stop by default.
-
-### Forwarding
-
-- `POST /v1/responses` and `GET /v1/models` on localhost; the client's bearer
-  credential is forwarded only under `JEV_ROUTER_UPSTREAM_AUTH=forward`. Under
-  `JEV_ROUTER_UPSTREAM_AUTH=bearer`, the router sends its own API key instead. Neither
-  credential is logged.
-- Upstream HTTP statuses and bodies pass through unchanged, including errors.
-- SSE streams incrementally with write/drain backpressure: a slow client pauses
-  upstream reads instead of buffering the completed response.
-- Pre-header connection failures return a fixed local `502`
-  (`{"error":"upstream_unavailable"}`); after headers are forwarded, a mid-stream
-  failure destroys the stream without appended output or a replacement status.
-- Response headers are limited to `content-type`, `cache-control`, `retry-after`,
-  and `x-request-id`, minus anything nominated by the upstream `Connection`
-  header. Hop-by-hop headers (`connection`, `keep-alive`, `transfer-encoding`,
-  `te`, `trailer`, `upgrade`) and stale framing headers (`content-length`,
-  `content-encoding`, `etag`) are omitted; Node generates framing for the body
-  actually sent. Upstream request framing is rebuilt for the rewritten JSON body
-  (`Content-Length`/`Transfer-Encoding` from the incoming request are never
-  reused).
-- Native Node HTTP/fetch and stream primitives only — no proxy framework, no
-  upstream retries.
-
-## Verified behavior
-
-### Cache preservation
-
-The 2026-09-23 controlled comparison on Node 24.21.0 made 42 live requests through
-the configured loopback upstream, using two alternating fixed/adaptive trials
-and a tool-continuation pilot. All returned HTTP 200; placement, effective-effort,
-exact-retry, and tool checks passed. Both arms averaged 2,765 cached input tokens;
-cached/input ratios were 0.869 fixed and 0.868 adaptive. Each arm had one isolated
-zero-cache request. The limited sample showed no systematic additional adaptive
-cache loss.
-
-This exercised the checked-out implementation with a deterministic injected
-selector and an in-process server. It did not verify the running deployment's
-revision or real Jev's adaptive choices. A separate real-Jev smoke completed
-with `low` effort and no fallback. See [Cache validation](docs/cache-validation.md)
-for reproduction, trial conditions, historical pilot results, and limitations.
-
-### Model and client compatibility
-
-The official [Astra](https://developers.openai.com/api/docs/models/gpt-6-astra),
-[Luna](https://developers.openai.com/api/docs/models/gpt-6-luna), and
-[Sol](https://developers.openai.com/api/docs/models/gpt-6-sol) pages document the
-supported effort sets. The [reasoning guide](https://developers.openai.com/api/docs/guides/reasoning#change-reasoning-mid-conversation)
-documents configuration updates for the GPT-6 family in standard, single-agent mode.
-
-Multi-model verification on Node 24.21.0 passed 90 offline tests and the build.
-Live checks through the configured loopback upstream at `http://127.0.0.1:8317`
-with forwarded credentials returned HTTP 200 and completed for non-streaming,
-SSE completion, and independent same-model tool continuations on all three models.
-These checks used `scripts/verify-models.mjs`; incremental SSE is tested offline.
-Actual OpenCode-client acceptance of all three selections and additional explicit
-multi-model edge-case assertions remain pending. Direct bearer-auth live checks
-were not run for this change.
-
-The following results are historical Astra checks, not new Luna/Sol evidence.
-
-Ran on Node 24.x (`npm run check`: 51 tests) with **OpenCode 1.18.32** and
-**CLIProxyAPI 7.2.151**:
-
-1. The actual OpenCode client emits array-form `POST /v1/responses` input and
-   performs tool continuations through the proxy (shape-verified against a capture
-   upstream, no prompts or credentials retained).
-2. A live CLIProxyAPI/Codex request in Astra standard, single-agent mode accepted
-   the historical strip/append placement and completed a real tool continuation.
-3. A full-path OpenCode -> proxy -> CLIProxyAPI -> Codex tool task completed with
-   Jev enabled (tool executed, task finished).
-4. Two live requests selected **different** Jev efforts (`low` and `high`) while
-   the outbound model stayed `gpt-6-astra` and the top-level effort stayed
-   `medium` in both.
-
-What this proves: historical protocol compatibility, outbound model/effort
-selection, and completed tool-using tasks. An effort update is needed when the
-selected effort changes, before the next user message or tail tool continuation;
-consecutive same-effort turns do not need another update. Cache-preservation
-evidence under the current replay placement is measured in
-[`docs/cache-validation.md`](docs/cache-validation.md).
-The response's
-`reasoning.effort` reports the stable request-level setting, **not** the
-update-selected effort; there is no visibility into the model's internally applied
-effort.
-
-The direct OpenAI connection is covered by offline fake-upstream tests for non-streaming,
-streaming SSE, tool continuations, and authorization routing. A live direct
-OpenAI request through the router with Jev classification completed on
-`gpt-6-astra` (HTTP 200, response status `completed`, one output item). This
-verifies the non-streaming direct path; live SSE and tool continuations in direct
-connection have only fake-upstream test coverage.
+- [`docs/behavior.md`](docs/behavior.md): request validation, effort updates
+  and cache lineage, classification, logging, limits, and forwarding.
+- [`docs/verification.md`](docs/verification.md): live compatibility and cache
+  checks.
+- [`docs/cache-validation.md`](docs/cache-validation.md): reproducing the cache
+  comparison.
+- [`eval/`](eval/): task-level evaluations behind the results above.
 
 ## Development
 
 ```bash
-npm run typecheck
-npm test
-npm run check   # both, on Node 24.x
-npm run cache:validate # offline prefix/retry/usage comparison
+npm ci
+npm run check           # typecheck + offline tests
+npm run build           # compile to dist/
+npm run smoke:package   # pack, install, and start the packaged CLI
+npm run smoke:plugin    # load the plugin in an isolated OpenCode runtime
 ```
 
-Tests use fake upstreams and a mocked Jev fetch — no API keys or paid requests.
-`npm run smoke:package` packs the package, installs it with production dependencies
-in a clean temporary directory, and starts the installed executable.
+Tests use a fake upstream and a mocked Jev; they need no keys. To run the proxy
+from source, `cp .env.example .env`, fill in the keys, then `npm run build &&
+npm start`. See [`CONTRIBUTING.md`](CONTRIBUTING.md) before opening a PR.
 
-### Releasing to npm
+### Releasing
 
-Version tags drive subsequent publishing. CI checks pull requests and pushes to
-`main` on Node 24. The tag workflow checks the version, runs the same checks,
-packs once, tests the **exact tarball**, and publishes it with npm provenance.
-Dependency update PRs are opened weekly by Dependabot.
-
-For each release, add user-facing changes to `CHANGELOG.md`, update the version
-in `package.json`, `package-lock.json`, and the plugin example above, and merge
-the reviewed release change to `main`. Create and push the matching `v<version>`
-tag on that commit. The tag workflow validates, smoke-tests, and publishes the
-artifact with npm provenance using trusted publishing.
+CI runs on pull requests and pushes to `main`. To release, add user-facing
+changes to `CHANGELOG.md`, bump the version in `package.json` and
+`package-lock.json`, merge to `main`, then push a matching `v<version>` tag.
+The tag workflow re-runs the checks, smoke-tests the packed tarball, and
+publishes it to npm with provenance.
 
 ## Prior art
 
-The design is informed by:
-
-- [0xNatoshi/jev-codex-router](https://github.com/0xNatoshi/jev-codex-router)
-- [mejiasd3v/pi-jev-router](https://github.com/mejiasd3v/pi-jev-router)
-
-No code has been copied from either project.
+The design is informed by
+[0xNatoshi/jev-codex-router](https://github.com/0xNatoshi/jev-codex-router) and
+[mejiasd3v/pi-jev-router](https://github.com/mejiasd3v/pi-jev-router). No code
+was copied from either project.
 
 ## License
 
-MIT
+[MIT](LICENSE)

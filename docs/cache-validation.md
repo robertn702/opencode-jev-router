@@ -24,10 +24,10 @@ Defaults are two trials plus a two-request tool-continuation pilot and offline m
 For a live deployment, first complete the offline run, verify the running deployment contains the prefix-preserving rewrite, then explicitly opt in:
 
 ```bash
-CACHE_LIVE=1 CACHE_CLIENT_AUTHORIZATION='Bearer …' UPSTREAM_BASE_URL=… UPSTREAM_AUTH=forward npm run cache:validate
+CACHE_LIVE=1 CACHE_CLIENT_AUTHORIZATION='Bearer …' JEV_ROUTER_UPSTREAM_BASE_URL=… JEV_ROUTER_UPSTREAM_AUTH=forward npm run cache:validate
 ```
 
-For `UPSTREAM_AUTH=bearer`, also set `UPSTREAM_API_KEY`. Live forward mode uses `CLIPROXY_KEY` from `.env` (the same convention as `scripts/verify-models.mjs`); `CACHE_CLIENT_AUTHORIZATION` can explicitly override it. Neither is retained. The harness alone ignores a legacy `UPSTREAM_MODEL` after reporting `legacy_upstream_model_ignored: true`, because each harness request pins its model; it does not change the environment or running service, and normal router startup still rejects that setting. Live requests run through an in-process relay so the harness can inspect outbound placement while forwarding to the configured upstream. It does not alter account routing. Do not use it against an unapproved or production account without a request budget.
+For `JEV_ROUTER_UPSTREAM_AUTH=bearer`, also set `JEV_ROUTER_UPSTREAM_API_KEY`. Live forward mode uses `CLIPROXY_KEY` from `.env` (the same convention as `scripts/verify-models.mjs`); `CACHE_CLIENT_AUTHORIZATION` can explicitly override it. Neither is retained. The harness alone ignores a legacy `UPSTREAM_MODEL` after reporting `legacy_upstream_model_ignored: true`, because each harness request pins its model; it does not change the environment or running service, and normal router startup still rejects that setting. Live requests run through an in-process relay so the harness can inspect outbound placement while forwarding to the configured upstream. It does not alter account routing. Do not use it against an unapproved or production account without a request budget.
 
 ## Interpreting results
 

@@ -1,5 +1,20 @@
 # Changelog
 
+## Unreleased
+
+- **Breaking (standalone proxy):** router environment variables are now
+  prefixed with `JEV_ROUTER_`, with no legacy aliases. For example,
+  `JEV_API_KEY` is now `JEV_ROUTER_API_KEY`, `JEV_PROXY_PORT` is now
+  `JEV_ROUTER_PORT`, and `UPSTREAM_BASE_URL` is now
+  `JEV_ROUTER_UPSTREAM_BASE_URL`. See `docs/environment.md`.
+- **Breaking (standalone proxy):** `JEV_ROUTER_UPSTREAM_BASE_URL` is required;
+  the proxy no longer defaults to a local gateway port.
+- Configurable Jev retries and fallback (`maxRetries`, `fallbackMode`,
+  `fallbackEffort` and their `JEV_ROUTER_*` equivalents).
+- The README and example configuration now target any Responses
+  API-compatible endpoint, with step-by-step setup and troubleshooting.
+  Reference material moved to `docs/behavior.md` and `docs/verification.md`.
+
 ## 0.2.0
 
 - Make the in-process OpenCode plugin the primary setup path, including Vercel
