@@ -17,7 +17,7 @@ Environment:
   JEV_ROUTER_BASE_URL       Jev API root (default: https://api.typesafe.ai)
                      Vercel: https://ai-gateway.vercel.sh/typesafe
   JEV_ROUTER_PORT     Listening port (default: 4320)
-  JEV_ROUTER_UPSTREAM_BASE_URL  Responses-compatible base URL (default: http://127.0.0.1:8317/v1)
+  JEV_ROUTER_UPSTREAM_BASE_URL  Required Responses API-compatible base URL, e.g. https://api.openai.com/v1
   JEV_ROUTER_UPSTREAM_AUTH      forward (default, loopback only) or bearer
   JEV_ROUTER_UPSTREAM_API_KEY   Required for bearer policy; replaces the client's bearer key
   JEV_ROUTER_BASE_EFFORT        Optional base effort override supported by every model

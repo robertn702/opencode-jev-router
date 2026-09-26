@@ -11,7 +11,7 @@ const request = {
   prompt_cache_key: "cache",
   input: [{ type: "message", role: "user", content: "hello" }],
 };
-const upstreamOptions = { upstreamBaseURL: "http://127.0.0.1:8317/v1", upstreamApiKey: "upstream" };
+const upstreamOptions = { upstreamBaseURL: "http://127.0.0.1:8080/v1", upstreamApiKey: "upstream" };
 
 afterEach(() => { globalThis.fetch = originalFetch; vi.restoreAllMocks(); });
 
@@ -68,11 +68,11 @@ describe("jev-router plugin", () => {
   });
 
   it("registers the shared model catalog with plugin upstream defaults", async () => {
-    const hooks = await plugin({}, { jevApiKey: "jev", upstreamBaseURL: "http://127.0.0.1:8317/v1", upstreamApiKey: "upstream" });
+    const hooks = await plugin({}, { jevApiKey: "jev", upstreamBaseURL: "http://127.0.0.1:8080/v1", upstreamApiKey: "upstream" });
     const config: any = {};
     hooks.config(config);
     const provider = config.provider["jev-router"];
-    expect(provider).toMatchObject({ npm: "@ai-sdk/openai", name: "Jev Router", options: { baseURL: "http://127.0.0.1:8317/v1", apiKey: "upstream" } });
+    expect(provider).toMatchObject({ npm: "@ai-sdk/openai", name: "Jev Router", options: { baseURL: "http://127.0.0.1:8080/v1", apiKey: "upstream" } });
     expect(Object.keys(provider.models)).toEqual(["gpt-6-astra", "gpt-6-luna", "gpt-6-sol"]);
     expect(provider.models["gpt-6-astra"]).toMatchObject({ name: "GPT-6 Astra", reasoning: true, options: { useResponses: true } });
     expect(provider.models["gpt-6-luna"]).toMatchObject({ name: "GPT-6 Luna", reasoning: true, options: { useResponses: true } });
@@ -81,7 +81,7 @@ describe("jev-router plugin", () => {
   });
 
   it("keeps explicit upstream and model metadata overrides while enforcing the Responses interceptor", async () => {
-    const hooks = await plugin({}, { jevApiKey: "jev", upstreamBaseURL: "http://127.0.0.1:8317/v1", upstreamApiKey: "default" });
+    const hooks = await plugin({}, { jevApiKey: "jev", upstreamBaseURL: "http://127.0.0.1:8080/v1", upstreamApiKey: "default" });
     const config: any = { provider: { "jev-router": { options: { baseURL: "http://127.0.0.1:8318/v1", apiKey: "custom" }, models: { "gpt-6-astra": { name: "Custom Astra", reasoning: false, options: {} }, "astra-alias": { provider: { npm: "@ai-sdk/openai" }, options: {} } } } } };
     hooks.config(config);
     expect(config.provider["jev-router"].options).toMatchObject({ baseURL: "http://127.0.0.1:8318/v1", apiKey: "custom" });
@@ -91,23 +91,23 @@ describe("jev-router plugin", () => {
   });
 
   it("allows OpenCode to resolve an omitted upstream key but rejects invalid explicit keys", async () => {
-    const hooks = await plugin({}, { jevApiKey: "jev", upstreamBaseURL: "http://127.0.0.1:8317/v1" });
+    const hooks = await plugin({}, { jevApiKey: "jev", upstreamBaseURL: "http://127.0.0.1:8080/v1" });
     const config: any = {};
     hooks.config(config);
     expect(config.provider["jev-router"].options.apiKey).toBeUndefined();
     hooks.dispose();
-    const invalid = await plugin({}, { jevApiKey: "jev", upstreamBaseURL: "http://127.0.0.1:8317/v1", upstreamApiKey: " " });
+    const invalid = await plugin({}, { jevApiKey: "jev", upstreamBaseURL: "http://127.0.0.1:8080/v1", upstreamApiKey: " " });
     expect(() => invalid.config({})).toThrow("upstreamApiKey");
     invalid.dispose();
   });
 
   it.each([
-    { provider: { "jev-router": { npm: "@ai-sdk/openai-compatible", options: { baseURL: "http://127.0.0.1:8317/v1", apiKey: "key" } } } },
-    { provider: { "jev-router": { options: { baseURL: "http://127.0.0.1:8317/v1", apiKey: "key", fetch: () => new Response() } } } },
-    { provider: { "jev-router": { options: { baseURL: "http://127.0.0.1:8317/v1", apiKey: "key" }, models: { "astra-alias": { options: { useResponses: false } } } } } },
-    { provider: { "jev-router": { options: { baseURL: "http://127.0.0.1:8317/v1", apiKey: "key" }, models: { "astra-alias": { provider: { npm: "@ai-sdk/openai-compatible" } } } } } },
-    { provider: { "jev-router": { options: { baseURL: "http://127.0.0.1:8317/v1", apiKey: "key" }, models: { "astra-alias": { provider: { options: { useResponses: false } } } } } } },
-    { provider: { "jev-router": { options: { baseURL: "http://127.0.0.1:8317/v1", apiKey: "key" }, models: { "astra-alias": { provider: { options: { fetch: () => new Response() } } } } } } },
+    { provider: { "jev-router": { npm: "@ai-sdk/openai-compatible", options: { baseURL: "http://127.0.0.1:8080/v1", apiKey: "key" } } } },
+    { provider: { "jev-router": { options: { baseURL: "http://127.0.0.1:8080/v1", apiKey: "key", fetch: () => new Response() } } } },
+    { provider: { "jev-router": { options: { baseURL: "http://127.0.0.1:8080/v1", apiKey: "key" }, models: { "astra-alias": { options: { useResponses: false } } } } } },
+    { provider: { "jev-router": { options: { baseURL: "http://127.0.0.1:8080/v1", apiKey: "key" }, models: { "astra-alias": { provider: { npm: "@ai-sdk/openai-compatible" } } } } } },
+    { provider: { "jev-router": { options: { baseURL: "http://127.0.0.1:8080/v1", apiKey: "key" }, models: { "astra-alias": { provider: { options: { useResponses: false } } } } } } },
+    { provider: { "jev-router": { options: { baseURL: "http://127.0.0.1:8080/v1", apiKey: "key" }, models: { "astra-alias": { provider: { options: { fetch: () => new Response() } } } } } } },
   ])("rejects SDK, Responses, and fetch bypass overrides", async (config: any) => {
     const hooks = await plugin({}, { jevApiKey: "jev", ...upstreamOptions });
     expect(() => hooks.config(config)).toThrow();

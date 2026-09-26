@@ -2,8 +2,9 @@
 
 This project provides both a standalone local Responses API proxy and an
 in-process OpenCode plugin. Jev selects reasoning effort; a shared upstream
-runs the requested GPT-6 model. `README.md` documents both paths and their
-wire behavior; `examples/opencode.jsonc` shows the plugin configuration.
+runs the requested GPT-6 model. `README.md` covers setup for both paths,
+`docs/behavior.md` their wire behavior, and `examples/opencode.jsonc` the
+plugin configuration.
 
 ## Commands
 
@@ -19,11 +20,11 @@ Use Node.js 24.x from the repo root.
 | Watch source changes | `npm run dev` |
 
 The tests use a fake upstream and mocked Jev; they need no API keys. To run the
-real proxy, copy `.env.example` to `.env`, set `JEV_API_KEY`, start
-CLIProxyAPI, then run `npm run build && npm start`. The plugin instead loads in
-OpenCode and connects directly to the configured upstream. OpenCode needs
-`CLIPROXY_KEY` when using CLIProxyAPI with the example configuration.
-`npm run eval:live` calls external services.
+real proxy, copy `.env.example` to `.env`, set `JEV_ROUTER_API_KEY` and a
+Responses API-compatible upstream (`JEV_ROUTER_UPSTREAM_*`), then run
+`npm run build && npm start`. The plugin instead loads in OpenCode and connects
+directly to its configured `upstreamBaseURL`. `npm run eval:live` calls
+external services.
 
 ## Behavior to preserve
 

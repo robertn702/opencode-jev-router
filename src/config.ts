@@ -108,7 +108,10 @@ export function loadConfig(env: Record<string, string | undefined>): AppConfig {
     throw new Error("JEV_ROUTER_UPSTREAM_API_KEY requires JEV_ROUTER_UPSTREAM_AUTH=bearer");
   }
 
-  const upstreamBaseUrl = env.JEV_ROUTER_UPSTREAM_BASE_URL ?? "http://127.0.0.1:8317/v1";
+  const upstreamBaseUrl = env.JEV_ROUTER_UPSTREAM_BASE_URL;
+  if (!upstreamBaseUrl?.trim()) {
+    throw new Error("JEV_ROUTER_UPSTREAM_BASE_URL is required; set it to a Responses API-compatible base URL");
+  }
   let url: URL;
   try {
     url = new URL(upstreamBaseUrl);
