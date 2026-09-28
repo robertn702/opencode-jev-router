@@ -43,7 +43,7 @@ async function host(options: Record<string, unknown> = base, source = sources(),
     modelTransform({
       get(providerID: string, modelID: string) { return (source.get(providerID)?.models.get(modelID) ?? aliases.get(modelID)) as never; },
       provider: { get(providerID: string) { return source.get(providerID) as never; } },
-      update(_providerID: string, modelID: string, update: (model: any) => void) { update(aliases.get(modelID)); },
+      update(providerID: string, modelID: string, update: (model: any) => void) { update(providerID === "jev-router" ? aliases.get(modelID) : source.get(providerID)?.models.get(modelID)); },
       remove(_providerID: string, modelID: string) { aliases.delete(modelID); },
     } as unknown as ModelEditor);
   };
@@ -88,12 +88,16 @@ describe("V2 wrap aliases", () => {
   it.each(invalidOptions)("rejects invalid setup options %j", async (options, error) => { await expect(host(options)).rejects.toThrow(error); });
 
   it("registers placeholders, copies late source metadata, removes unused aliases and survives reload", async () => {
-    const h = await host();
+    const source = sources();
+    const h = await host(base, source);
     expect((h.registrations[0] as any).info).toMatchObject({ id: "jev-router", settings: { transport: "http" } });
     expect((h.registrations[0] as any).models).toHaveLength(7);
     expect([...h.aliases.keys()].sort()).toEqual(["claude-opus-5-5", "gpt-6-astra"]);
     expect(h.aliases.get("gpt-6-astra")).toMatchObject({ name: "GPT-6 Astra", modelID: "gpt-6-astra", limit: { context: 123 }, cost: [1], variants: [], settings: { baseURL: "https://a.test/v1", apiKey: "config-key", extra: 1 }, headers: { "x-source": "provider", "x-model": "yes" }, body: { top: true, model: true } });
     expect(h.aliases.get("gpt-6-astra")).toMatchObject({ transport: "http" });
+    expect(h.aliases.get("gpt-6-astra")?.enabled).toBe(true);
+    expect(source.get("gw")?.models.get("gpt-6-astra")).toHaveProperty("enabled", false);
+    expect(source.get("claude")?.models.get("claude-opus-5-5")).toHaveProperty("enabled", false);
     expect(h.aliases.get("gpt-6-astra")?.settings).not.toHaveProperty("transport");
     h.reload(); expect([...h.aliases.keys()].sort()).toEqual(["claude-opus-5-5", "gpt-6-astra"]); h.cleanup();
   });
