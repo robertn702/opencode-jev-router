@@ -50,6 +50,27 @@ describe("Anthropic Messages wire", () => {
     expect(wireFor("openai").scopeParts({ instructions: "a", tools: [] })).toEqual(["a", []]);
   });
 
+  it("preserves lineage when the client moves cache breakpoints to the newest message", () => {
+    const store = new LineageStore();
+    const cached = (message: { role: string; content: unknown }) => ({ ...message, content: [{ type: "text", text: message.content, cache_control: { type: "ephemeral" } }] });
+    const plain = (message: { role: string; content: unknown }) => ({ ...message, content: [{ type: "text", text: message.content }] });
+    const first = store.prepare([cached(user("one"))], scope, "low", anthropicWire);
+    first.commit();
+    const toolTurn = [plain(user("one")), assistant([{ type: "tool_use", id: "t1", name: "read", input: { path: "a" } }]),
+      user([{ type: "tool_result", tool_use_id: "t1", content: [{ type: "text", text: "x", cache_control: { type: "ephemeral" } }] }])];
+    const second = store.prepare(toolTurn, scope, "high", anthropicWire);
+    expect(second).toMatchObject({ status: "preserved", previousEffort: "low", replayed: 1 });
+    // The caller's breakpoint placement is sent unchanged.
+    expect(second.input).toEqual([update("low"), toolTurn[0], toolTurn[1], update("high"), toolTurn[2]]);
+    second.commit();
+    const third = store.prepare([...toolTurn.slice(0, 2), user([{ type: "tool_result", tool_use_id: "t1", content: [{ type: "text", text: "x" }] }]), cached(user("next"))], scope, "high", anthropicWire);
+    expect(third).toMatchObject({ status: "preserved", replayed: 2 });
+    expect(store.prepare([plain(user("edited"))], scope, "low", anthropicWire).status).toBe("reset_edited");
+    const edited = [plain(user("one")), assistant([{ type: "tool_use", id: "t1", name: "read", input: { path: "a", cache_control: 1 } }]), toolTurn[2]];
+    // A cache_control key inside tool input is content: the edit falls back to the shorter matching prefix.
+    expect(store.prepare(edited, scope, "high", anthropicWire)).toMatchObject({ status: "preserved", previousEffort: "low", replayed: 1 });
+  });
+
   it("inserts at new user turns including tool results, and replays absent historical updates", () => {
     const store = new LineageStore();
     const firstInput = [user("one")];

@@ -14,6 +14,14 @@ export function mergeAnthropicBeta(value: string | null | undefined): string {
   return [...new Set([...(value ?? "").split(",").map((part) => part.trim()).filter(Boolean), ANTHROPIC_EFFORT_BETA])].join(",");
 }
 
+// Clients move cache breakpoints to the newest message on every request, so an
+// unchanged message must compare equal without them. Tool inputs are left intact.
+function withoutCacheControl(value: unknown): unknown {
+  if (!isRecord(value)) return value;
+  const { cache_control: _, ...rest } = value;
+  return Array.isArray(rest.content) ? { ...rest, content: rest.content.map(withoutCacheControl) } : rest;
+}
+
 function updateEffort(item: unknown): Effort | null {
   if (!isRecord(item) || item.role !== "system" || !isRecord(item.output_config) || !Array.isArray(item.content) || item.content.length !== 0 ||
     Object.keys(item).length !== 3 || Object.keys(item.output_config).length !== 1 || typeof item.output_config.effort !== "string") return null;
@@ -95,6 +103,7 @@ export const anthropicWire: WireAdapter = {
   makeUpdate: (effort) => ({ role: "system", content: [], output_config: { effort } }),
   isUserMessage: (item) => isRecord(item) && item.role === "user",
   isToolOutput: () => false,
+  lineageItem: withoutCacheControl,
   cacheKey: () => null,
   lineageKey: () => null,
   scopeParts: (body) => [body.system ?? null, body.tools ?? null, body.tool_choice ?? null, body.speed ?? null,
