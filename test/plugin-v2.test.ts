@@ -63,6 +63,12 @@ async function withLog<T>(run: (path: string) => Promise<T>): Promise<T> {
   const dir = await mkdtemp(join(tmpdir(), "jev-v2-"));
   try { return await run(join(dir, "nested", "decisions.jsonl")); } finally { await rm(dir, { recursive: true, force: true }); }
 }
+/** Forces collection so weakly held abort links break deterministically (workers run with --expose-gc). */
+const collectGarbage = async () => {
+  const gc = (globalThis as { gc?: () => void }).gc;
+  if (gc === undefined) throw new Error("vitest workers must run with --expose-gc");
+  gc(); await new Promise((resolve) => setTimeout(resolve, 10)); gc();
+};
 const decisions = async (path: string) => {
   await vi.waitFor(async () => expect((await readFile(path, "utf8").catch(() => "")).trim()).not.toBe(""));
   return (await readFile(path, "utf8")).trim().split("\n");
@@ -315,6 +321,8 @@ describe("jev-router OpenCode V2 plugin", () => {
     const abort = new AbortController();
     const call = exchange(request, { signal: abort.signal });
     await vi.waitFor(() => expect(globalThis.fetch).toHaveBeenCalledTimes(2));
+    // The host drops the original request after the hook; cancellation must survive its collection.
+    await collectGarbage();
     abort.abort();
     await expect(call).rejects.toThrow();
     expect(JSON.parse((await decisions(path))[0]!)).toMatchObject({ effort: "high", outcome: "failed" });
@@ -564,6 +572,6 @@ describe("jev-router OpenCode V2 plugin", () => {
     await reader.read(); await reader.cancel(); await reader.cancel();
     const lines = await decisions(path);
     expect(lines).toHaveLength(1);
-    expect(JSON.parse(lines[0]!).outcome).toBe("completed"); cleanup();
+    expect(JSON.parse(lines[0]!).outcome).toBe("failed"); cleanup();
   }));
 });
