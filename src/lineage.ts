@@ -35,7 +35,7 @@ export class LineageStore {
       if (selected === null) content.push(item);
       else explicit.push({ at: content.length, effort: selected, item, fingerprint: hash(item) });
     }
-    const hashes = content.map(hash);
+    const hashes = content.map((item) => hash(rules.lineageItem?.(item) ?? item));
     const candidates = scope === null || quarantined ? [] : this.entries.filter((entry) =>
       entry.scope === scope && entry.hashes.length <= hashes.length && entry.hashes.every((value, index) => value === hashes[index]) &&
       // A caller update at a known injected boundary must agree. Otherwise an

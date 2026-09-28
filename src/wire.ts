@@ -23,6 +23,8 @@ export interface HistoryRules {
   makeUpdate(effort: Effort): unknown;
   isUserMessage(item: unknown): boolean;
   isToolOutput(item: unknown): boolean;
+  /** The item as compared across requests, when it carries per-request markers. */
+  lineageItem?(item: unknown): unknown;
 }
 
 export interface WireAdapter extends HistoryRules {

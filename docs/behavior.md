@@ -92,7 +92,10 @@ hashes and update positions, scoped by upstream, model, base effort, authorizati
 session/cache identity, instructions, and tools. Anthropic has no
 `prompt_cache_key`: its lineage is scoped to session plus top-level `system`,
 `tools`, `tool_choice`, `speed`, `thinking.display`, and the beta/version headers
-actually sent upstream. It retains up to 256 snapshots
+actually sent upstream. Anthropic message hashes ignore `cache_control` on
+messages and their content blocks, since clients such as OpenCode move the
+cache breakpoint to the newest message on every request; the breakpoints are
+still sent unchanged. It retains up to 256 snapshots
 for 10 minutes and does not store histories over 20,000 content items. These
 limits are independent of the configurable fallback-effort cache below.
 
