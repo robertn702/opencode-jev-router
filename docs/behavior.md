@@ -35,10 +35,11 @@ Reference for the wire behavior shared by the OpenCode plugin and the standalone
   Anthropic `/v1/messages` accepts `claude-fable-5-1`, `claude-mythos-5-1`,
   `claude-opus-5-5`, and `claude-opus-5` only. Model/route mismatches are local `400`s.
   Missing, malformed, unknown, and pro IDs fail locally before classification.
-  All registered models are available without model environment settings.
+   The plugin exposes only wrapped models; the proxy accepts all registered models.
   `UPSTREAM_MODEL`, `UPSTREAM_MODELS`, and `ALLOWED_MODELS` are rejected at startup
   with value-free diagnostics directing selection through `request.model`.
-  There are no aliases or custom-model overrides. Upstream entitlement is separate.
+   The proxy has no aliases or custom-model overrides; the plugin aliases only
+   configured source models. Upstream entitlement is separate.
 - `/v1/models` remains authenticated upstream passthrough: its inventory is not
   the router capability registry. Independent same-model tool continuations are
   supported; arbitrary cross-model encrypted reasoning or response-ID replay is
@@ -286,21 +287,23 @@ http://127.0.0.1:4320/ready` as a startup check, `Restart=on-failure`, and
 The OpenCode V2 plugin uses the shared runtime (validation, Jev selection,
 rewrite, lineage, limits, and usage observation):
 
-- Claude models join `jev-router` when `anthropicUpstreamApiKey` or
-  `anthropicUpstreamBaseURL` is set. Per-model SDK selection uses
-  the native Anthropic Messages package.
-  The shared interceptor routes `/messages` to the Anthropic base URL (default
-  `https://api.anthropic.com/v1`); `/responses` keeps the OpenAI upstream.
-  An explicit Anthropic key replaces `authorization` with `x-api-key`;
-  otherwise incoming credentials are forwarded (Bearer is converted if needed),
-  and a different Anthropic origin is rejected with a local 400. A different
-  origin with an explicit key receives only protocol headers (`anthropic-*`,
-  `accept`, `content-type`, `user-agent`, `x-stainless-*`) plus `x-api-key`.
+- `wrap.openai` and `wrap.anthropic` list existing `provider/model` source refs.
+  Aliases under `jev-router/<profile>` inherit source model metadata and provider
+  route, headers and API-key settings. The source package must match the group's
+  Responses or Messages wire. Missing sources, unsupported profiles, wrong
+  packages and duplicate aliases are rejected on alias use. OAuth sources are
+  not supported; API keys from the source's resolved settings pass through, or
+  integration keys are injected before classification. Neither source providers
+  nor their models are changed. Transport on `jev-router` must remain HTTP;
+  websocket handshakes are rejected rather than bypassing the router.
 - `id: "jev-router"` and `setup()` register the provider through
   `ctx.provider.transform` on `@opencode/ai/providers/openai/responses` with
   `transport: "http"`, then scopes `http.request` and `http.response` session
   hooks to that provider. OpenCode performs the fetch between them:
-  - `http.request` reads and validates the body, calls Jev, and replaces the
+  - Only primary requests ending in `/responses` or `/messages` are classified.
+    Auxiliary calls and other paths pass through unchanged with source auth,
+    without decision events. `http.request` reads and validates primary bodies,
+    calls Jev, and replaces the
     one-shot request with the rewritten body. Its signal follows the session's,
     plus plugin cleanup and the header timeout. A local rejection throws, so
     OpenCode reports the error and never contacts the upstream.

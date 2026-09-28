@@ -18,7 +18,7 @@ may differ. [See the evaluation](eval/results/router-consolidated-2026-09-25.md)
 
 ## How it works
 
-For every model request OpenCode makes, the plugin:
+For each primary request to a wrapped model, the plugin:
 
 1. Sends a bounded summary of the recent conversation to Jev, which picks a
    reasoning effort (for example `low` for a rename, `high` for a failing test).
@@ -71,8 +71,7 @@ for all projects, or `opencode.json` in a project root:
   "plugins": [{ "package": "@robertn702/opencode-jev-router", "options": {
     "jevApiKey": "{env:JEV_API_KEY}",
     "jevBaseUrl": "https://ai-gateway.vercel.sh/typesafe",
-    "upstreamBaseURL": "https://api.openai.com/v1",
-    "upstreamApiKey": "{env:OPENAI_API_KEY}",
+    "wrap": { "openai": ["openai/gpt-6-astra"] },
     "decisionsLogPath": "/tmp/jev-decisions.jsonl"
   }}],
   "model": "jev-router/gpt-6-astra"
@@ -81,9 +80,20 @@ for all projects, or `opencode.json` in a project root:
 
 - **Using a direct TypeSafe key?** Delete the `jevBaseUrl` line. A key only
   works with its own endpoint.
-- **Using another gateway?** Set `upstreamBaseURL` to its base URL (the part
-  before `/responses`) and `upstreamApiKey` to its key. Plain `http://` is
-  accepted only for `localhost`/`127.0.0.1`/`::1`.
+- **Using another gateway?** Define it as an OpenCode provider and wrap its
+  model. For example, alongside the plugin config:
+
+  ```jsonc
+  "providers": {
+    "mygateway": {
+      "package": "@opencode/ai/providers/openai/responses",
+      "settings": { "baseURL": "https://gateway.example/v1", "apiKey": "{env:GATEWAY_KEY}" },
+      "models": { "gpt-6-astra": { "name": "Gateway Astra" } }
+    }
+  }
+  // Set "wrap": { "openai": ["mygateway/gpt-6-astra"] }.
+  ```
+  Plain `http://` is accepted only for loopback endpoints.
 - `{env:NAME}` reads an environment variable; `{file:~/path}` reads a file
   instead, if you prefer to keep keys on disk.
 
@@ -108,15 +118,13 @@ A copy of this config is in [`examples/opencode.jsonc`](examples/opencode.jsonc)
 
 ## Models
 
-The plugin registers one `jev-router` provider. Claude models are enabled by
-setting `anthropicUpstreamBaseURL` or `anthropicUpstreamApiKey` in plugin options.
-They use the native Anthropic Messages package per model. The default Anthropic
-base URL is `https://api.anthropic.com/v1`.
-
-To enable Claude with the standard Anthropic API, add
-`"anthropicUpstreamApiKey": "{env:ANTHROPIC_API_KEY}"` to the plugin options
-above and select `jev-router/claude-opus-5-5` (or another Claude model
-below). The GPT-6 endpoint remains configured separately.
+The plugin registers `jev-router/<profile>` only for profiles listed in `wrap`.
+Use `"anthropic": ["anthropic/claude-opus-5-5"]` for Claude. The source
+model must use the native Anthropic Messages package; OpenAI sources must use
+`@opencode/ai/providers/openai/responses` (set `providers.openai.package`
+explicitly if your OpenCode version defaults to another package). Source models
+remain untouched; aliases inherit source route, settings, headers, limits and
+cost, but have no manual effort variants.
 
 | OpenCode model | Efforts Jev can choose |
 | --- | --- |
@@ -145,13 +153,19 @@ is pinned to adaptive (caller `display` is preserved). See
 [behavior and unverified limitations](docs/behavior.md#effort-updates-and-cache-lineage).
 Anthropic requests do not follow upstream redirects; a 3xx response is returned
 to the caller rather than forwarding credentials to a different origin.
-With `anthropicUpstreamApiKey`, Messages sends that key as `x-api-key` and drops
-`authorization`. Without it, the `jev-router` credential is forwarded (a Bearer
-token becomes `x-api-key`), which is allowed only when `anthropicUpstreamBaseURL`
-has the same origin as the `jev-router` base URL, such as one gateway serving
-both APIs. A different Anthropic origin receives only protocol headers
-(`anthropic-*`, `accept`, `content-type`, `user-agent`, `x-stainless-*`) and the
-Anthropic key, never headers configured for the `jev-router` endpoint.
+Source credentials pass through unchanged. A resolved source `settings.apiKey`
+is inherited by the alias; otherwise a stored or environment-integration key is
+injected as OpenAI `Authorization: Bearer` or Anthropic `x-api-key` before
+classification. ChatGPT and Claude subscription OAuth sources are unsupported:
+use an API key. Auxiliary title, compaction, and generate calls and non-generation
+routes bypass Jev but still receive the source key. `jev-router` requires HTTP
+  transport; do not override `providers["jev-router"].settings.transport` to websocket.
+
+On OpenCode 2.0.4, a wrapped built-in `openai` model with an integration key
+can still select websocket transport despite the alias HTTP setting. Use a
+config-defined source provider with `settings.apiKey` on that version, or upgrade
+to 2.0.18 for the built-in integration-key path. Both versions pass the
+config-defined Responses and Messages smoke.
 
 ## What is sent where
 
@@ -172,10 +186,7 @@ Plugin options go in `options` of a `plugins` entry.
 | --- | --- | --- |
 | `jevApiKey` | `JEV_API_KEY` env | Jev classifier key. Required. |
 | `jevBaseUrl` | `https://api.typesafe.ai` | Set to `https://ai-gateway.vercel.sh/typesafe` for a Vercel key. No other values are accepted. |
-| `upstreamBaseURL` | none | Responses API base URL. Required. |
-| `upstreamApiKey` | OpenCode provider auth | Key for the endpoint. |
-| `anthropicUpstreamBaseURL` | `https://api.anthropic.com/v1` when enabled | Messages API base URL; enables Claude models when set. |
-| `anthropicUpstreamApiKey` | Incoming credential | Messages `x-api-key`; enables Claude models when set. |
+| `wrap` | none | Required nonempty object with `openai` and/or `anthropic` arrays of `provider/model` source refs. |
 | `decisionsLogPath` | off | Absolute path for metadata-only `JevDecision` JSONL. |
 | `baseEffort` | `medium` | Request-level effort reported by responses. |
 | `jevTimeoutMs` | `4000` | Total classification budget, including retries. |
@@ -191,19 +202,11 @@ Plugin options go in `options` of a `plugins` entry.
 detailed in
 [`docs/classification-policy.md`](docs/classification-policy.md).
 
-<details>
-<summary>Customizing the generated provider</summary>
-
-`upstreamBaseURL` is required as a plugin option. A
-`providers["jev-router"]` block overlays the generated provider: its
-`settings.baseURL`/`settings.apiKey`, `headers`, and model fields such as `name`
-or `limit` take precedence over the plugin's values. The plugin uses
-`@opencode/ai/providers/openai/responses` over HTTP and checks every request
-before Jev sees it, so an override that reaches another route, a non-HTTPS remote
-endpoint, or an unregistered model ID fails that request locally instead of
-bypassing Jev.
-
-</details>
+Setup-shape errors (missing/empty `wrap`, unknown groups, malformed refs and
+removed options) appear as `failed to load plugin` in the OpenCode log. Source
+registry errors (missing source, unsupported profile/package, duplicate alias)
+are reported on alias use as `jev-router: ...` in the CLI. Consult the OpenCode
+log if an invalid alias instead appears as `Model unavailable`.
 
 ## Troubleshooting
 
@@ -211,12 +214,13 @@ bypassing Jev.
 | --- | --- |
 | `fallback` is `jev_error` with `jev_error_category: "http_auth"` | The Jev key doesn't match the endpoint. Vercel keys need `jevBaseUrl`; TypeSafe keys must omit it. |
 | `fallback` is `jev_timeout` | Jev was slow or unreachable; requests still ran at the fallback effort. Raise `jevTimeoutMs` if it happens often. |
-| OpenCode fails to start with a `jev-router` error | Check for a missing `upstreamBaseURL` or a non-HTTPS remote URL. |
-| 401/403/404 from the model | The endpoint's response is passed through unchanged. Check `upstreamApiKey` and that the endpoint serves the selected model. |
+| OpenCode log says `failed to load plugin` | Check `wrap` syntax and remove old plugin upstream options. |
+| 401/403/404 from the model | The endpoint's response is passed through unchanged. Check the source provider key and model. |
 | Local 400 mentioning `reasoning.mode`, `truncation`, or the model | The request uses an unsupported mode or model; see [Models](#models). |
-| `jev-router supports POST /v1/responses only` | Something is calling Chat Completions through this provider. Remove any custom `package` override. |
+| `alias requires /responses` or `/messages` | The source package and generation route do not match the alias group. |
 | V2: `Model unavailable: jev-router/...` | The plugin did not load. Check the `plugins` entry and the OpenCode log for a `jev-router` setup error. |
-| V2: `Missing auth credential: apiKey` | Set `upstreamApiKey`, or `providers["jev-router"].settings.apiKey`. |
+| `uses OAuth` or `has no API key` | Use an API-key source provider; subscription OAuth is not supported. |
+| Websocket provider error | Remove `providers["jev-router"].settings.transport` override. |
 | Config changes have no effect | Restart OpenCode; it loads plugins at startup. |
 
 ## Standalone proxy (optional)

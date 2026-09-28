@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- **Breaking:** Plugin upstream URL/key options (`upstreamBaseURL`,
+  `upstreamApiKey`, `anthropicUpstreamBaseURL`, `anthropicUpstreamApiKey`)
+  are removed. Use `wrap.openai` / `wrap.anthropic` with existing OpenCode
+  `provider/model` refs; aliases reuse the source route and API-key credentials.
+  ChatGPT/Claude subscription OAuth sources are not supported yet.
+- Only primary generation calls are classified; titles, compaction, generate
+  requests and non-generation paths pass through without Jev decisions.
 - **Breaking:** OpenCode V1 plugin support is removed. The default export has
   `id`/`setup()` but no `server()`; the `./server` package export is removed.
   OpenCode V2 2.0.4 is the minimum supported version (tested with 2.0.18).
