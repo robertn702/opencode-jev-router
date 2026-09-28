@@ -28,6 +28,10 @@
   break the abort link and leave the exchange open until the header timeout.
 - A stream cancelled mid-response is recorded as `failed`, not `completed`, even
   when a pending upstream read settles after the cancellation.
+- Anthropic effort history is preserved across requests again. OpenCode moves
+  the `cache_control` breakpoint to the newest message on every request, which
+  made each continuation look like edited history and dropped earlier effort
+  updates from the prompt prefix. Lineage now compares messages without it.
 
 ## 0.5.0
 
