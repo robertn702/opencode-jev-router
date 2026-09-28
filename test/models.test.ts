@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { MODELS, modelsFor } from "../src/models.js";
-import { resolveModel } from "../src/validate.js";
+import { resolveModel } from "../src/wire.js";
 import { rewriteResponsesRequest } from "../src/rewrite.js";
 import { createJevClassifier } from "../src/jev.js";
 
