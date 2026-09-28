@@ -17,8 +17,8 @@ The optional `POST /v1/messages` route needs
 `JEV_ROUTER_ANTHROPIC_UPSTREAM_API_KEY` (sent as `x-api-key`). In `forward`
 mode only a loopback Anthropic upstream is allowed; client `x-api-key` and/or
 `authorization` are forwarded. Plugin equivalents are
-`anthropicUpstreamBaseURL` and `anthropicUpstreamApiKey`; either option (or an
-explicit `jev-router-anthropic` provider) enables the second provider.
+`anthropicUpstreamBaseURL` and `anthropicUpstreamApiKey`; either option enables
+Claude models under `jev-router`.
 
 `JEV_PROXY_PORT` becomes `JEV_ROUTER_PORT`; `JEV_TIMEOUT_MS` becomes
 `JEV_ROUTER_CLASSIFICATION_TIMEOUT_MS`. All upstream, base effort, limit,

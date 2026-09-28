@@ -285,14 +285,16 @@ The package default export serves both OpenCode majors from one shared runtime
 - **V1** (`server()`, 1.18.29+) registers `provider["jev-router"]` with
   `@ai-sdk/openai`, `useResponses: true`, and a fetch adapter that performs the
   upstream request itself. `chat.headers` adds the internal correlation headers.
-- The optional `jev-router-anthropic` provider uses `@ai-sdk/anthropic` in V1
-  and the native Anthropic Messages package in V2. V1 registers it when either
-  Anthropic upstream plugin option is set **or** `provider["jev-router-anthropic"]`
-  already exists in the V1 config. V2 registers it **only** when
-  `anthropicUpstreamApiKey` or `anthropicUpstreamBaseURL` is set in plugin options;
-  a `providers` entry alone does not enable it. Its default base URL is
-  `https://api.anthropic.com/v1`. The V1 Anthropic SDK route has offline test
-  coverage, but is not exercised by the V1 smoke test.
+- Claude models join `jev-router` when `anthropicUpstreamApiKey` or
+  `anthropicUpstreamBaseURL` is set. Per-model SDK selection uses
+  `@ai-sdk/anthropic` in V1 and the native Anthropic Messages package in V2.
+  The shared interceptor routes `/messages` to the Anthropic base URL (default
+  `https://api.anthropic.com/v1`); `/responses` keeps the OpenAI upstream.
+  An explicit Anthropic key replaces `authorization` with `x-api-key`;
+  otherwise incoming credentials are forwarded (Bearer is converted if needed),
+  and a different Anthropic origin is rejected with a local 400. A different
+  origin with an explicit key receives only protocol headers (`anthropic-*`,
+  `accept`, `content-type`, `user-agent`, `x-stainless-*`) plus `x-api-key`.
 - **V2** (`id: "jev-router"`, `setup()`) registers the provider through
   `ctx.provider.transform` on `@opencode/ai/providers/openai/responses` with
   `transport: "http"`, then scopes `http.request` and `http.response` session

@@ -48,7 +48,7 @@ async function host(options: Record<string, unknown>) {
       sessionID: init.sessionID ?? "ses_v2test", kind: "primary",
       request: new Request(init.url ?? upstreamURL, { method: "POST", headers: { authorization: "Bearer resolved", "content-type": "application/json", ...init.headers }, body: JSON.stringify(body), signal: init.signal }),
     };
-    const selected = scopedHooks.get(init.url?.endsWith("/messages") ? "jev-router-anthropic" : "jev-router")!;
+    const selected = scopedHooks.get("jev-router")!;
     await selected.request!(event);
     const response: V2HttpResponse = { sessionID: event.sessionID, kind: event.kind, request: event.request, response: await fetch(event.request) };
     await selected.response!(response);
@@ -94,19 +94,26 @@ describe("jev-router OpenCode V2 plugin", () => {
   it("registers native Anthropic Messages only when opted in through plugin options and routes both hooks", async () => {
     const options = { fixedEffort: "high", ...upstreamOptions, anthropicUpstreamApiKey: "anthropic" };
     const { added, scopes, exchange, cleanup } = await host(options);
-    expect(added).toHaveLength(2);
-    expect(added[1]!.info).toEqual({ id: "jev-router-anthropic", name: "Jev Router Anthropic", activation: "enabled", package: "@opencode/ai/providers/anthropic", settings: { baseURL: "https://api.anthropic.com/v1", apiKey: "anthropic", transport: "http" } });
-    expect(added[1]!.models.map((model) => model.id)).toEqual(["claude-fable-5-1", "claude-mythos-5-1", "claude-opus-5-5", "claude-opus-5"]);
-    expect(scopes).toEqual(["jev-router", "jev-router", "jev-router-anthropic", "jev-router-anthropic"]);
+    expect(added).toHaveLength(1);
+    expect(added[0]!.models.slice(3).map((model) => [model.id, model.providerID, model.package])).toEqual([
+      ["claude-fable-5-1", "jev-router", "@opencode/ai/providers/anthropic"],
+      ["claude-mythos-5-1", "jev-router", "@opencode/ai/providers/anthropic"],
+      ["claude-opus-5-5", "jev-router", "@opencode/ai/providers/anthropic"],
+      ["claude-opus-5", "jev-router", "@opencode/ai/providers/anthropic"],
+    ]);
+    expect(scopes).toEqual(["jev-router", "jev-router"]);
     globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
       const sent = input as Request;
+      expect(sent.url).toBe("https://api.anthropic.com/v1/messages");
+      expect(sent.headers.get("x-api-key")).toBe("anthropic");
+      expect(sent.headers.get("authorization")).toBeNull();
       expect(sent.headers.get("anthropic-beta")).toContain("mid-conversation-output-config-2026-07-01");
       expect(sent.headers.get("anthropic-version")).toBe("2023-06-01");
       expect((await sent.json()).messages).toEqual([{ role: "system", content: [], output_config: { effort: "high" } }, { role: "user", content: "hi" }]);
       return new Response('data: {"type":"message_stop"}\n\n', { headers: { "content-type": "text/event-stream" } });
     }) as typeof fetch;
     const body = { model: "claude-opus-5-5", messages: [{ role: "user", content: "hi" }], stream: true };
-    const url = "https://api.anthropic.com/v1/messages";
+    const url = `${upstreamOptions.upstreamBaseURL}/messages`;
     await expect(exchange(request, { url })).rejects.toThrow("invalid_request (400)");
     const { response } = await exchange(body, { url, headers: { "x-api-key": "tenant" } });
     expect(await response.text()).toContain("message_stop");
@@ -117,7 +124,8 @@ describe("jev-router OpenCode V2 plugin", () => {
     expect(configured.scopes).toEqual(["jev-router", "jev-router"]);
     configured.cleanup();
     const byURL = await host({ fixedEffort: "high", ...upstreamOptions, anthropicUpstreamBaseURL: "https://api.anthropic.com/v1" });
-    expect(byURL.added).toHaveLength(2);
+    expect(byURL.added).toHaveLength(1);
+    expect(byURL.added[0]!.models).toHaveLength(7);
     byURL.cleanup();
   });
 
@@ -142,8 +150,8 @@ describe("jev-router OpenCode V2 plugin", () => {
     expect(sent[0]!.headers.get("x-api-key")).toBe("wrong");
     expect(sent[0]!.headers.get("anthropic-beta")).toBe("other");
     await (await exchange({ model: "claude-opus-5-5", messages: [{ role: "user", content: "hi" }] }, { url: "https://api.anthropic.com/v1/messages", headers: { "x-api-key": "tenant", "anthropic-version": "  ", "anthropic-beta": "other", "openai-project": "no", "openai-beta": "no", "openai-extra": "no" } })).response.text();
-    expect(sent[1]!.headers.get("authorization")).toBe("Bearer resolved");
-    expect(sent[1]!.headers.get("x-api-key")).toBe("tenant");
+    expect(sent[1]!.headers.get("authorization")).toBeNull();
+    expect(sent[1]!.headers.get("x-api-key")).toBe("key");
     expect(sent[1]!.headers.get("anthropic-version")).toBe("2023-06-01");
     expect(sent[1]!.headers.get("anthropic-beta")).toBe("other,mid-conversation-output-config-2026-07-01");
     expect([...sent[1]!.headers.keys()].filter((name) => name.startsWith("openai-"))).toEqual([]);
@@ -157,7 +165,7 @@ describe("jev-router OpenCode V2 plugin", () => {
     const targetURL = `http://127.0.0.1:${(target.address() as { port: number }).port}/v1/messages`;
     const upstream = createServer((_req, res) => { res.writeHead(307, { location: targetURL }); res.end(); });
     await new Promise<void>((resolve) => upstream.listen(0, "127.0.0.1", resolve));
-    const { exchange, cleanup } = await host({ fixedEffort: "high", ...upstreamOptions, anthropicUpstreamApiKey: "key" });
+    const { exchange, cleanup } = await host({ fixedEffort: "high", ...upstreamOptions, anthropicUpstreamBaseURL: `http://127.0.0.1:${(upstream.address() as { port: number }).port}/v1`, anthropicUpstreamApiKey: "key" });
     try {
       const anthropic = await exchange({ model: "claude-opus-5-5", messages: [{ role: "user", content: "hi" }] }, { url: `http://127.0.0.1:${(upstream.address() as { port: number }).port}/v1/messages`, headers: { "x-api-key": "secret" } });
       expect(anthropic.sent.redirect).toBe("manual");
@@ -173,6 +181,13 @@ describe("jev-router OpenCode V2 plugin", () => {
     const { added, cleanup } = await host({ jevApiKey: "jev", upstreamBaseURL: "https://example.test/v1" });
     expect(added[0]!.info.settings).toEqual({ baseURL: "https://example.test/v1", transport: "http" });
     cleanup();
+  });
+
+  it("rejects Messages before Jev when Claude is disabled", async () => {
+    const fetcher = vi.fn(); globalThis.fetch = fetcher as typeof fetch;
+    const { exchange, cleanup } = await host({ jevApiKey: "jev", ...upstreamOptions });
+    await expect(exchange({ model: "claude-opus-5-5", messages: [{ role: "user", content: "hi" }] }, { url: `${upstreamOptions.upstreamBaseURL}/messages` })).rejects.toThrow("invalid_request (400)");
+    expect(fetcher).not.toHaveBeenCalled(); cleanup();
   });
 
   it.each([

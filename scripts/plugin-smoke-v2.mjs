@@ -4,7 +4,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { close, exists, fakeJevProxy, fakeRegistry, fakeResponsesUpstream, listen, run, sleep } from "./smoke-helpers.mjs";
+import { close, exists, fakeAnthropicUpstream, fakeJevProxy, fakeRegistry, fakeResponsesUpstream, listen, run, sleep } from "./smoke-helpers.mjs";
 
 // Pinned OpenCode V2 smoke for the packed plugin. Pass a tarball to test a
 // release artifact; set OPENCODE_V2_BIN to reuse an installed 2.0.18 binary.
@@ -13,6 +13,7 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
 const observed = {};
 let upstream;
+let anthropic;
 let registry;
 let proxy;
 let tls;
@@ -49,6 +50,8 @@ try {
 
   upstream = fakeResponsesUpstream(observed);
   const upstreamPort = await listen(upstream);
+  anthropic = fakeAnthropicUpstream(observed);
+  const anthropicPort = await listen(anthropic);
   const fake = await fakeJevProxy(dirs.ca, observed);
   ({ proxy, tls } = fake);
   const jevKeyFile = join(temp, "jev-key");
@@ -60,11 +63,11 @@ try {
     HTTPS_PROXY: `http://127.0.0.1:${fake.port}`, HTTP_PROXY: `http://127.0.0.1:${fake.port}`,
     NODE_EXTRA_CA_CERTS: fake.cert, SSL_CERT_FILE: fake.cert,
     NPM_CONFIG_REGISTRY: fakeNpm.url, npm_config_registry: fakeNpm.url, BUN_CONFIG_REGISTRY: fakeNpm.url,
-    SMOKE_UPSTREAM_KEY: "fake-upstream-key", SMOKE_USER_KEY: "fake-user-key",
+    SMOKE_UPSTREAM_KEY: "fake-upstream-key", SMOKE_USER_KEY: "fake-user-key", SMOKE_ANTHROPIC_KEY: "fake-anthropic-key",
     NO_PROXY: "127.0.0.1,localhost", no_proxy: "127.0.0.1,localhost",
     PATH: process.env.PATH, LANG: "C", TERM: "dumb",
   };
-  const plugins = [{ package: `${installed.name}@${installed.version}`, options: { jevApiKey: `{file:${jevKeyFile}}`, upstreamBaseURL: `http://127.0.0.1:${upstreamPort}/v1`, upstreamApiKey: "{env:SMOKE_UPSTREAM_KEY}", decisionsLogPath } }];
+  const plugins = [{ package: `${installed.name}@${installed.version}`, options: { jevApiKey: `{file:${jevKeyFile}}`, upstreamBaseURL: `http://127.0.0.1:${upstreamPort}/v1`, upstreamApiKey: "{env:SMOKE_UPSTREAM_KEY}", anthropicUpstreamBaseURL: `http://127.0.0.1:${anthropicPort}/v1`, anthropicUpstreamApiKey: "{env:SMOKE_ANTHROPIC_KEY}", decisionsLogPath } }];
 
   async function opencodeRun(model, config = {}) {
     await writeFile(join(dirs.project, "opencode.json"), JSON.stringify({ plugins, autoupdate: false, share: "disabled", ...config }, null, 2));
@@ -115,17 +118,25 @@ try {
     assert.equal(request.body.input.at(-2)?.reasoning?.effort, "high");
   }
 
+  await opencodeRun("claude-opus-5-5");
+  assert.equal(observed.anthropic?.url, "/v1/messages", "Claude did not use the Messages endpoint");
+  assert.equal(observed.anthropic?.method, "POST");
+  assert.equal(observed.anthropic?.headers["x-api-key"], "fake-anthropic-key");
+  assert.equal(observed.anthropic?.headers.authorization, undefined);
+  assert.match(observed.anthropic?.headers["anthropic-beta"] ?? "", /mid-conversation-output-config/);
+  assert.ok(observed.anthropic?.body.messages.some((message) => message.role === "system" && message.output_config?.effort === "high"));
+
   assert.ok(observed.registryRequests?.includes(installed.name), "OpenCode did not install the plugin from the fake registry");
   assert.equal(observed.blocked, undefined, `blocked non-fake outbound hosts: ${observed.blocked}`);
   const decisions = (await readFile(decisionsLogPath, "utf8")).trim().split("\n");
-  assert.equal(decisions.length, observed.upstreamCount, "each Responses request should produce one decision");
+  assert.equal(decisions.length, observed.upstreamCount + observed.anthropicCount, "each request should produce one decision");
   const events = decisions.map((line) => JSON.parse(line));
   assert.equal(new Set(events.map((event) => event.request_id)).size, events.length);
   for (const decision of events) {
     assert.equal(decision.event, "JevDecision");
     assert.match(decision.session, /^ses_/);
     assert.match(decision.turn_id, /^[0-9a-f-]{36}$/i);
-    assert.match(decision.model, /^gpt-6-(astra|luna|sol)$/);
+    assert.match(decision.model, /^(gpt-6-(astra|luna|sol)|claude-opus-5-5)$/);
     assert.equal(decision.effort, "high");
     assert.equal(decision.fallback, null);
     assert.equal(decision.outcome, "completed");
@@ -134,11 +145,12 @@ try {
   }
   const log = decisions.join("\n");
   assert.ok(!/fake-upstream-key|fake-user-key|fake-jev-key|Reply with smoke/.test(log), "decision log leaked a credential or prompt");
-  console.log(`PASS OpenCode ${VERSION} packaged plugin smoke (${installed.name}@${installed.version}): V2 provider transform for all three models, native Responses HTTP hooks, file/env options, user settings precedence, V1 tuple normalization, fake Jev, rewritten SSE, and correlated JevDecision.`);
+  console.log(`PASS OpenCode ${VERSION} packaged plugin smoke (${installed.name}@${installed.version}): Responses and Claude Messages SSE, fake Jev, correlated JevDecision.`);
 } finally {
   if (child && child.exitCode === null) child.kill("SIGTERM");
   if (child && child.exitCode === null) await Promise.race([new Promise((resolve) => child.once("exit", resolve)), sleep(2_000)]);
   if (upstream) await close(upstream);
+  if (anthropic) await close(anthropic);
   if (registry) await close(registry);
   if (proxy) await close(proxy);
   if (tls) await close(tls);
