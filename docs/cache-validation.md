@@ -1,8 +1,8 @@
 # Cache-validation harness
 
-`npm run cache:validate` is a bounded, metadata-only **offline** check. It starts `createAppServer` with an injected deterministic selector and a local fake upstream; no Jev request, credential, or live model call occurs. The fixed arm is `low, low, low, low, low`; the adaptive arm is `low, low, high, high, low`. Each arm receives a separate generated cache key, a complete warm pass, then a measured pass. Trial order alternates fixed/adaptive and adaptive/fixed.
+`npm run cache:validate` is a bounded, metadata-only **offline** check of both OpenAI Responses and Anthropic Messages. It starts `createAppServer` with an injected deterministic selector and local fake upstreams; no Jev request, credential, or live model call occurs. The OpenAI fixed arm is `low, low, low, low, low`; the adaptive arm is `low, low, high, high, low`. Each arm receives a separate generated cache key, a complete warm pass, then a measured pass. Trial order alternates fixed/adaptive and adaptive/fixed.
 
-The harness sends a long stable prefix with stable top-level instructions and a stable tool definition. Every request ends with a current user item; the warm pass retains actual preceding upstream `output` only in memory, rather than fabricating an assistant item. The measured pass replays that same in-memory history, so each measured request is an exact retry of its warm counterpart. It uses the real proxy rewrite and forwarding path, records actual outbound update positions in memory, and outputs only metadata. It does not print or persist request bodies, tool output, responses, cache keys, credentials, or raw upstream errors.
+The OpenAI arm sends a long stable prefix with stable top-level instructions and a stable tool definition. Every request ends with a current user item; the warm pass retains actual preceding upstream `output` only in memory, rather than fabricating an assistant item. The measured pass replays that same in-memory history, so each measured request is an exact retry of its warm counterpart. It uses the real proxy rewrite and forwarding path, records actual outbound update positions in memory, and outputs only metadata. It does not print or persist request bodies, tool output, responses, cache keys, credentials, or raw upstream errors.
 
 This is deliberately a **controlled-classifier** harness: `selectEffort` is
 injected, so its sequences are deterministic and it never calls Jev. In live
@@ -19,7 +19,9 @@ the fixed/adaptive effort arms and is observational evidence only.
 npm run cache:validate
 ```
 
-Defaults are two trials plus a two-request tool-continuation pilot and offline missing-usage probe (43 total requests, including warm-up). Bounds are `CACHE_TRIALS=1..3` and `CACHE_MAX_REQUESTS=23..60`. To save the final JSON metadata report, set an absolute `CACHE_RESULTS_PATH`; the file is owner-only. Keep reports in the ignored `cache-results/` directory (for example, `cache-results/issue21-live-node24-two-trial.json`). These are local artifacts and must not be committed. The report includes status, selected effort, upstream usage (null when absent), proxy request/session/turn correlations, replay/update positions, and reusable-prefix byte/item measurements.
+By default the OpenAI portion makes 43 requests (two trials, a tool-continuation pilot and missing-usage probe) and the Anthropic portion makes eight; two separate metadata JSON lines are printed. `CACHE_PROVIDER=openai` or `CACHE_PROVIDER=anthropic` selects just one provider. OpenAI bounds are `CACHE_TRIALS=1..3` and `CACHE_MAX_REQUESTS=23..60`; Anthropic always caps itself at 12 requests. To save the final JSON metadata report, set an absolute `CACHE_RESULTS_PATH`; with both offline providers the Anthropic report overwrites the OpenAI report, so select a provider to persist a single report. The file is owner-only. Keep reports in the ignored `cache-results/` directory (for example, `cache-results/issue21-live-node24-two-trial.json`). These are local artifacts and must not be committed. Reports contain only status, usage, and structural check metadata.
+
+The Anthropic offline sequence runs a warm request, low/high follow-ups, a top-level effort control, a forced tool use, low/max tool-result-only continuations, and a deliberate lineage-loss replay. It checks outbound byte-prefix-preserving message extensions, fixed top-level `output_config.effort`, effort-only system updates before the newest user (including tool-result-only turns), and the `anthropic-beta` header. The fake upstream simulates the cache-control contrast and rejects a missing historical update with HTTP 400; these synthetic usage counts and simulated signature failure are **not** evidence of live Anthropic behavior.
 
 For a live deployment, first complete the offline run, verify the running deployment contains the prefix-preserving rewrite, then explicitly opt in:
 
@@ -28,6 +30,14 @@ CACHE_LIVE=1 CACHE_CLIENT_AUTHORIZATION='Bearer …' JEV_ROUTER_UPSTREAM_BASE_UR
 ```
 
 For `JEV_ROUTER_UPSTREAM_AUTH=bearer`, also set `JEV_ROUTER_UPSTREAM_API_KEY`. Live forward mode uses `CLIPROXY_KEY` from `.env` (the same convention as `scripts/verify-models.mjs`); `CACHE_CLIENT_AUTHORIZATION` can explicitly override it. Neither is retained. The harness alone ignores a legacy `UPSTREAM_MODEL` after reporting `legacy_upstream_model_ignored: true`, because each harness request pins its model; it does not change the environment or running service, and normal router startup still rejects that setting. Live requests run through an in-process relay so the harness can inspect outbound placement while forwarding to the configured upstream. It does not alter account routing. Do not use it against an unapproved or production account without a request budget.
+
+Anthropic live checks are separately opt-in and **must never run in CI**. With an approved funded account and access to the selected model:
+
+```bash
+CACHE_PROVIDER=anthropic CACHE_LIVE=1 CACHE_ANTHROPIC_LIVE=1 JEV_ROUTER_ANTHROPIC_UPSTREAM_API_KEY=… JEV_ROUTER_ANTHROPIC_UPSTREAM_BASE_URL=https://api.anthropic.com/v1 npm run cache:validate
+```
+
+`CACHE_ANTHROPIC_MODEL` defaults to `claude-opus-5-5` and accepts `claude-fable-5-1`, `claude-mythos-5-1`, `claude-opus-5-5`, or `claude-opus-5`. The Anthropic endpoint defaults to `https://api.anthropic.com/v1`; the key is forwarded as `x-api-key` through an in-process proxy and relay. The classifier is injected (no Jev connection is made; `JEV_API_KEY` and `JEV_BASE_URL` are only needed when running the real router). Eight paid requests are planned and 12 is a hard cap. The control uses a second proxy with a different fixed base effort so the router, rather than a raw upstream call, creates the top-level effort change. Cache reads of at least 2,000 tokens after a low/high effort change and zero for the top-level control are required. The lineage-loss replay intentionally drops a historical effort update and records whether the upstream returns 400; that outcome is observational, especially if `thinking_present` was false in the prior replies. A 200 cannot prove that signed thinking replay is safe. No prompts, tool contents, keys, signatures, or raw upstream error bodies appear in reports.
 
 ## Interpreting results
 
@@ -55,8 +65,7 @@ For ongoing monitoring, query metadata-only decision logs by request correlation
 ## Scope of the cache guarantee
 
 The Anthropic Messages path is implemented but its live cache behavior is
-unmeasured. This offline harness still covers only OpenAI Responses; its
-results do not establish Anthropic cache reuse or tool-continuation behavior.
+unmeasured. Its offline fake-upstream checks do not establish Anthropic cache reuse or live tool-continuation acceptance.
 It measures prefix eligibility for one OpenAI Responses upstream, and
 the result depends on how that upstream accepts an effort change. Here it works
 because OpenAI exposes a mid-conversation reasoning change as a

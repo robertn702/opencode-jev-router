@@ -48,6 +48,9 @@ type CacheRecord = {
 };
 
 const LIVE = process.env.CACHE_LIVE === "1";
+const provider = process.env.CACHE_PROVIDER;
+if (provider !== undefined && provider !== "openai" && provider !== "anthropic") throw new Error("CACHE_PROVIDER must be openai or anthropic");
+if (LIVE && provider === undefined) throw new Error("CACHE_PROVIDER is required for a live run");
 const trials = bounded("CACHE_TRIALS", 2, 1, 3);
 const maxRequests = bounded("CACHE_MAX_REQUESTS", 48, 23, 60);
 const resultsPath = process.env.CACHE_RESULTS_PATH;
@@ -162,6 +165,186 @@ async function listen(server: Server): Promise<number> {
   server.listen(0, "127.0.0.1");
   await once(server, "listening");
   return (server.address() as { port: number }).port;
+}
+
+type AnthropicMessage = { role: string; content: unknown; output_config?: { effort: string } };
+type AnthropicReply = { type?: string; content?: unknown[]; stop_reason?: string | null; usage?: {
+  input_tokens?: number; cache_read_input_tokens?: number; cache_creation_input_tokens?: number; output_tokens?: number;
+} };
+const claudeModels = new Set(["claude-fable-5-1", "claude-mythos-5-1", "claude-opus-5-5", "claude-opus-5"]);
+
+async function anthropicValidation(): Promise<void> {
+  if (LIVE && (process.env.CI || process.env.CACHE_ANTHROPIC_LIVE !== "1")) throw new Error("CACHE_ANTHROPIC_LIVE=1 is required outside CI");
+  const model = process.env.CACHE_ANTHROPIC_MODEL ?? "claude-opus-5-5";
+  if (!claudeModels.has(model)) throw new Error("CACHE_ANTHROPIC_MODEL must be a registered Claude model");
+  const baseEffort = model === "claude-opus-5-5" ? "medium" : "high";
+  const key = process.env.JEV_ROUTER_ANTHROPIC_UPSTREAM_API_KEY?.trim();
+  if (LIVE && !key) throw new Error("CACHE_ANTHROPIC_LIVE requires JEV_ROUTER_ANTHROPIC_UPSTREAM_API_KEY");
+  const endpoint = process.env.JEV_ROUTER_ANTHROPIC_UPSTREAM_BASE_URL ?? "https://api.anthropic.com/v1";
+  // loadConfig validates Anthropic URL/key policy without requiring a real OpenAI upstream.
+  const config = LIVE ? loadConfig({ JEV_ROUTER_UPSTREAM_BASE_URL: "http://127.0.0.1:1/v1",
+    JEV_ROUTER_UPSTREAM_AUTH: "bearer", JEV_ROUTER_UPSTREAM_API_KEY: "unused",
+    JEV_ROUTER_ANTHROPIC_UPSTREAM_BASE_URL: endpoint, JEV_ROUTER_ANTHROPIC_UPSTREAM_API_KEY: key }) : undefined;
+  const outbound: { messages: AnthropicMessage[]; effort: unknown; beta: string | undefined; status: number }[] = [];
+  const checks: Record<string, boolean | null> = {};
+  const records: Record<string, unknown>[] = [];
+  let requests = 0;
+  let selected: "low" | "medium" | "high" | "max" = baseEffort as "medium" | "high";
+  const relay = createServer(async (incoming, outgoing) => {
+    try {
+      const body = await readJson(incoming);
+      const messages = body.messages as AnthropicMessage[];
+      const beta = incoming.headers["anthropic-beta"];
+      let status = 200;
+      let reply: AnthropicReply;
+      if (LIVE) {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 120_000);
+        try {
+          const upstream = await fetch(new URL("messages", `${config!.anthropicUpstream!.baseUrl.replace(/\/$/, "")}/`), {
+            method: "POST", headers: { "content-type": "application/json", "x-api-key": key!,
+              "anthropic-version": incoming.headers["anthropic-version"] as string,
+              "anthropic-beta": beta as string }, body: JSON.stringify(body), signal: controller.signal,
+            // Never resend x-api-key to a redirect target.
+            redirect: "manual",
+          });
+          status = upstream.status;
+          // Raw errors pass through the relay but are never printed or retained in the report.
+          const raw = await upstream.text();
+          outbound.push({ messages, effort: (body.output_config as { effort?: unknown } | undefined)?.effort, beta: typeof beta === "string" ? beta : undefined, status });
+          outgoing.writeHead(status, { "content-type": "application/json" });
+          outgoing.end(raw);
+          return;
+        } finally { clearTimeout(timeout); }
+      }
+      const tool = (body.tool_choice as { type?: string } | undefined)?.type === "tool";
+      const signed = messages.flatMap((item, i) => item.role === "assistant" && JSON.stringify(item.content).includes('"signature":"offline-signature"') ? [i] : []);
+      const missingLineage = signed.length >= 2 && !messages.slice(signed[0]! + 1, signed[1]).some((item) => item.role === "system" && item.output_config?.effort === "low") && !tool;
+      status = missingLineage ? 400 : 200;
+      reply = tool ? { type: "message", content: [{ type: "tool_use", id: "tool_offline", name: "stable_lookup", input: {} }], stop_reason: "tool_use" } :
+        { type: "message", content: [{ type: "thinking", thinking: "ok", signature: "offline-signature" }, { type: "text", text: "OK" }], stop_reason: "end_turn" };
+      const cold = !messages.some((item) => item.role === "assistant");
+      reply.usage = { input_tokens: 2200, cache_read_input_tokens: (body.output_config as { effort?: string }).effort === baseEffort && !cold ? 2100 : 0,
+        cache_creation_input_tokens: cold ? 2200 : 0, output_tokens: 1 };
+      outbound.push({ messages, effort: (body.output_config as { effort?: unknown }).effort, beta: typeof beta === "string" ? beta : undefined, status });
+      outgoing.writeHead(status, { "content-type": "application/json" });
+      outgoing.end(JSON.stringify(status === 400 ? { error: { type: "invalid_request_error" } } : reply));
+    } catch {
+      outgoing.writeHead(502, { "content-type": "application/json" });
+      outgoing.end(JSON.stringify({ error: "upstream_unavailable" }));
+    }
+  });
+  const relayPort = await listen(relay);
+  const servers: Server[] = [];
+  const ports: number[] = [];
+  for (const effort of [baseEffort, baseEffort === "high" ? "medium" : "high"]) {
+    const server = createAppServer({ upstreamBaseUrl: "http://127.0.0.1:1/v1", upstreamAuth: { policy: "forward" },
+      anthropicUpstream: { baseUrl: `http://127.0.0.1:${relayPort}/v1`, auth: { policy: "key", apiKey: key ?? "offline" } },
+      baseEffort: effort as "medium" | "high", selectEffort: async (): Promise<EffortDecision> => ({ effort: selected, jevLatencyMs: 0, fallback: null }) });
+    servers.push(server);
+    ports.push(await listen(server));
+  }
+  const system = [{ type: "text", text: stableText("Anthropic cache prefix") }];
+  const user = (text: string): AnthropicMessage => ({ role: "user", content: text });
+  const first = user("Give a short acknowledgement.");
+  const tool = { name: "stable_lookup", description: "Return a short acknowledgement", input_schema: { type: "object", properties: {}, additionalProperties: false } };
+  const session = `ses_${randomUUID().replaceAll("-", "")}`;
+  async function request(label: string, messages: AnthropicMessage[], options: { control?: boolean; session?: string; tool?: boolean; tools?: boolean } = {}): Promise<AnthropicReply | null> {
+    if (++requests > 12) throw new Error("CACHE_ANTHROPIC_LIVE hard cap of 12 requests exceeded");
+    const response = await fetch(`http://127.0.0.1:${ports[options.control ? 1 : 0]}/v1/messages`, {
+      method: "POST", headers: { "content-type": "application/json", "x-jev-session-id": options.session ?? session },
+      body: JSON.stringify({ model, system, cache_control: { type: "ephemeral" }, thinking: { type: "adaptive" },
+        output_config: { effort: baseEffort }, max_tokens: 128,
+        ...(options.tool || options.tools ? { tools: [tool] } : {}),
+        ...(options.tool ? { tool_choice: { type: "tool", name: tool.name } } : {}), messages }),
+      signal: AbortSignal.timeout(120_000),
+    });
+    // A live error body is deliberately not parsed or logged.
+    const reply = response.ok ? await response.json() as AnthropicReply : null;
+    if (!response.ok) await response.arrayBuffer();
+    const usage = reply?.usage;
+    records.push({ check: label, status: response.status, input_tokens: usage?.input_tokens ?? null,
+      cache_read_input_tokens: usage?.cache_read_input_tokens ?? null, cache_creation_input_tokens: usage?.cache_creation_input_tokens ?? null,
+      output_tokens: usage?.output_tokens ?? null,
+      thinking_present: reply?.content?.some((block) => typeof block === "object" && block !== null &&
+        ((block as { type?: string }).type === "thinking" || (block as { type?: string }).type === "redacted_thinking")) ?? false });
+    return reply;
+  }
+  const requireReply = (reply: AnthropicReply | null): AnthropicReply => {
+    if (!reply || !Array.isArray(reply.content)) throw new Error("CACHE_ANTHROPIC_LIVE request failed");
+    return reply;
+  };
+  const assistant = (reply: AnthropicReply): AnthropicMessage => ({ role: "assistant", content: reply.content! });
+  try {
+    selected = baseEffort as "medium" | "high";
+    const warm = requireReply(await request("warm_prefix", [first]));
+    checks.warm_prefix_eligible = (warm.usage?.input_tokens ?? 0) + (warm.usage?.cache_creation_input_tokens ?? 0) + (warm.usage?.cache_read_input_tokens ?? 0) >= 2000;
+    const history = [first, assistant(warm)];
+    const lowMessages = [...history, user("Acknowledge this follow-up briefly.")];
+    selected = "low";
+    const low = requireReply(await request("cached_low", lowMessages));
+    checks.low_reuses_prefix = (low.usage?.cache_read_input_tokens ?? 0) >= 2000;
+    selected = "high";
+    const highMessages = [...lowMessages, assistant(low), user("Acknowledge once more briefly.")];
+    const high = requireReply(await request("cached_high", highMessages));
+    checks.high_reuses_prefix = (high.usage?.cache_read_input_tokens ?? 0) >= 2000;
+    await request("top_level_effort_control", [...history, user("Control follow-up.")], { control: true });
+    checks.top_level_effort_change_misses_cache = records.at(-1)?.status === 200 && records.at(-1)?.cache_read_input_tokens === 0;
+    const toolSession = `ses_${randomUUID().replaceAll("-", "")}`;
+    selected = baseEffort as "medium" | "high";
+    const toolStart = requireReply(await request("forced_tool_use", [user("Call stable_lookup.")], { tool: true, session: toolSession }));
+    const call = toolStart.content?.find((block) => typeof block === "object" && block !== null && (block as { type?: string }).type === "tool_use") as { id?: string } | undefined;
+    checks.forced_tool_use = typeof call?.id === "string";
+    if (!checks.forced_tool_use) throw new Error("CACHE_ANTHROPIC_LIVE missing tool_use");
+    // A forced tool_choice changes the router scope on continuation. Carry the
+    // actual historical effort update explicitly across that boundary.
+    const toolHistory = [...outbound.at(-1)!.messages, assistant(toolStart)];
+    for (const effort of ["low", "max"] as const) {
+      selected = effort;
+      const result = await request(`tool_result_${effort}`, [...toolHistory, { role: "user", content: [{ type: "tool_result", tool_use_id: call!.id, content: "ok" }] }],
+        { session: toolSession, tools: true });
+      checks[`tool_result_${effort}_succeeds`] = result?.type === "message" && result.stop_reason != null;
+    }
+    selected = "low";
+    await request("lineage_loss_replay", [...history, lowMessages.at(-1)!, assistant(low), user("Acknowledge after missing effort update.")],
+      { session: `ses_${randomUUID().replaceAll("-", "")}` });
+    checks.lineage_loss_returned_400 = records.at(-1)?.status === 400;
+    checks.statuses_ok = records.slice(0, -1).every((item) => item.status === 200);
+    const [warmRequest, lowRequest, highRequest, , toolStartRequest, toolLow, toolMax] = outbound;
+    const prefix = (earlier: AnthropicMessage[] | undefined, later: AnthropicMessage[] | undefined): boolean =>
+      !!earlier && !!later && earlier.length < later.length && reusablePrefix(earlier, later).items === earlier.length;
+    checks.prefix_preserved = prefix(warmRequest?.messages, lowRequest?.messages) && prefix(lowRequest?.messages, highRequest?.messages);
+    checks.tool_prefix_preserved = prefix(toolStartRequest?.messages, toolLow?.messages);
+    checks.fixed_top_level_effort = outbound.every((item, index) => index === 3 ? item.effort !== baseEffort : item.effort === baseEffort);
+    checks.beta_header_present = outbound.every((item) => item.beta?.split(",").includes("mid-conversation-output-config-2026-07-01"));
+    const updates = (messages: AnthropicMessage[] | undefined): number[] => messages?.flatMap((item, i) => item.role === "system" &&
+      Array.isArray(item.content) && item.content.length === 0 && Object.keys(item).length === 3 &&
+      item.output_config && Object.keys(item.output_config).length === 1 ? [i] : []) ?? [];
+    checks.updates_before_newest_user = [lowRequest, highRequest, toolLow, toolMax].every((item) => {
+      const at = updates(item?.messages).at(-1);
+      return at !== undefined && item?.messages[at + 1]?.role === "user" && at === item.messages.length - 2;
+    });
+    checks.selected_efforts_at_boundary = ([lowRequest, highRequest, toolLow, toolMax] as const).every((item, index) => {
+      const at = updates(item?.messages).at(-1);
+      return at !== undefined && item?.messages[at]?.output_config?.effort === (["low", "high", "low", "max"] as const)[index];
+    });
+    checks.tool_result_only_placement = [toolLow, toolMax].every((item) => {
+      const at = updates(item?.messages).at(-1);
+      const next = at === undefined ? undefined : item?.messages[at + 1];
+      return Array.isArray(next?.content) && next.content.some((block) => typeof block === "object" && block !== null && (block as { type?: string }).type === "tool_result");
+    });
+  } finally {
+    await Promise.all([...servers, relay].map((server) => new Promise<void>((resolve) => server.close(() => resolve()))));
+  }
+  const summary = { provider: "anthropic", mode: LIVE ? "live" : "fake-upstream", classifier: "injected_deterministic",
+    deployment: "in-process_createAppServer", requests_started: requests, records, protocol_checks: checks };
+  if (resultsPath) {
+    await mkdir(dirname(resultsPath), { recursive: true, mode: 0o700 });
+    await writeFile(resultsPath, `${JSON.stringify(summary)}\n`, { mode: 0o600 });
+  }
+  console.log(JSON.stringify(summary));
+  // Lineage-loss 400 is observational: a 200 is not evidence that signature replay is safe.
+  if (Object.entries(checks).some(([name, value]) => (LIVE && name === "lineage_loss_returned_400") ? false : value !== true)) process.exitCode = 1;
 }
 
 async function main(): Promise<void> {
@@ -448,7 +631,13 @@ function meanRatio(records: CacheRecord[]): number | null {
   return ratios.length === 0 ? null : Math.round((ratios.reduce((total, ratio) => total + ratio, 0) / ratios.length) * 1_000) / 1_000;
 }
 
-void main().catch((error: unknown) => {
+void (async () => {
+  if (!LIVE && provider === undefined) {
+    await main();
+    await anthropicValidation();
+  } else if (provider === "anthropic") await anthropicValidation();
+  else await main();
+})().catch((error: unknown) => {
   // Fixed error only: do not print credentials, bodies, or upstream errors.
   console.error(JSON.stringify({ error: error instanceof Error && error.message.startsWith("CACHE_") ? error.message : "cache_validation_failed" }));
   process.exitCode = 1;
