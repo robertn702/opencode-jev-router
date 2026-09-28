@@ -35,11 +35,11 @@ Reference for the wire behavior shared by the OpenCode plugin and the standalone
   Anthropic `/v1/messages` accepts `claude-fable-5-1`, `claude-mythos-5-1`,
   `claude-opus-5-5`, and `claude-opus-5` only. Model/route mismatches are local `400`s.
   Missing, malformed, unknown, and pro IDs fail locally before classification.
-   The plugin exposes only wrapped models; the proxy accepts all registered models.
+  The plugin exposes only wrapped models; the proxy accepts all registered models.
   `UPSTREAM_MODEL`, `UPSTREAM_MODELS`, and `ALLOWED_MODELS` are rejected at startup
   with value-free diagnostics directing selection through `request.model`.
-   The proxy has no aliases or custom-model overrides; the plugin aliases only
-   configured source models. Upstream entitlement is separate.
+  The proxy has no aliases or custom-model overrides; the plugin aliases only
+  configured source models. Upstream entitlement is separate.
 - `/v1/models` remains authenticated upstream passthrough: its inventory is not
   the router capability registry. Independent same-model tool continuations are
   supported; arbitrary cross-model encrypted reasoning or response-ID replay is
@@ -289,10 +289,13 @@ rewrite, lineage, limits, and usage observation):
 
 - `wrap.openai` and `wrap.anthropic` list existing `provider/model` source refs.
   Aliases under `jev-router/<profile>` inherit source model metadata and provider
-  route, headers and API-key settings. The source package must match the group's
+  route, headers and API-key settings. The alias pins top-level model transport
+  to HTTP (in addition to the provider setting) even if its source prefers
+  websocket. The source package must match the group's
   Responses or Messages wire. Missing sources, unsupported profiles, wrong
-  packages and duplicate aliases are rejected on alias use. OAuth sources are
-  not supported; API keys from the source's resolved settings pass through, or
+  packages and duplicate aliases reject every alias request with the list of
+  invalid refs. OAuth sources are not supported; API keys from resolved settings
+  pass through without resolving the integration, or
   integration keys are injected before classification. Neither source providers
   nor their models are changed. Transport on `jev-router` must remain HTTP;
   websocket handshakes are rejected rather than bypassing the router.

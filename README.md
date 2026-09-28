@@ -71,13 +71,12 @@ for all projects, or `opencode.json` in a project root:
   "plugins": [{ "package": "@robertn702/opencode-jev-router", "options": {
     "jevApiKey": "{env:JEV_API_KEY}",
     "jevBaseUrl": "https://ai-gateway.vercel.sh/typesafe",
-    "wrap": { "openai": ["myopenai/gpt-6-astra"] },
+    "wrap": { "openai": ["openai/gpt-6-astra"] },
     "decisionsLogPath": "/tmp/jev-decisions.jsonl"
   }}],
   "providers": {
-    "myopenai": {
+    "openai": {
       "package": "@opencode/ai/providers/openai/responses",
-      "settings": { "baseURL": "https://api.openai.com/v1", "apiKey": "{env:OPENAI_API_KEY}" },
       "models": { "gpt-6-astra": { "name": "GPT-6 Astra" } }
     }
   },
@@ -87,6 +86,9 @@ for all projects, or `opencode.json` in a project root:
 
 - **Using a direct TypeSafe key?** Delete the `jevBaseUrl` line. A key only
   works with its own endpoint.
+- **Source auth:** `OPENAI_API_KEY` or an API key saved with `opencode auth login`
+  supplies the wrapped OpenAI model. The explicit package and model definition
+  keep the example usable when the offline model catalog lacks GPT-6.
 - **Using another gateway?** Define it as an OpenCode provider and wrap its
   model. For example, alongside the plugin config:
 
@@ -161,18 +163,17 @@ is pinned to adaptive (caller `display` is preserved). See
 Anthropic requests do not follow upstream redirects; a 3xx response is returned
 to the caller rather than forwarding credentials to a different origin.
 Source credentials pass through unchanged. A resolved source `settings.apiKey`
-is inherited by the alias; otherwise a stored or environment-integration key is
+is inherited by the alias without resolving the integration; only when no wire
+auth header is present is a stored or environment-integration key
 injected as OpenAI `Authorization: Bearer` or Anthropic `x-api-key` before
 classification. ChatGPT and Claude subscription OAuth sources are unsupported:
 use an API key. Auxiliary title, compaction, and generate calls and non-generation
 routes bypass Jev but still receive the source key. `jev-router` requires HTTP
-  transport; do not override `providers["jev-router"].settings.transport` to websocket.
+transport; do not override `providers["jev-router"].settings.transport` to websocket.
 
-On OpenCode 2.0.4, a wrapped built-in `openai` model with an integration key
-can still select websocket transport despite the alias HTTP setting. Use a
-config-defined source provider with `settings.apiKey` on that version, or upgrade
-to 2.0.18 for the built-in integration-key path. Both versions pass the
-config-defined Responses and Messages smoke.
+OpenCode 2.0.4 reads a model's top-level transport before the provider setting;
+the alias pins both to HTTP. A websocket handshake guard fails closed if a
+host nevertheless selects websocket, rather than silently bypassing Jev.
 
 ## What is sent where
 
@@ -212,8 +213,9 @@ detailed in
 Setup-shape errors (missing/empty `wrap`, unknown groups, malformed refs and
 removed options) appear as `failed to load plugin` in the OpenCode log. Source
 registry errors (missing source, unsupported profile/package, duplicate alias)
-are reported on alias use as `jev-router: ...` in the CLI. Consult the OpenCode
-log if an invalid alias instead appears as `Model unavailable`.
+are collected; any error rejects every alias request with all invalid refs as
+`jev-router: ...` in the CLI. Consult the OpenCode log if an invalid alias
+instead appears as `Model unavailable`.
 
 ## Troubleshooting
 

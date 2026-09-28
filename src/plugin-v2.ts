@@ -7,7 +7,8 @@ import { MODELS, modelsFor, type Provider } from "./models.js";
 import { createPluginRuntime, isRecord, PluginRequestError, SESSION, valid, type Exchange, type PluginOptions } from "./plugin-runtime.js";
 
 type ProviderInput = Parameters<ProviderEditor["add"]>[0];
-type Alias = { group: Provider; providerID: string; integrationID: string; error?: string };
+type ModelInput = ProviderInput["models"][number];
+type Alias = { group: Provider; providerID: string; integrationID: string; authHeader: "authorization" | "x-api-key" };
 
 export const PROVIDER_ID = "jev-router";
 export const PROVIDER_PACKAGE = "@opencode/ai/providers/openai/responses";
@@ -40,12 +41,12 @@ export async function setupV2(ctx: Plugin.Context): Promise<() => void> {
   const refs = parseWrap(options);
   const runtime = createPluginRuntime(options);
   const exchanges = new WeakMap<Request, Exchange>();
-  const aliases = new Map<string, Alias>();
+  let aliases = new Map<string, Alias>();
+  let validationError: string | undefined;
 
   await ctx.provider.transform((editor) => {
-    aliases.clear();
-    const models = [...new Set(refs.map((ref) => ref.group))].flatMap((group) => modelsFor(group).map((profile): ProviderInput["models"][number] => ({
-      id: profile.id as ProviderInput["models"][number]["id"], modelID: profile.id as ProviderInput["models"][number]["modelID"], providerID: PROVIDER_ID as ProviderInput["info"]["id"], name: profile.name, package: PACKAGES[group],
+    const models = [...new Set(refs.map((ref) => ref.group))].flatMap((group) => modelsFor(group).map((profile): ModelInput => ({
+      id: profile.id as ModelInput["id"], modelID: profile.id as ModelInput["modelID"], providerID: PROVIDER_ID as ModelInput["providerID"], name: profile.name, package: PACKAGES[group],
       settings: { baseURL: "http://127.0.0.1:1/v1" }, capabilities: { tools: true, input: ["text", "image"], output: ["text"] },
       variants: [], time: { released: 0 }, cost: [], status: "active", enabled: true, limit: { context: 200_000, output: 32_000 },
     })));
@@ -53,53 +54,56 @@ export async function setupV2(ctx: Plugin.Context): Promise<() => void> {
   });
 
   await ctx.model.transform((editor) => {
-    aliases.clear();
-    const keep = new Set<string>();
+    const next = new Map<string, Alias>();
+    const errors: string[] = [];
     for (const { group, providerID, modelID, ref } of refs) {
       const source = editor.get(providerID, modelID);
       const provider = editor.provider.get(providerID)?.provider;
       const apiID = source?.modelID ?? source?.id ?? modelID;
       const profile = MODELS.find((model) => model.id === apiID && model.provider === group);
-      const id = profile?.id ?? (modelsFor(group).find((model) => model.id === modelID)?.id ?? modelsFor(group)[0]!.id);
       const error = !source || !provider ? `jev-router: source model ${ref} not found; check wrap`
         : !profile ? `jev-router: ${ref} API model ${apiID} is not a registered ${group} profile`
         : (source.package ?? provider.package) !== PACKAGES[group] ? `jev-router: ${ref} requires package ${PACKAGES[group]}`
-        : keep.has(id) ? `jev-router: duplicate wrap profile ${id}` : undefined;
-      keep.add(id);
-      aliases.set(id, { group, providerID, integrationID: provider?.integrationID ?? providerID, error });
+        : next.has(profile.id) ? `jev-router: duplicate wrap profile ${profile.id}` : undefined;
+      if (error) errors.push(error);
+      if (!profile) continue;
+      const id = profile.id;
+      if (next.has(id)) continue;
+      next.set(id, { group, providerID, integrationID: provider?.integrationID ?? providerID, authHeader: group === "openai" ? "authorization" : "x-api-key" });
       if (error) continue;
       const resolved = provider!;
       const settings = { ...resolved.settings, ...source!.settings };
       delete settings.transport;
       editor.update(PROVIDER_ID, id, (alias) => Object.assign(alias, {
         ...source, id, modelID: apiID, providerID: PROVIDER_ID, package: source!.package ?? resolved.package,
-        name: profile!.name, settings, headers: { ...resolved.headers, ...source!.headers },
+        name: profile!.name, transport: "http", settings, headers: { ...resolved.headers, ...source!.headers },
         body: { ...resolved.body, ...source!.body }, variants: [],
       }));
     }
-    for (const profile of MODELS) if (!keep.has(profile.id)) editor.remove(PROVIDER_ID, profile.id);
+    if (!errors.length) for (const profile of MODELS) if (!next.has(profile.id)) editor.remove(PROVIDER_ID, profile.id);
+    aliases = next;
+    validationError = errors.length ? errors.join("; ") : undefined;
   });
 
   const onRequest = async (event: SessionHttpRequest) => {
+    if (validationError) throw new Error(validationError);
     const alias = aliases.get(event.model.id);
     if (!alias) throw new Error(`jev-router: alias ${event.model.id} is not configured in wrap`);
-    if (alias.error) throw new Error(alias.error);
     const incoming = event.request;
-    const headers = new Headers(incoming.headers);
-    const connection = await ctx.integration.connection.active(alias.integrationID);
-    const credential = connection && await ctx.integration.connection.resolve(connection);
-    if (credential?.type === "oauth") throw new Error(`jev-router: ${alias.providerID} uses OAuth, which wrap does not support yet; use an API key`);
-    if (credential?.type === "key" && !headers.get(alias.group === "openai" ? "authorization" : "x-api-key")) {
-      headers.set(alias.group === "openai" ? "authorization" : "x-api-key", alias.group === "openai" ? `Bearer ${credential.key}` : credential.key);
+    const authHeader = alias.authHeader;
+    if (!incoming.headers.get(authHeader)) {
+      const connection = await ctx.integration.connection.active(alias.integrationID);
+      const credential = connection && await ctx.integration.connection.resolve(connection);
+      if (credential?.type === "oauth") throw new Error(`jev-router: ${alias.providerID} uses OAuth, which wrap does not support yet; use an API key`);
+      if (credential?.type === "key") incoming.headers.set(authHeader, alias.group === "openai" ? `Bearer ${credential.key}` : credential.key);
     }
-    if (!headers.get(alias.group === "openai" ? "authorization" : "x-api-key")) throw new Error(`jev-router: ${alias.providerID} has no API key; configure a source provider API key`);
-    if (headers.get(alias.group === "openai" ? "authorization" : "x-api-key") !== incoming.headers.get(alias.group === "openai" ? "authorization" : "x-api-key")) event.request = new Request(incoming, { headers });
+    if (!incoming.headers.get(authHeader)) throw new Error(`jev-router: ${alias.providerID} has no API key; configure a source provider API key`);
     if (event.kind !== "primary") return;
-    const pathname = new URL(event.request.url).pathname;
+    const pathname = new URL(incoming.url).pathname;
     if (pathname.endsWith(alias.group === "openai" ? "/messages" : "/responses")) throw new Error(`jev-router invalid_request (400): alias requires ${alias.group === "openai" ? "/responses" : "/messages"}`);
     if (!pathname.endsWith(alias.group === "openai" ? "/responses" : "/messages")) return;
     let exchange: Exchange;
-    try { exchange = await runtime.start(event.request, { session: valid(event.sessionID, SESSION), turnId: randomUUID() }, alias.group); } catch (cause) { throw rejection(cause); }
+    try { exchange = await runtime.start(incoming, { session: valid(event.sessionID, SESSION), turnId: randomUUID() }, alias.group); } catch (cause) { throw rejection(cause); }
     const outgoing = new Headers(exchange.headers);
     outgoing.delete("content-length");
     const request = new Request(exchange.url, { method: "POST", headers: outgoing, body: exchange.body, signal: exchange.signal, ...(alias.group === "anthropic" ? { redirect: "manual" as const } : {}) });
