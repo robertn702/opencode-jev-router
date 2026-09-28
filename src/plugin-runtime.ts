@@ -104,11 +104,11 @@ export function createPluginRuntime(options: PluginOptions): PluginRuntime {
   const selectEffort = connection ? createJevClassifier({ ...connection, maxRetries: options.maxRetries, fallbackMode: options.fallbackMode, fallbackEffort: options.fallbackEffort, timeoutMs: options.jevTimeoutMs ?? 4_000 }).select : async () => ({ effort: options.fixedEffort!, jevLatencyMs: 0, fallback: null });
   const onEvidence = options.decisionsLogPath === undefined ? undefined : createDecisionLogger(options.decisionsLogPath);
   const router = new ResponsesRouter({ baseEffort: options.baseEffort, selectEffort, onEvidence });
-  const controllers = new Set<AbortController>();
-  // Undici follows a Request's init signal through a weak reference, and the host
-  // drops the original request once the hook replaces it. Keep it alive until the
-  // exchange settles so session cancellation still reaches `request.signal`.
-  const pending = new Set<Request>();
+  // Each open exchange's controller maps to its incoming request. Undici follows a
+  // Request's init signal through a weak reference, and the host drops the original
+  // request once the hook replaces it, so holding it here keeps session
+  // cancellation reaching `request.signal` until the exchange settles.
+  const controllers = new Map<AbortController, Request>();
   // Disposal settles every open exchange: V2 never sees a response for an aborted fetch.
   const abandons = new Set<() => void>();
   let inFlight = 0; let disposed = false;
@@ -122,12 +122,11 @@ export function createPluginRuntime(options: PluginOptions): PluginRuntime {
     try { checkUpstreamURL(new URL(url.origin), "upstream URL"); } catch (cause) { throw new PluginRequestError(400, "invalid_request", (cause as Error).message); }
     if (inFlight >= maxInFlight) throw new PluginRequestError(503, "overloaded", "router overloaded");
     inFlight += 1;
-    const controller = new AbortController(); controllers.add(controller); pending.add(request);
-    const pendingRef = new WeakRef(request);
+    const controller = new AbortController(); controllers.set(controller, request);
     const signal = AbortSignal.any([request.signal, controller.signal]);
     let releaseDone = false; let prepared: PreparedRequest | null = null; let handedOff = false; let timedOut = false; let responded = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
-    const release = (): void => { if (!releaseDone) { releaseDone = true; clearTimeout(timer); controllers.delete(controller); const retained = pendingRef.deref(); if (retained) pending.delete(retained); abandons.delete(abandon); inFlight -= 1; } };
+    const release = (): void => { if (!releaseDone) { releaseDone = true; clearTimeout(timer); controllers.delete(controller); abandons.delete(abandon); inFlight -= 1; } };
     const discard = (outcome: string): void => prepared?.finish(outcome, 0, false);
     const abandon = (): void => { discard("failed"); release(); };
     abandons.add(abandon);
@@ -210,6 +209,6 @@ export function createPluginRuntime(options: PluginOptions): PluginRuntime {
 
   return {
     start,
-    dispose() { disposed = true; for (const controller of controllers) controller.abort(); for (const abandon of [...abandons]) abandon(); router.reset(); },
+    dispose() { disposed = true; for (const controller of controllers.keys()) controller.abort(); for (const abandon of [...abandons]) abandon(); router.reset(); },
   };
 }
