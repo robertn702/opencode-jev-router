@@ -1,12 +1,13 @@
 # Router environment namespace
 
-Use `JEV_ROUTER_*` variables for router configuration; `.env.example` lists
-the supported names. Plugin option names are unchanged. This beta migration
+Use `JEV_ROUTER_*` variables for router configuration and `JEV_API_KEY` /
+`JEV_BASE_URL` for the Jev classifier; `.env.example` lists the supported
+names. `JEV_ROUTER_API_KEY` and `JEV_ROUTER_BASE_URL` are rejected. Plugin option names are unchanged. This beta migration
 is breaking: old environment names are no longer supported.
 
-`JEV_ROUTER_API_KEY` is a TypeSafe credential when the base URL is omitted
+`JEV_API_KEY` is a TypeSafe credential when the base URL is omitted
 (default `https://api.typesafe.ai`). A Vercel Gateway credential also requires
-`JEV_ROUTER_BASE_URL=https://ai-gateway.vercel.sh/typesafe`. No key inspection
+`JEV_BASE_URL=https://ai-gateway.vercel.sh/typesafe`. No key inspection
 or automatic endpoint detection occurs.
 
 The optional `POST /v1/messages` route needs

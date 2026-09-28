@@ -21,7 +21,7 @@ Use Node.js 24.x from the repo root.
 | Watch source changes | `npm run dev` |
 
 The tests use a fake upstream and mocked Jev; they need no API keys. To run the
-real proxy, copy `.env.example` to `.env`, set `JEV_ROUTER_API_KEY` and a
+real proxy, copy `.env.example` to `.env`, set `JEV_API_KEY` and a
 Responses API-compatible upstream (`JEV_ROUTER_UPSTREAM_*`), then run
 `npm run build && npm start`. The plugin instead loads in OpenCode and connects
 directly to its configured `upstreamBaseURL`. `npm run eval:live` calls

@@ -59,7 +59,7 @@ and for development.
 a secret manager):
 
 ```bash
-export JEV_ROUTER_API_KEY=...   # TypeSafe key or Vercel AI Gateway key
+export JEV_API_KEY=...   # TypeSafe key or Vercel AI Gateway key
 export OPENAI_API_KEY=...       # key for your Responses API endpoint
 ```
 
@@ -72,7 +72,7 @@ also works in V2, which normalizes it; for a V2-only config, see
 {
   "$schema": "https://opencode.ai/config.json",
   "plugin": [["@robertn702/opencode-jev-router", {
-    "jevApiKey": "{env:JEV_ROUTER_API_KEY}",
+    "jevApiKey": "{env:JEV_API_KEY}",
     "jevBaseUrl": "https://ai-gateway.vercel.sh/typesafe",
     "upstreamBaseURL": "https://api.openai.com/v1",
     "upstreamApiKey": "{env:OPENAI_API_KEY}",
@@ -119,7 +119,7 @@ V2 reads the same options from the object form of `plugins`:
   "plugins": [{
     "package": "@robertn702/opencode-jev-router",
     "options": {
-      "jevApiKey": "{env:JEV_ROUTER_API_KEY}",
+      "jevApiKey": "{env:JEV_API_KEY}",
       "jevBaseUrl": "https://ai-gateway.vercel.sh/typesafe",
       "upstreamBaseURL": "https://api.openai.com/v1",
       "upstreamApiKey": "{env:OPENAI_API_KEY}",
@@ -195,7 +195,7 @@ of a V2 `plugins` entry.
 
 | Option | Default | Purpose |
 | --- | --- | --- |
-| `jevApiKey` | `JEV_ROUTER_API_KEY` env | Jev classifier key. Required. |
+| `jevApiKey` | `JEV_API_KEY` env | Jev classifier key. Required. |
 | `jevBaseUrl` | `https://api.typesafe.ai` | Set to `https://ai-gateway.vercel.sh/typesafe` for a Vercel key. No other values are accepted. |
 | `upstreamBaseURL` | none | Responses API base URL. Required. |
 | `upstreamApiKey` | OpenCode provider auth | Key for the endpoint. |
@@ -263,8 +263,8 @@ needs Node.js 24.x.
 Create a `.env` in the directory you'll run from (or export the variables):
 
 ```dotenv
-JEV_ROUTER_API_KEY=your-jev-key
-# JEV_ROUTER_BASE_URL=https://ai-gateway.vercel.sh/typesafe   # Vercel keys only
+JEV_API_KEY=your-jev-key
+# JEV_BASE_URL=https://ai-gateway.vercel.sh/typesafe   # Vercel keys only
 JEV_ROUTER_UPSTREAM_BASE_URL=https://api.openai.com/v1
 JEV_ROUTER_UPSTREAM_AUTH=bearer
 JEV_ROUTER_UPSTREAM_API_KEY=your-endpoint-key

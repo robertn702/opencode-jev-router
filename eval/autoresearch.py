@@ -45,11 +45,10 @@ def environment():
             continue
         k, v = line.split('=', 1)
         env.setdefault(k.strip(), v.strip().strip('"\''))
-    for target, source in [('JEV_ROUTER_API_KEY', 'JEV_API_KEY'), ('JEV_ROUTER_BASE_URL', 'JEV_BASE_URL'),
-                           ('JEV_ROUTER_UPSTREAM_BASE_URL', 'UPSTREAM_BASE_URL')]:
+    for target, source in [('JEV_ROUTER_UPSTREAM_BASE_URL', 'UPSTREAM_BASE_URL')]:
         if not env.get(target):
             env[target] = env.get(source, '')
-    if not all(env.get(k) for k in ['JEV_ROUTER_API_KEY', 'JEV_ROUTER_BASE_URL', 'JEV_ROUTER_UPSTREAM_BASE_URL', 'CLIPROXY_KEY']):
+    if not all(env.get(k) for k in ['JEV_API_KEY', 'JEV_BASE_URL', 'JEV_ROUTER_UPSTREAM_BASE_URL', 'CLIPROXY_KEY']):
         raise RuntimeError('required explicit endpoint/keys missing')
     env.update(EVAL_AGENT_IMAGE=IMAGE, SWE_BENCH_DATASET_PATH=str(WORK / 'dataset.json'),
                EVAL_DATASET_DIGEST_FILE=str(WORK / 'dataset.sha256'),
