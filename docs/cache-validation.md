@@ -72,8 +72,11 @@ header, and tool-result-only continuation checks passing. Meridian rebuilds each
 request through Claude Code and uses the top-level `output_config.effort` when
 present, so that run shows wire compatibility only: its cache counts are
 Meridian's, the top-level control still read the cache, and the selected
-mid-conversation effort is not applied there. Its offline fake-upstream checks do not establish Anthropic cache reuse or live tool-continuation acceptance.
-It measures prefix eligibility for one OpenAI Responses upstream, and
+mid-conversation effort is not applied there. The Anthropic offline fake-upstream
+checks do not establish Anthropic cache reuse or live tool-continuation
+acceptance.
+
+The OpenAI harness measures prefix eligibility for one OpenAI Responses upstream, and
 the result depends on how that upstream accepts an effort change. Here it works
 because OpenAI exposes a mid-conversation reasoning change as a
 `configuration_update` input item: effort is request-level configuration on a

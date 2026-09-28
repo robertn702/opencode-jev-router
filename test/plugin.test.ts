@@ -180,6 +180,15 @@ describe("jev-router plugin", () => {
     } finally { await rm(dir, { recursive: true, force: true }); }
   });
 
+  it("defaults metadata-only Claude overrides to the Anthropic SDK", async () => {
+    const hooks = await plugin.server({}, { fixedEffort: "high", ...upstreamOptions, anthropicUpstreamApiKey: "key" });
+    const config: any = { provider: { "jev-router": { models: { "claude-opus-5-5": { name: "Custom Opus" } } } } };
+    hooks.config(config);
+    expect(config.provider["jev-router"].models["claude-opus-5-5"]).toMatchObject({ name: "Custom Opus", reasoning: true, provider: { npm: "@ai-sdk/anthropic" } });
+    expect(() => hooks.config({ provider: { "jev-router": { models: { "claude-opus-5-5": { provider: { npm: "@ai-sdk/openai" } } } } } } as any)).toThrow("requires provider.npm: @ai-sdk/anthropic");
+    hooks.dispose();
+  });
+
   it("requires an explicit Anthropic key before forwarding credentials to another origin", async () => {
     globalThis.fetch = vi.fn(async () => new Response("{}")) as typeof fetch;
     const hooks = await plugin.server({}, { fixedEffort: "high", ...upstreamOptions, anthropicUpstreamBaseURL: "https://api.anthropic.com/v1" });

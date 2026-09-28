@@ -13,3 +13,4 @@ docs/cache-results/
 eval/runs/
 logs/
 prediction.jsonl
+cache-results/

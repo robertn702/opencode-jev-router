@@ -78,27 +78,32 @@ export async function serverV1(_input: unknown, options: PluginOptions = {}) {
       if (!isRecord(provider.models)) throw new Error("jev-router provider models must be an object");
       for (const profile of modelsFor("openai")) {
         const model = provider.models[profile.id] ??= {};
-         const validated = validateModel(profile.id, model, adapter, "@ai-sdk/openai");
+        const validated = validateModel(profile.id, model, adapter, "@ai-sdk/openai");
         validated.name ??= profile.name;
         validated.reasoning ??= true;
       }
-       if (options.anthropicUpstreamBaseURL !== undefined || options.anthropicUpstreamApiKey !== undefined) {
-         for (const profile of modelsFor("anthropic")) {
-           const model = provider.models[profile.id] ??= { provider: { npm: "@ai-sdk/anthropic" } };
-           const validated = validateModel(profile.id, model, adapter, "@ai-sdk/anthropic");
-           validated.name ??= profile.name;
-           validated.reasoning ??= true;
-         }
-       }
-       for (const [id, model] of Object.entries(provider.models)) {
-         const declared = isRecord(model) && isRecord(model.provider) ? model.provider.npm : undefined;
-         const npm = findModel(id)?.provider === "anthropic" || (findModel(id) === undefined && declared === "@ai-sdk/anthropic") ? "@ai-sdk/anthropic" : "@ai-sdk/openai";
-         validateModel(id, model, adapter, npm);
-       }
-       provider.npm = "@ai-sdk/openai"; provider.name ??= "Jev Router"; provider.options.fetch = adapter;
+      if (options.anthropicUpstreamBaseURL !== undefined || options.anthropicUpstreamApiKey !== undefined) {
+        for (const profile of modelsFor("anthropic")) {
+          const model = provider.models[profile.id] ??= {};
+          if (isRecord(model)) model.name ??= profile.name;
+          if (isRecord(model)) model.reasoning ??= true;
+        }
+      }
+      for (const [id, model] of Object.entries(provider.models)) {
+        const profile = findModel(id);
+        // Known Claude models default to the Anthropic SDK, so metadata-only overrides stay valid.
+        if (profile?.provider === "anthropic" && isRecord(model)) {
+          model.provider ??= {};
+          if (isRecord(model.provider)) model.provider.npm ??= "@ai-sdk/anthropic";
+        }
+        const declared = isRecord(model) && isRecord(model.provider) ? model.provider.npm : undefined;
+        const npm = profile?.provider === "anthropic" || (profile === undefined && declared === "@ai-sdk/anthropic") ? "@ai-sdk/anthropic" : "@ai-sdk/openai";
+        validateModel(id, model, adapter, npm);
+      }
+      provider.npm = "@ai-sdk/openai"; provider.name ??= "Jev Router"; provider.options.fetch = adapter;
     },
     async "chat.headers"(input: HeaderHook, output: { headers: Record<string, string> }) {
-       if (![input.model.providerID, input.model.provider, input.provider.id].some((id) => id === "jev-router")) return;
+      if (![input.model.providerID, input.model.provider, input.provider.id].some((id) => id === "jev-router")) return;
       output.headers["x-jev-session-id"] ??= input.sessionID;
       if (!valid(output.headers["x-jev-turn-id"] ?? null, TURN)) output.headers["x-jev-turn-id"] = randomUUID();
     },
