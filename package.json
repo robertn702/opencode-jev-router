@@ -39,7 +39,6 @@
     "eval": "tsx test/eval/jev-eval.ts",
     "eval:live": "node test/eval/live-matrix.mjs",
     "cache:validate": "tsx scripts/cache-validation.ts",
-    "verify:anthropic": "node scripts/verify-anthropic.mjs",
     "typecheck:cache": "tsc --ignoreConfig --noEmit --strict --target ES2022 --module NodeNext --moduleResolution NodeNext --types node scripts/cache-validation.ts",
     "dev": "tsx watch src/index.ts",
     "start": "node dist/index.js",

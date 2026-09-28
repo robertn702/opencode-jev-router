@@ -9,15 +9,17 @@ With a funded Anthropic key and access to a supported model, opt in locally
 (never in CI):
 
 ```bash
-VERIFY_ANTHROPIC_LIVE=1 ANTHROPIC_API_KEY=… npm run verify:anthropic
+CACHE_PROVIDER=anthropic CACHE_LIVE=1 CACHE_ANTHROPIC_LIVE=1 JEV_ROUTER_ANTHROPIC_UPSTREAM_API_KEY=… JEV_ROUTER_ANTHROPIC_UPSTREAM_BASE_URL=https://api.anthropic.com/v1 npm run cache:validate
 ```
 
-`VERIFY_ANTHROPIC_MODEL` defaults to `claude-opus-5-5`; the script accepts only
-the four registered Claude IDs. It budgets at most 12 requests, prints only
-usage/status metadata, and compares warm-cache reuse against a top-level effort
-change, tool-result-only continuation at low/max, and lineage-loss replay.
-HTTP 400 on the lineage replay is reported, not masked. Results are
-observational, not an upstream cache guarantee.
+`CACHE_ANTHROPIC_MODEL` defaults to `claude-opus-5-5`; only the four registered
+Claude IDs are accepted. The harness budgets at most 12 paid requests, prints
+only usage/status and structural metadata, and compares warm-cache reuse across
+low/high changes with a separate proxy's top-level effort control. It also checks
+tool-result-only continuation at low/max and observes lineage-loss replay.
+HTTP 400 on the lineage replay is reported, not masked. Run the default offline
+`npm run cache:validate` first; see [Cache validation](cache-validation.md) for
+env vars and limitations. Live results remain observational, not a cache guarantee.
 
 ## Cache preservation
 
