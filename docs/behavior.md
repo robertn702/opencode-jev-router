@@ -257,8 +257,9 @@ http://127.0.0.1:4320/ready` as a startup check, `Restart=on-failure`, and
   `JEV_ROUTER_ANTHROPIC_UPSTREAM_API_KEY` as `x-api-key` over HTTPS or loopback.
   `anthropic-version` defaults to `2023-06-01`, and the mid-conversation beta
   header is merged with caller betas.
-- Anthropic plugin requests do not follow redirects: a 3xx response is passed
-  through rather than sending credentials to a redirected origin. OpenAI plugin
+- Anthropic plugin requests do not follow redirects: a 3xx response, with its
+  `Location`, is passed through rather than sending credentials to a redirected
+  origin. OpenAI plugin
   redirect behavior is unchanged.
 - Upstream HTTP statuses and bodies pass through unchanged, including errors.
 - SSE streams incrementally with write/drain backpressure: a slow client pauses
@@ -267,7 +268,7 @@ http://127.0.0.1:4320/ready` as a startup check, `Restart=on-failure`, and
   (`{"error":"upstream_unavailable"}`); after headers are forwarded, a mid-stream
   failure destroys the stream without appended output or a replacement status.
 - Response headers are limited to `content-type`, `cache-control`, `retry-after`,
-  and `x-request-id`, minus anything nominated by the upstream `Connection`
+  `x-request-id`, and `location`, minus anything nominated by the upstream `Connection`
   header. Hop-by-hop headers (`connection`, `keep-alive`, `transfer-encoding`,
   `te`, `trailer`, `upgrade`) and stale framing headers (`content-length`,
   `content-encoding`, `etag`) are omitted; Node generates framing for the body

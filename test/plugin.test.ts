@@ -150,6 +150,7 @@ describe("jev-router plugin", () => {
         method: "POST", headers: { "x-api-key": "secret" }, body: JSON.stringify({ model: "claude-opus-5-5", messages: [{ role: "user", content: "hi" }] }),
       });
       expect(response.status).toBe(307);
+      expect(response.headers.get("location")).toBe(targetURL);
       expect(leaked).toEqual([]);
     } finally { hooks.dispose(); upstream.close(); target.close(); }
   });

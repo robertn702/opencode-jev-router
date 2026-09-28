@@ -3,6 +3,7 @@ const ALLOWED_RESPONSE_HEADERS: ReadonlySet<string> = new Set([
   "cache-control",
   "retry-after",
   "x-request-id",
+  "location",
 ]);
 
 export function pickResponseHeaders(
