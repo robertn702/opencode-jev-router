@@ -147,10 +147,9 @@ export function createPluginRuntime(options: PluginOptions): PluginRuntime {
       const credential = provider === "anthropic" ? request.headers.get("x-api-key") ?? request.headers.get("authorization") : request.headers.get("authorization");
       const wire = wireFor(provider);
       const headers = buildPluginUpstreamRequestHeaders(request.headers, "");
-      for (const name of [...headers.keys()]) {
-        if (provider === "openai" ? name === "x-api-key" || name.startsWith("anthropic-") : name.startsWith("openai-")) headers.delete(name);
-      }
+      // OpenAI headers stay as before; only Anthropic requests drop OpenAI-only headers.
       if (provider === "anthropic") {
+        for (const name of [...headers.keys()]) if (name.startsWith("openai-")) headers.delete(name);
         headers.set("anthropic-version", anthropicVersion(headers.get("anthropic-version")));
         headers.set("anthropic-beta", mergeAnthropicBeta(headers.get("anthropic-beta")));
       }

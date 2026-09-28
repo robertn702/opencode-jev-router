@@ -73,14 +73,19 @@ export class LineageStore {
     for (let index = updates.length - 1; index >= 0; index--) {
       if (explicit.some((update) => update.at === updates[index]!.at && update.effort === updates[index]!.effort)) updates.splice(index, 1);
     }
-    const suppliedAtCurrent = explicit.some((update) => update.at === currentAt && update.effort === effort);
-    const conflictingCallerUpdate = explicit.some((update) => update.at === currentAt && update.effort !== effort);
+    // Without tail updates (Anthropic), an update applies only from the next
+    // user turn. A suffix with no new user cannot change this generation.
+    const boundary = rules.tailUpdate || nextUser >= 0 || (exact && prior.currentAt < hashes.length);
+    let effectiveAt = currentAt;
+    if (!boundary) for (effectiveAt = content.length - 1; effectiveAt >= 0 && !rules.isUserMessage(content[effectiveAt]); effectiveAt--);
+    const suppliedAtCurrent = boundary && explicit.some((update) => update.at === currentAt && update.effort === effort);
+    const conflictingCallerUpdate = boundary && explicit.some((update) => update.at === currentAt && update.effort !== effort);
     const historyEffort = [...updates, ...explicit]
-      .filter((update) => update.at <= currentAt)
+      .filter((update) => update.at <= effectiveAt)
       .sort((a, b) => a.at - b.at)
       .at(-1)?.effort;
     const applied = suppliedAtCurrent || (!conflictingCallerUpdate && historyEffort === effort);
-    const currentInjected = !suppliedAtCurrent && !conflictingCallerUpdate && historyEffort !== effort && (rules.tailUpdate || nextUser >= 0 || exact && prior.currentAt < hashes.length);
+    const currentInjected = boundary && !suppliedAtCurrent && !conflictingCallerUpdate && historyEffort !== effort;
     if (currentInjected) updates.push({ at: currentAt, effort });
     updates.sort((a, b) => a.at - b.at);
 
