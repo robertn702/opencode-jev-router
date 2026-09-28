@@ -117,6 +117,10 @@ export function createPluginRuntime(options: PluginOptions): PluginRuntime {
   const onEvidence = options.decisionsLogPath === undefined ? undefined : createDecisionLogger(options.decisionsLogPath);
   const router = new ResponsesRouter({ baseEffort: options.baseEffort, selectEffort, onEvidence });
   const controllers = new Set<AbortController>();
+  // Undici follows a Request's init signal through a weak reference, and the host
+  // drops the original request once the hook replaces it. Keep it alive until the
+  // exchange settles so session cancellation still reaches `request.signal`.
+  const pending = new Set<Request>();
   // Disposal settles every open exchange: V2 never sees a response for an aborted fetch.
   const abandons = new Set<() => void>();
   let inFlight = 0; let disposed = false;
@@ -133,11 +137,11 @@ export function createPluginRuntime(options: PluginOptions): PluginRuntime {
     if (provider === "anthropic" && anthropicApiKey === undefined && target.origin !== url.origin) throw new PluginRequestError(400, "invalid_request", "anthropicUpstreamApiKey is required when anthropicUpstreamBaseURL is on a different origin");
     if (inFlight >= maxInFlight) throw new PluginRequestError(503, "overloaded", "router overloaded");
     inFlight += 1;
-    const controller = new AbortController(); controllers.add(controller);
+    const controller = new AbortController(); controllers.add(controller); pending.add(request);
     const signal = AbortSignal.any([request.signal, controller.signal]);
     let releaseDone = false; let prepared: PreparedRequest | null = null; let handedOff = false; let timedOut = false; let responded = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
-    const release = (): void => { if (!releaseDone) { releaseDone = true; clearTimeout(timer); controllers.delete(controller); abandons.delete(abandon); inFlight -= 1; } };
+    const release = (): void => { if (!releaseDone) { releaseDone = true; clearTimeout(timer); controllers.delete(controller); pending.delete(request); abandons.delete(abandon); inFlight -= 1; } };
     const discard = (outcome: string): void => prepared?.finish(outcome, 0, false);
     const abandon = (): void => { discard("failed"); release(); };
     abandons.add(abandon);
@@ -188,15 +192,17 @@ export function createPluginRuntime(options: PluginOptions): PluginRuntime {
           const observer = new UsageObserver((upstream.headers.get("content-type") ?? "").includes("text/event-stream"), provider);
           if (upstream.body === null) { current.finish("completed", upstream.status, false); release(); return new Response(null, { status: upstream.status, headers: pickFetchResponseHeaders(upstream.headers) }); }
           const reader = upstream.body.getReader();
+          // A read pending at cancellation settles (done or aborted) after it; cancel() records the outcome.
+          let cancelled = false;
           const stream = new ReadableStream<Uint8Array>({
             async pull(output) {
               const idle = setTimeout(() => controller.abort(), idleTimeoutMs);
-              try { const next = await reader.read(); if (next.done) { observer.finish(); current.finish("completed", upstream.status, observer.completed, observer.usage); output.close(); release(); } else { observer.push(next.value); output.enqueue(next.value); } }
-              catch (cause) { current.finish("failed", 0, false); output.error(cause); release(); } finally { clearTimeout(idle); }
+              try { const next = await reader.read(); if (cancelled) return; if (next.done) { observer.finish(); current.finish("completed", upstream.status, observer.completed, observer.usage); output.close(); release(); } else { observer.push(next.value); output.enqueue(next.value); } }
+              catch (cause) { if (cancelled) return; current.finish("failed", 0, false); output.error(cause); release(); } finally { clearTimeout(idle); }
             },
             // OpenCode V2 cancels the body once it parses `response.completed`,
             // before EOF. A terminal event already forwarded still completes.
-            async cancel() { controller.abort(); try { await reader.cancel(); } finally { if (observer.completed) current.finish("completed", upstream.status, true, observer.usage); else current.finish("cancelled", 0, false); release(); } },
+            async cancel() { cancelled = true; controller.abort(); try { await reader.cancel(); } finally { if (observer.completed) current.finish("completed", upstream.status, true, observer.usage); else current.finish("cancelled", 0, false); release(); } },
           });
           return new Response(stream, { status: upstream.status, statusText: upstream.statusText, headers: pickFetchResponseHeaders(upstream.headers) });
         },

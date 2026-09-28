@@ -7,6 +7,11 @@
   OpenCode V2 2.0.4 is the minimum supported version (tested with 2.0.18).
   0.5.x is the last V1-compatible release and receives no further fixes. V1
   users can pin `@robertn702/opencode-jev-router@0.5` or use the standalone proxy.
+- Session cancellation before upstream headers now reliably aborts the routed
+  request. Previously, garbage collection of OpenCode's original request could
+  break the abort link and leave the exchange open until the header timeout.
+- A stream cancelled mid-response is recorded as `failed`, not `completed`, even
+  when a pending upstream read settles after the cancellation.
 
 ## 0.5.0
 
