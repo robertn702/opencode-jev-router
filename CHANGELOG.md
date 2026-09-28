@@ -1,19 +1,28 @@
 # Changelog
 
-## Unreleased
+## 0.6.0
 
-- **Breaking:** Plugin upstream URL/key options (`upstreamBaseURL`,
-  `upstreamApiKey`, `anthropicUpstreamBaseURL`, `anthropicUpstreamApiKey`)
-  are removed. Use `wrap.openai` / `wrap.anthropic` with existing OpenCode
-  `provider/model` refs; aliases reuse the source route and API-key credentials.
-  ChatGPT/Claude subscription OAuth sources are not supported yet.
-- Only primary generation calls are classified; titles, compaction, generate
-  requests and non-generation paths pass through without Jev decisions.
 - **Breaking:** OpenCode V1 plugin support is removed. The default export has
-  `id`/`setup()` but no `server()`; the `./server` package export is removed.
-  OpenCode V2 2.0.4 is the minimum supported version (tested with 2.0.18).
-  0.5.x is the last V1-compatible release and receives no further fixes. V1
-  users can pin `@robertn702/opencode-jev-router@0.5` or use the standalone proxy.
+  `id`/`setup()` but no `server()`, and the `./server` package export is
+  removed. OpenCode V2 2.0.4 is the minimum supported version (tested with 2.0.4
+  and 2.0.18). 0.5.x is the last V1-compatible release and receives no further
+  fixes; V1 users can pin `@robertn702/opencode-jev-router@0.5` or use the
+  standalone proxy, which is unchanged.
+- **Breaking:** `jev-router` models now wrap existing OpenCode models instead of
+  calling a plugin-configured upstream. `upstreamBaseURL`, `upstreamApiKey`,
+  `anthropicUpstreamBaseURL`, and `anthropicUpstreamApiKey` are removed and fail
+  at startup. List source models under `wrap`, grouped by wire:
+  `"wrap": { "openai": ["openai/gpt-6-astra"], "anthropic": ["anthropic/claude-opus-5-5"] }`.
+  Each alias (`jev-router/<profile>`) reuses its source's route, headers, and
+  API key (from source settings, the environment, or `opencode auth login`).
+  A gateway becomes an OpenCode provider that you wrap. Invalid refs fail every
+  `jev-router` request with a message listing them. Subscription (OAuth) sources
+  such as ChatGPT or Claude plans are not supported yet.
+- Only primary agent requests are classified. Title, compaction, and generate
+  requests to a wrapped model pass through unchanged without a decision event;
+  a primary request on the wrong wire path is rejected locally.
+- `jev-router` stays on HTTP transport; a websocket override fails the request
+  instead of bypassing Jev. Source providers keep their own transport.
 - Session cancellation before upstream headers now reliably aborts the routed
   request. Previously, garbage collection of OpenCode's original request could
   break the abort link and leave the exchange open until the header timeout.
