@@ -1,6 +1,6 @@
 {
   "name": "@robertn702/opencode-jev-router",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "description": "Adaptive reasoning effort for OpenCode V2 with request-local GPT-6 model selection",
   "type": "module",
   "private": false,
