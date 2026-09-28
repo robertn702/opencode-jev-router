@@ -100,7 +100,7 @@ async function boundedBody(request: Request, maxBytes: number, signal: AbortSign
 /** Per-plugin-instance state, validation, Jev selection, rewrite, and usage observation. */
 export function createPluginRuntime(options: PluginOptions): PluginRuntime {
   const env = process.env;
-  const connection = options.fixedEffort === undefined ? resolveJevConnection(options.jevApiKey ?? env.JEV_ROUTER_API_KEY ?? "", options.jevBaseUrl ?? env.JEV_ROUTER_BASE_URL) : undefined;
+  const connection = options.fixedEffort === undefined ? resolveJevConnection(options.jevApiKey ?? env.JEV_API_KEY ?? "", options.jevBaseUrl ?? env.JEV_BASE_URL) : undefined;
   if (options.jevModel !== undefined && options.jevModel !== connection?.model) throw new Error("jevModel must match the configured Jev endpoint");
   if (options.baseEffort !== undefined && !["low", "medium", "high", "xhigh", "max"].includes(options.baseEffort)) throw new Error("baseEffort is unsupported");
   if (options.fixedEffort !== undefined && !MODELS.every((model) => supportsEffort(model, options.fixedEffort))) throw new Error("fixedEffort must be supported by every model");

@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- **Breaking:** the Jev classifier credential is `JEV_API_KEY` and its endpoint
+  is `JEV_BASE_URL`, for both the proxy and the plugin's environment fallback.
+  `JEV_ROUTER_API_KEY` and `JEV_ROUTER_BASE_URL` are rejected with an error
+  naming the replacement. Other `JEV_ROUTER_*` router settings are unchanged.
+
 ## 0.4.0
 
 - OpenCode V2 support. The package's default export now serves both majors:

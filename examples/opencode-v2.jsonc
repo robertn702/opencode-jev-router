@@ -5,7 +5,7 @@
     "package": "@robertn702/opencode-jev-router",
     "options": {
       // Jev classifier key. For a direct TypeSafe key, delete jevBaseUrl.
-      "jevApiKey": "{env:JEV_ROUTER_API_KEY}",
+      "jevApiKey": "{env:JEV_API_KEY}",
       "jevBaseUrl": "https://ai-gateway.vercel.sh/typesafe",
       // Any Responses API-compatible endpoint that serves GPT-6 models.
       "upstreamBaseURL": "https://api.openai.com/v1",

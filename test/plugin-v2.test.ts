@@ -180,10 +180,10 @@ describe("jev-router OpenCode V2 plugin", () => {
     [{ jevApiKey: "jev", upstreamBaseURL: "http://example.test/v1" }, "requires HTTPS"],
     [{ jevApiKey: "jev", upstreamBaseURL: "https://user:pass@example.test/v1" }, "without credentials"],
     [{ jevApiKey: "jev", ...upstreamOptions, upstreamApiKey: " " }, "upstreamApiKey"],
-    [{ ...upstreamOptions }, "JEV_ROUTER_API_KEY is required"],
+    [{ ...upstreamOptions }, "JEV_API_KEY is required"],
     [{ jevApiKey: "jev", ...upstreamOptions, decisionsLogPath: "relative.jsonl" }, "absolute path"],
   ])("rejects invalid options during setup: %j", async (options, message) => {
-    vi.stubEnv("JEV_ROUTER_API_KEY", "");
+    vi.stubEnv("JEV_API_KEY", "");
     await expect(host(options)).rejects.toThrow(message);
     vi.unstubAllEnvs();
   });

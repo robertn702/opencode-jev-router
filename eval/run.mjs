@@ -70,7 +70,7 @@ try {
   const config = {
     $schema: "https://opencode.ai/config.json",
     plugin: [[containerImage ? "/router/dist/plugin.js" : join(root, "dist/plugin.js"), {
-      ...(arm === "jev" ? { jevApiKey: "{env:JEV_ROUTER_API_KEY}", jevBaseUrl: process.env.JEV_ROUTER_BASE_URL ?? "https://ai-gateway.vercel.sh/typesafe", maxRetries: 3, fallbackMode: "error", jevTimeoutMs: 10_000 } : { fixedEffort: arm }),
+      ...(arm === "jev" ? { jevApiKey: "{env:JEV_API_KEY}", jevBaseUrl: process.env.JEV_BASE_URL ?? "https://ai-gateway.vercel.sh/typesafe", maxRetries: 3, fallbackMode: "error", jevTimeoutMs: 10_000 } : { fixedEffort: arm }),
       upstreamBaseURL: process.env.JEV_ROUTER_UPSTREAM_BASE_URL ?? "http://127.0.0.1:8317/v1",
       upstreamApiKey: "{env:CLIPROXY_KEY}", decisionsLogPath: join(dir, "decisions.jsonl"),
     }]], model: `jev-router/${model}`,
@@ -78,13 +78,13 @@ try {
   await save("opencode.json", `${JSON.stringify(config, null, 2)}\n`);
   result.prepared = true;
   if (!prepareOnly) {
-    if (!process.env.CLIPROXY_KEY || (arm === "jev" && !process.env.JEV_ROUTER_API_KEY)) throw new Error("Missing CLIPROXY_KEY or JEV_ROUTER_API_KEY");
+    if (!process.env.CLIPROXY_KEY || (arm === "jev" && !process.env.JEV_API_KEY)) throw new Error("Missing CLIPROXY_KEY or JEV_API_KEY");
     const home = join(dir, "home");
     await mkdir(home, { mode: 0o700 });
     for (const name of ["config", "data", "cache", "state"]) await mkdir(join(home, name), { mode: 0o700 });
     const start = performance.now();
     const agentEnv = { PATH: process.env.PATH, HOME: home, XDG_CONFIG_HOME: join(home, "config"), XDG_DATA_HOME: join(home, "data"), XDG_CACHE_HOME: join(home, "cache"), XDG_STATE_HOME: join(home, "state"),
-      CLIPROXY_KEY: process.env.CLIPROXY_KEY, ...(arm === "jev" ? { JEV_ROUTER_API_KEY: process.env.JEV_ROUTER_API_KEY } : {}),
+      CLIPROXY_KEY: process.env.CLIPROXY_KEY, ...(arm === "jev" ? { JEV_API_KEY: process.env.JEV_API_KEY } : {}),
       OPENCODE_CONFIG: join(dir, "opencode.json"), OPENCODE_DISABLE_PROJECT_CONFIG: "1", OPENCODE_DISABLE_DEFAULT_PLUGINS: "1" };
     const containerName = `jev-agent-${randomUUID()}`;
     activeContainer = containerImage ? containerName : null;

@@ -13,8 +13,8 @@ if (process.argv.includes("--help") || process.argv.includes("-h")) {
 Start the local Jev-powered Responses API proxy.
 
 Environment:
-  JEV_ROUTER_API_KEY        Required Jev classifier key (separate from upstream/client keys)
-  JEV_ROUTER_BASE_URL       Jev API root (default: https://api.typesafe.ai)
+  JEV_API_KEY        Required Jev classifier key (separate from upstream/client keys)
+  JEV_BASE_URL       Jev API root (default: https://api.typesafe.ai)
                      Vercel: https://ai-gateway.vercel.sh/typesafe
   JEV_ROUTER_PORT     Listening port (default: 4320)
   JEV_ROUTER_UPSTREAM_BASE_URL  Required Responses API-compatible base URL, e.g. https://api.openai.com/v1

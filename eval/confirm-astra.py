@@ -20,7 +20,7 @@ directory.mkdir()  # Never silently repeat an existing experiment.
 env = {**os.environ,
        "SWE_BENCH_DATASET_PATH": str(ROOT / "eval/runs/swebench-astra.json"),
        "SWE_BENCH_PYTHON": str(ROOT / "eval/runs/swebench-venv/bin/python")}
-assert env.get("JEV_ROUTER_API_KEY") and env.get("CLIPROXY_KEY")
+assert env.get("JEV_API_KEY") and env.get("CLIPROXY_KEY")
 orders = ["medium high xhigh jev", "jev xhigh high medium",
           "high jev medium xhigh", "xhigh medium jev high",
           "medium jev high xhigh"]
