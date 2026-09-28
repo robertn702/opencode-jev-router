@@ -5,14 +5,14 @@ import { createDecisionLogger } from "./decision-log.js";
 import { buildPluginUpstreamRequestHeaders, pickFetchResponseHeaders } from "./headers.js";
 import { createJevClassifier } from "./jev.js";
 import type { ClassificationPolicyOptions } from "./classification-policy.js";
-import { MODELS, supportsEffort, type Effort } from "./models.js";
-import { UnsupportedInputError } from "./rewrite.js";
+import { MODELS, supportsEffort, type Effort, type Provider } from "./models.js";
 import { ResponsesRouter, type PreparedRequest } from "./router.js";
 import { UsageObserver } from "./usage.js";
-import { resolveModel, validateResponsesRequest } from "./validate.js";
+import { resolveModel, validateRequest, wireFor, UnsupportedInputError } from "./wire.js";
+import { ANTHROPIC_VERSION, mergeAnthropicBeta } from "./wire-anthropic.js";
 
 /** Options shared by the OpenCode V1 and V2 plugin entrypoints. */
-export type PluginOptions = ClassificationPolicyOptions & { jevTimeoutMs?: number; jevApiKey?: string; jevBaseUrl?: string; jevModel?: string; baseEffort?: Effort; fixedEffort?: Effort; maxRequestBytes?: number; maxInFlight?: number; upstreamHeaderTimeoutMs?: number; upstreamIdleTimeoutMs?: number; upstreamBaseURL?: string; upstreamApiKey?: string; decisionsLogPath?: string };
+export type PluginOptions = ClassificationPolicyOptions & { jevTimeoutMs?: number; jevApiKey?: string; jevBaseUrl?: string; jevModel?: string; baseEffort?: Effort; fixedEffort?: Effort; maxRequestBytes?: number; maxInFlight?: number; upstreamHeaderTimeoutMs?: number; upstreamIdleTimeoutMs?: number; upstreamBaseURL?: string; upstreamApiKey?: string; anthropicUpstreamBaseURL?: string; anthropicUpstreamApiKey?: string; decisionsLogPath?: string };
 
 /** A local rejection with the status the V1 fetch adapter returns to the SDK. */
 export class PluginRequestError extends Error {
@@ -119,7 +119,8 @@ export function createPluginRuntime(options: PluginOptions): PluginRuntime {
   async function start(request: Request, correlation: Correlation): Promise<Exchange> {
     if (disposed) throw new PluginRequestError(503, "unavailable", "jev-router plugin is disposed");
     const url = new URL(request.url);
-    if (url.pathname.endsWith("/chat/completions") || !url.pathname.endsWith("/responses") || request.method !== "POST") throw new PluginRequestError(400, "invalid_request", "jev-router supports POST /v1/responses only");
+    const provider: Provider | null = url.pathname.endsWith("/responses") ? "openai" : url.pathname.endsWith("/messages") ? "anthropic" : null;
+    if (provider === null || request.method !== "POST") throw new PluginRequestError(400, "invalid_request", "jev-router supports POST /v1/responses or /v1/messages only");
     try { checkUpstreamURL(new URL(url.origin), "upstream URL"); } catch (cause) { throw new PluginRequestError(400, "invalid_request", (cause as Error).message); }
     if (inFlight >= maxInFlight) throw new PluginRequestError(503, "overloaded", "router overloaded");
     inFlight += 1;
@@ -141,15 +142,19 @@ export function createPluginRuntime(options: PluginOptions): PluginRuntime {
       }
       // Validate before reading optional fields or calling Jev.
       const model = resolveModel(body);
-      validateResponsesRequest(body, model);
+      validateRequest(body, model, provider);
       const record = body as Record<string, unknown>;
-      const authorization = request.headers.get("authorization");
-      const cacheKey = typeof record.prompt_cache_key === "string" && record.prompt_cache_key ? record.prompt_cache_key : null;
+      const credential = provider === "anthropic" ? request.headers.get("x-api-key") ?? request.headers.get("authorization") : request.headers.get("authorization");
+      const cacheKey = wireFor(provider).cacheKey(record);
       const { session, turnId } = correlation;
-      prepared = await router.prepare(body, { signal, session, turnId, cacheScope: hash(authorization), scope: session || cacheKey ? [`${url.origin}${url.pathname.replace(/\/responses$/, "")}`, model.id, options.baseEffort ?? model.defaultBaseEffort, hash(authorization), session ?? "", cacheKey ?? "", record.instructions ?? null, record.tools ?? null] : null });
+      prepared = await router.prepare(body, { provider, signal, session, turnId, cacheScope: hash(credential), scope: session || cacheKey ? [`${url.origin}${url.pathname.replace(/\/(responses|messages)$/, "")}`, model.id, options.baseEffort ?? model.defaultBaseEffort, hash(credential), session ?? "", cacheKey ?? "", ...wireFor(provider).scopeParts(record)] : null });
       if (prepared === null) throw new PluginRequestError(499, "cancelled", "request cancelled");
       const encoded = JSON.stringify(prepared.body);
       const headers = buildPluginUpstreamRequestHeaders(request.headers, encoded);
+      if (provider === "anthropic") {
+        headers.set("anthropic-beta", mergeAnthropicBeta(headers.get("anthropic-beta")));
+        if (!headers.has("anthropic-version")) headers.set("anthropic-version", ANTHROPIC_VERSION);
+      }
       timer = setTimeout(() => { timedOut = true; controller.abort(); settle("failed"); }, headerTimeoutMs);
       const exchange: Exchange = {
         url: request.url, headers, body: encoded, signal,
@@ -163,7 +168,7 @@ export function createPluginRuntime(options: PluginOptions): PluginRuntime {
           }
           responded = true;
           const current = prepared!;
-          const observer = new UsageObserver((upstream.headers.get("content-type") ?? "").includes("text/event-stream"));
+          const observer = new UsageObserver((upstream.headers.get("content-type") ?? "").includes("text/event-stream"), provider);
           if (upstream.body === null) { current.finish("completed", upstream.status, false); release(); return new Response(null, { status: upstream.status, headers: pickFetchResponseHeaders(upstream.headers) }); }
           const reader = upstream.body.getReader();
           const stream = new ReadableStream<Uint8Array>({

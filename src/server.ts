@@ -10,13 +10,16 @@ import {
 import { buildEvidence, type Evidence } from "./evidence.js";
 import { forwardUpstream, type UpstreamOutcome } from "./forward.js";
 import { UnsupportedInputError, type Effort } from "./rewrite.js";
+import type { Provider } from "./models.js";
 import { ResponsesRouter, type EffortDecision, type EffortSelector } from "./router.js";
-import { resolveModel, validateResponsesRequest } from "./validate.js";
+import { resolveModel, validateRequest, wireFor } from "./wire.js";
+import { ANTHROPIC_VERSION, mergeAnthropicBeta } from "./wire-anthropic.js";
 export type { EffortDecision, EffortSelector } from "./router.js";
 
 export interface AppServerOptions {
   upstreamBaseUrl: string;
   upstreamAuth: UpstreamAuth;
+  anthropicUpstream?: { baseUrl: string; auth: { policy: "forward" } | { policy: "key"; apiKey: string } };
   baseEffort?: Effort;
   selectEffort?: EffortSelector;
   onEvidence?: (evidence: Evidence) => void;
@@ -174,7 +177,7 @@ export function createAppServer(options: AppServerOptions): Server {
     response.on("close", onClose);
     response.once("close", () => { state.controllers.delete(clientAbort); state.responses.delete(response); });
 
-    const proxied = (request.method === "POST" && request.url === "/v1/responses") ||
+    const proxied = (request.method === "POST" && (request.url === "/v1/responses" || (request.url === "/v1/messages" && options.anthropicUpstream !== undefined))) ||
       (request.method === "GET" && request.url === "/v1/models");
     if (proxied && inFlight >= (options.maxInFlight ?? 32)) {
       request.pause();
@@ -240,7 +243,20 @@ async function handle(
       return;
     }
 
-    if (request.method === "POST" && request.url === "/v1/responses") {
+    if (request.method === "POST" && (request.url === "/v1/responses" || (request.url === "/v1/messages" && options.anthropicUpstream))) {
+      const provider: Provider = request.url === "/v1/messages" ? "anthropic" : "openai";
+      const adapter = wireFor(provider);
+      const baseUrl = provider === "anthropic" ? options.anthropicUpstream!.baseUrl : options.upstreamBaseUrl;
+      const authorization = provider === "anthropic"
+        ? options.anthropicUpstream!.auth.policy === "forward" ? request.headers.authorization : undefined
+        : upstreamAuthorization(options, request.headers.authorization);
+      const extraHeaders = provider === "anthropic" ? {
+        ...(options.anthropicUpstream!.auth.policy === "key"
+          ? { "x-api-key": options.anthropicUpstream!.auth.apiKey }
+          : typeof request.headers["x-api-key"] === "string" ? { "x-api-key": request.headers["x-api-key"] } : {}),
+        "anthropic-version": typeof request.headers["anthropic-version"] === "string" ? request.headers["anthropic-version"] : ANTHROPIC_VERSION,
+        "anthropic-beta": mergeAnthropicBeta(typeof request.headers["anthropic-beta"] === "string" ? request.headers["anthropic-beta"] : undefined),
+      } : undefined;
       if (Number(request.headers["content-length"]) > (options.maxRequestBytes ?? 1_048_576)) {
         request.pause();
         response.setHeader("connection", "close");
@@ -275,15 +291,16 @@ async function handle(
       try {
         const body = parsed as Record<string, unknown>;
         const model = resolveModel(parsed);
-        validateResponsesRequest(parsed, model);
+         validateRequest(parsed, model, provider);
         const session = correlationId(request.headers["x-jev-session-id"], /^ses_[A-Za-z0-9]{1,128}$/);
-        const cacheKey = typeof body.prompt_cache_key === "string" && body.prompt_cache_key.length > 0 ? body.prompt_cache_key : null;
-        const authorization = upstreamAuthorization(options, request.headers.authorization);
-        prepared = await router.prepare(parsed, {
+         const cacheKey = adapter.cacheKey(body);
+         const credential = provider === "anthropic" ? extraHeaders?.["x-api-key"] ?? authorization : authorization;
+         prepared = await router.prepare(parsed, {
+           provider,
           signal: clientAbort.signal, session,
           turnId: correlationId(request.headers["x-jev-turn-id"], /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i),
-          cacheScope: credentialScope(authorization),
-          scope: session || cacheKey ? [options.upstreamBaseUrl, body.model, options.baseEffort ?? model.defaultBaseEffort, authorization ?? "", session ?? "", cacheKey ?? "", body.instructions ?? null, body.tools ?? null] : null,
+           cacheScope: credentialScope(credential),
+           scope: session || cacheKey ? [baseUrl, body.model, options.baseEffort ?? model.defaultBaseEffort, credential ?? "", session ?? "", cacheKey ?? "", ...adapter.scopeParts(body)] : null,
         });
       } catch (error) {
         if (error instanceof Error && error.message === "jev_classification_failed") {
@@ -310,8 +327,10 @@ async function handle(
         onUsage: (value) => { usage = value; },
         onResponseStatus: (statusCode) => { status = statusCode; accepted = statusCode >= 200 && statusCode < 300; },
         onTerminal: (completed) => { terminal = completed; },
-        url: upstreamUrl(options.upstreamBaseUrl, "responses"),
-        authorization: upstreamAuthorization(options, request.headers.authorization),
+         url: upstreamUrl(baseUrl, adapter.path),
+         provider,
+         authorization,
+         extraHeaders,
         body: JSON.stringify(prepared.body),
         signal: clientAbort.signal,
         headerTimeoutMs: options.upstreamHeaderTimeoutMs ?? 10_000,

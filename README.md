@@ -24,7 +24,8 @@ For every model request OpenCode makes, the plugin:
    reasoning effort (for example `low` for a rename, `high` for a failing test).
 2. Adds that choice to the request as an OpenAI
    [`configuration_update`](https://developers.openai.com/api/docs/guides/reasoning#change-reasoning-mid-conversation)
-   item, keeping earlier updates in place so the prompt prefix stays cacheable.
+   item, or as an Anthropic effort-only system message; earlier updates stay in
+   place so the prompt prefix stays cacheable.
 3. Sends the request to your model endpoint and streams the response back
    unchanged.
 
@@ -46,6 +47,8 @@ If Jev is slow or unavailable, the request continues at a fallback effort
   and accepts `configuration_update` input items, plus its API key. The OpenAI
   API (`https://api.openai.com/v1`) works; so does any gateway that exposes the
   same `POST /v1/responses` interface.
+- **For Claude instead:** an Anthropic Messages API endpoint serving one of the
+  four models below, with access to the mid-conversation output-config beta.
 
 Node.js 24.x is needed only for the [standalone proxy](#standalone-proxy-optional)
 and for development.
@@ -134,24 +137,43 @@ its HTTP requests; the models, options, and decision log are the same.
 
 ## Models
 
-The plugin registers a `jev-router` provider with three models:
+The plugin registers `jev-router` for GPT-6. When
+`anthropicUpstreamBaseURL` or `anthropicUpstreamApiKey` is set (or the
+`jev-router-anthropic` provider is configured), it also registers
+`jev-router-anthropic` for Claude (V1 `@ai-sdk/anthropic`; V2 native Anthropic
+Messages provider). The default Anthropic base URL is
+`https://api.anthropic.com/v1`.
+
+To enable Claude with the standard Anthropic API, add
+`"anthropicUpstreamApiKey": "{env:ANTHROPIC_API_KEY}"` to the plugin options
+above and select `jev-router-anthropic/claude-opus-5-5` (or another Claude model
+below). The GPT-6 endpoint remains configured separately.
 
 | OpenCode model | Efforts Jev can choose |
 | --- | --- |
 | `jev-router/gpt-6-astra` | `low`, `medium`, `high`, `xhigh`, `max` |
 | `jev-router/gpt-6-luna` | `none`, `low`, `medium`, `high`, `xhigh`, `max` |
 | `jev-router/gpt-6-sol` | `none`, `low`, `medium`, `high`, `xhigh`, `max` |
+| `jev-router-anthropic/claude-fable-5-1` | `low`, `medium`, `high`, `xhigh`, `max` |
+| `jev-router-anthropic/claude-mythos-5-1` | `low`, `medium`, `high`, `xhigh`, `max` |
+| `jev-router-anthropic/claude-opus-5-5` | `low`, `medium`, `high`, `xhigh`, `max` |
+| `jev-router-anthropic/claude-opus-5` | `low`, `medium`, `high`, `xhigh`, `max` |
 
 See OpenAI's [Astra](https://developers.openai.com/api/docs/models/gpt-6-astra),
 [Luna](https://developers.openai.com/api/docs/models/gpt-6-luna), and
 [Sol](https://developers.openai.com/api/docs/models/gpt-6-sol) pages to choose
 between them. Your endpoint must grant access to the model you select.
 
-Only standard, single-agent mode is supported: pro models, other
+For GPT-6, only standard, single-agent mode is supported: pro models, other
 `reasoning.mode` values, and `truncation: "auto"` are rejected locally.
 OpenCode's own reasoning-effort variants are ignored for this provider, since
 Jev picks the effort. The response reports the base effort (`medium`), not
-the effort Jev selected; use the decision log to see the selection.
+the effort Jev selected; use the decision log to see the selection. Claude
+defaults to a fixed top-level effort of `medium` for Opus 5.5 and `high` for
+the others; per-turn changes use the Anthropic beta header and an effort-only
+system message before the newest user message, including tool results. Thinking
+is pinned to adaptive (caller `display` is preserved). See
+[behavior and unverified limitations](docs/behavior.md#effort-updates-and-cache-lineage).
 
 ## What is sent where
 
@@ -175,6 +197,8 @@ of a V2 `plugins` entry.
 | `jevBaseUrl` | `https://api.typesafe.ai` | Set to `https://ai-gateway.vercel.sh/typesafe` for a Vercel key. No other values are accepted. |
 | `upstreamBaseURL` | none | Responses API base URL. Required. |
 | `upstreamApiKey` | OpenCode provider auth | Key for the endpoint. |
+| `anthropicUpstreamBaseURL` | `https://api.anthropic.com/v1` when enabled | Anthropic Messages API base URL; enables Claude provider when set. |
+| `anthropicUpstreamApiKey` | OpenCode provider auth | Anthropic key; enables Claude provider when set. |
 | `decisionsLogPath` | off | Absolute path for metadata-only `JevDecision` JSONL. |
 | `baseEffort` | `medium` | Request-level effort reported by responses. |
 | `jevTimeoutMs` | `4000` | Total classification budget, including retries. |
@@ -259,6 +283,11 @@ curl http://127.0.0.1:4320/v1/responses \
   -d '{"model":"gpt-6-astra","input":[{"role":"user","content":"Say hi"}]}'
 ```
 
+For Anthropic, set `JEV_ROUTER_ANTHROPIC_UPSTREAM_BASE_URL` (for example
+`https://api.anthropic.com/v1`) and, with bearer auth,
+`JEV_ROUTER_ANTHROPIC_UPSTREAM_API_KEY`. Send Claude requests to
+`POST /v1/messages`; without that base URL the route returns 404. The proxy
+supplies `anthropic-version` and merges the mid-conversation beta header.
 Point your client at `http://127.0.0.1:4320/v1`. Each request prints a metadata
 record to stdout; set `JEV_ROUTER_DECISIONS_LOG_PATH` to an absolute path to
 also write `JevDecision` JSONL.
@@ -266,7 +295,8 @@ also write `JevDecision` JSONL.
 **Upstream auth.** With `bearer`, the router replaces the client's credential
 with `JEV_ROUTER_UPSTREAM_API_KEY`; the endpoint must be HTTPS or loopback.
 With `forward` (the default), it passes the client's `Authorization` header
-through, and only to a loopback endpoint.
+(and `x-api-key` on Anthropic) through, and only to a loopback endpoint. Bearer
+mode sends the configured Anthropic key as `x-api-key` to the Anthropic endpoint.
 
 Run `npx @robertn702/opencode-jev-router --help` for every variable, and see
 [`.env.example`](.env.example) for defaults. For health probes, shutdown

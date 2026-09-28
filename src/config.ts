@@ -9,6 +9,7 @@ export interface AppConfig extends ClassificationPolicyOptions {
   port: number;
   upstreamBaseUrl: string;
   upstreamAuth: UpstreamAuth;
+  anthropicUpstream?: { baseUrl: string; auth: { policy: "forward" } | { policy: "key"; apiKey: string } };
   baseEffort: Effort | undefined;
   jevTimeoutMs: number;
   maxRequestBytes: number;
@@ -132,10 +133,43 @@ export function loadConfig(env: Record<string, string | undefined>): AppConfig {
     throw new Error("JEV_ROUTER_UPSTREAM_AUTH=bearer requires HTTPS except for loopback endpoints");
   }
 
+  const anthropicBaseUrl = env.JEV_ROUTER_ANTHROPIC_UPSTREAM_BASE_URL;
+  const anthropicKey = env.JEV_ROUTER_ANTHROPIC_UPSTREAM_API_KEY;
+  if (anthropicKey !== undefined && !anthropicBaseUrl?.trim()) {
+    throw new Error("JEV_ROUTER_ANTHROPIC_UPSTREAM_API_KEY requires JEV_ROUTER_ANTHROPIC_UPSTREAM_BASE_URL");
+  }
+  if (anthropicBaseUrl !== undefined && !anthropicBaseUrl.trim()) {
+    throw new Error("JEV_ROUTER_ANTHROPIC_UPSTREAM_BASE_URL must be a valid HTTP(S) URL");
+  }
+  let anthropicUpstream: AppConfig["anthropicUpstream"];
+  if (anthropicBaseUrl !== undefined) {
+    let anthropicUrl: URL;
+    try { anthropicUrl = new URL(anthropicBaseUrl); }
+    catch { throw new Error("JEV_ROUTER_ANTHROPIC_UPSTREAM_BASE_URL must be a valid HTTP(S) URL"); }
+    if (!["http:", "https:"].includes(anthropicUrl.protocol) || !anthropicUrl.hostname || anthropicUrl.username || anthropicUrl.password || anthropicUrl.search || anthropicUrl.hash) {
+      throw new Error("JEV_ROUTER_ANTHROPIC_UPSTREAM_BASE_URL must be an HTTP(S) URL without credentials, query, or fragment");
+    }
+    const anthropicLoopback = ["127.0.0.1", "localhost", "[::1]"].includes(anthropicUrl.hostname);
+    if (policy === "forward" && anthropicKey !== undefined) {
+      throw new Error("JEV_ROUTER_ANTHROPIC_UPSTREAM_API_KEY requires JEV_ROUTER_UPSTREAM_AUTH=bearer");
+    }
+    if (policy === "forward" && !anthropicLoopback) {
+      throw new Error("JEV_ROUTER_UPSTREAM_AUTH=forward requires a loopback JEV_ROUTER_ANTHROPIC_UPSTREAM_BASE_URL");
+    }
+    if (policy === "bearer" && !anthropicKey?.trim()) {
+      throw new Error("JEV_ROUTER_ANTHROPIC_UPSTREAM_API_KEY is required when JEV_ROUTER_UPSTREAM_AUTH=bearer");
+    }
+    if (policy === "bearer" && anthropicUrl.protocol !== "https:" && !anthropicLoopback) {
+      throw new Error("JEV_ROUTER_UPSTREAM_AUTH=bearer requires HTTPS except for loopback endpoints");
+    }
+    anthropicUpstream = { baseUrl: anthropicBaseUrl, auth: policy === "forward" ? { policy: "forward" } : { policy: "key", apiKey: anthropicKey!.trim() } };
+  }
+
   return {
     ...jevPolicy,
     port: parsePort(env.JEV_ROUTER_PORT),
     upstreamBaseUrl,
+    anthropicUpstream,
     upstreamAuth: policy === "bearer"
       ? { policy, apiKey: env.JEV_ROUTER_UPSTREAM_API_KEY!.trim() }
       : { policy },

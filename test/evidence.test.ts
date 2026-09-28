@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildEvidence, formatDecisionEvent } from "../src/evidence.js";
+import { buildEvidence, formatDecisionEvent, formatEvidence } from "../src/evidence.js";
 
 describe("local decision telemetry", () => {
   it("records only bounded metadata, not arbitrary request fields", () => {
@@ -46,5 +46,20 @@ describe("local decision telemetry", () => {
     expect(buildEvidence({ ...base, jevErrorCategory: "http_5xx" }).jev_error_category).toBe("http_5xx");
     expect(buildEvidence({ ...base, jevErrorCategory: "secret from server" }).jev_error_category).toBeNull();
     expect(buildEvidence({ ...base, fallback: null, jevErrorCategory: "http_5xx" }).jev_error_category).toBeNull();
+  });
+
+  it("adds Anthropic cache creation usage only when supplied", () => {
+    const base = {
+      requestId: "test-id", outboundModel: "claude-opus-5-5", outboundEffort: "medium",
+      jevLatencyMs: 1, fallback: null, outcome: "completed",
+    };
+    const openai = buildEvidence({ ...base, usage: { input_tokens: 4, cached_input_tokens: null, output_tokens: 2 } });
+    expect(formatEvidence(openai)).not.toContain("cache_creation_input_tokens");
+    expect(formatDecisionEvent(openai)).not.toContain("cache_creation_input_tokens");
+    const anthropic = buildEvidence({ ...base, usage: { input_tokens: 4, cached_input_tokens: null, output_tokens: 2, cache_creation_input_tokens: null } });
+    expect(JSON.parse(formatEvidence(anthropic)).cache_creation_input_tokens).toBeNull();
+    expect(JSON.parse(formatDecisionEvent(anthropic)).cache_creation_input_tokens).toBeNull();
+    const created = buildEvidence({ ...base, usage: { input_tokens: 4, cached_input_tokens: null, output_tokens: 2, cache_creation_input_tokens: 3 } });
+    expect(JSON.parse(formatDecisionEvent(created)).cache_creation_input_tokens).toBe(3);
   });
 });

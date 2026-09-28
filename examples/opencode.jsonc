@@ -8,7 +8,10 @@
     "jevBaseUrl": "https://ai-gateway.vercel.sh/typesafe",
     // Any Responses API-compatible endpoint that serves GPT-6 models.
     "upstreamBaseURL": "https://api.openai.com/v1",
-    "upstreamApiKey": "{env:OPENAI_API_KEY}"
+    "upstreamApiKey": "{env:OPENAI_API_KEY}",
+    // Optional Anthropic Messages provider: jev-router-anthropic/claude-opus-5-5.
+    // "anthropicUpstreamBaseURL": "https://api.anthropic.com/v1",
+    // "anthropicUpstreamApiKey": "{env:ANTHROPIC_API_KEY}"
     // Optional: an absolute path for metadata-only JevDecision JSONL events.
     // "decisionsLogPath": "/absolute/path/to/jev-decisions.jsonl"
   }]],

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { MODELS } from "../src/models.js";
+import { MODELS, modelsFor } from "../src/models.js";
 import { resolveModel } from "../src/validate.js";
 import { rewriteResponsesRequest } from "../src/rewrite.js";
 import { createJevClassifier } from "../src/jev.js";
@@ -11,7 +11,7 @@ describe("registered model isolation", () => {
     }
   });
   it("freezes profiles and pins independent rewrites", () => {
-    for (const model of MODELS) {
+    for (const model of modelsFor("openai")) {
       expect(Object.isFrozen(model)).toBe(true);
       expect(Object.isFrozen(model.supportedEfforts)).toBe(true);
       const items = [{ role: "user", content: "test" }, { type: "function_call_output", call_id: "c", output: "ok" }];
@@ -19,6 +19,18 @@ describe("registered model isolation", () => {
       const result = rewriteResponsesRequest(body, { model, baseEffort: "medium", effort: "high" });
       expect(result).toMatchObject({ model: model.id, prompt_cache_key: "unchanged", reasoning: { effort: "medium" }, input: [{ type: "configuration_update", reasoning: { effort: "high" } }, items[0], { type: "configuration_update", reasoning: { effort: "low" } }, items[1]] });
     }
+  });
+  it("registers only supported Anthropic profiles with model-specific base efforts", () => {
+    expect(modelsFor("openai").map((model) => model.id)).toEqual(["gpt-6-astra", "gpt-6-luna", "gpt-6-sol"]);
+    expect(modelsFor("anthropic").map((model) => [model.id, model.defaultBaseEffort])).toEqual([
+      ["claude-fable-5-1", "high"], ["claude-mythos-5-1", "high"], ["claude-opus-5-5", "medium"], ["claude-opus-5", "high"],
+    ]);
+    for (const model of MODELS) {
+      expect(Object.isFrozen(model)).toBe(true);
+      expect(Object.isFrozen(model.supportedEfforts)).toBe(true);
+      expect(model.fallbackEffort).toBe("medium");
+    }
+    expect(modelsFor("anthropic").every((model) => model.supportedEfforts.join() === "low,medium,high,xhigh,max")).toBe(true);
   });
   it("uses model-specific choices and globally bounded model-local fallback history", async () => {
     let answer = "high";

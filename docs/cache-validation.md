@@ -54,7 +54,10 @@ For ongoing monitoring, query metadata-only decision logs by request correlation
 
 ## Scope of the cache guarantee
 
-This harness measures prefix eligibility for one OpenAI Responses upstream, and
+The Anthropic Messages path is implemented but its live cache behavior is
+unmeasured. This offline harness still covers only OpenAI Responses; its
+results do not establish Anthropic cache reuse or tool-continuation behavior.
+It measures prefix eligibility for one OpenAI Responses upstream, and
 the result depends on how that upstream accepts an effort change. Here it works
 because OpenAI exposes a mid-conversation reasoning change as a
 `configuration_update` input item: effort is request-level configuration on a
@@ -63,7 +66,7 @@ OpenAI-specific and does not generalize. Providers that render effort into the
 prompt behave differently: Anthropic invalidates cached message blocks on a
 top-level `output_config.effort` change and preserves the prefix only when effort
 changes ride in a mid-conversation `system` message (a beta on selected models),
-and Gemini and xAI expose thinking level or `reasoning_effort` as request
+while Gemini and xAI expose thinking level or `reasoning_effort` as request
 configuration without a documented cross-effort guarantee. Pointing this router at
 a non-OpenAI upstream requires re-measuring its cache behavior rather than
 inheriting these results.

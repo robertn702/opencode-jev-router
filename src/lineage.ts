@@ -1,22 +1,14 @@
 import { createHash } from "node:crypto";
 import type { Effort } from "./models.js";
+import { openaiWire } from "./wire-openai.js";
+import type { HistoryRules } from "./wire.js";
 
-const CONFIGURATION_UPDATE = "configuration_update";
 const hash = (value: unknown): string => createHash("sha256").update(JSON.stringify(value)).digest("hex");
 
 type Update = { at: number; effort: Effort };
 type ExplicitUpdate = Update & { item: unknown; fingerprint: string };
 type Entry = { scope: string; hashes: string[]; updates: Update[]; explicit: Array<{ at: number; fingerprint: string }>; currentAt: number; currentInjected: boolean; expiresAt: number };
 type PendingAttempt = { value: string; count: number };
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function reasoningEffort(item: unknown): Effort | null {
-  if (!isRecord(item) || item.type !== CONFIGURATION_UPDATE || !isRecord(item.reasoning)) return null;
-  return typeof item.reasoning.effort === "string" ? item.reasoning.effort as Effort : null;
-}
 
 // This intentionally retains only fixed-size hashes and positions.  Raw input,
 // tool output, cache keys, and credentials never leave the request path.
@@ -27,7 +19,7 @@ export class LineageStore {
 
   constructor(private readonly capacity = 256, private readonly ttlMs = 600_000) {}
 
-  prepare(input: unknown[], scopeParts: unknown[] | null, effort: Effort) {
+  prepare(input: unknown[], scopeParts: unknown[] | null, effort: Effort, rules: HistoryRules = openaiWire) {
     const now = Date.now();
     this.entries = this.entries.filter((entry) => {
       if (entry.expiresAt > now) return true;
@@ -39,7 +31,7 @@ export class LineageStore {
     const content: unknown[] = [];
     const explicit: ExplicitUpdate[] = [];
     for (const item of input) {
-      const selected = reasoningEffort(item);
+      const selected = rules.updateEffort(item);
       if (selected === null) content.push(item);
       else explicit.push({ at: content.length, effort: selected, item, fingerprint: hash(item) });
     }
@@ -50,7 +42,7 @@ export class LineageStore {
       // edited replay would silently inherit the old effort.
       entry.explicit.every((known) => explicit.some((update) => update.at === known.at && update.fingerprint === known.fingerprint)) &&
       explicit.every((update) => (update.at > entry.hashes.length || (update.at === entry.hashes.length && !entry.updates.some((known) => known.at === update.at))) || entry.explicit.some((known) => known.at === update.at && known.fingerprint === update.fingerprint) ||
-        entry.updates.some((known) => known.at === update.at && hash({ type: CONFIGURATION_UPDATE, reasoning: { effort: known.effort } }) === update.fingerprint)),
+        entry.updates.some((known) => known.at === update.at && hash(rules.makeUpdate(known.effort)) === update.fingerprint)),
     );
     const prior = candidates.sort((a, b) => b.hashes.length - a.hashes.length)[0];
     const exact = prior !== undefined && prior.hashes.length === hashes.length;
@@ -68,8 +60,8 @@ export class LineageStore {
     let lastToolOutput = -1;
     for (let index = firstNew; index < content.length; index++) {
       const item = content[index];
-      if (isRecord(item) && (item.type === "message" || item.type === undefined) && item.role === "user") nextUser = index;
-      if (isRecord(item) && (item.type === "function_call_output" || item.type === "custom_tool_call_output")) lastToolOutput = index;
+      if (rules.isUserMessage(item)) nextUser = index;
+      if (rules.isToolOutput(item)) lastToolOutput = index;
     }
     // There is no subsequent user turn in a tool continuation. Put the update
     // after the tool result so it applies to the resumed assistant generation.
@@ -103,7 +95,7 @@ export class LineageStore {
       // Explicit updates retain their original position. A conflicting update
       // at the selected boundary is reported as unsafe instead of emitting an
       // adjacent pair whose effective effort would be the caller's value.
-      for (const update of byPosition.get(at) ?? []) output.push({ type: CONFIGURATION_UPDATE, reasoning: { effort: update.effort } });
+      for (const update of byPosition.get(at) ?? []) output.push(rules.makeUpdate(update.effort));
       for (const update of explicitByPosition.get(at) ?? []) output.push(update.item);
       if (at < content.length) output.push(content[at]);
     }

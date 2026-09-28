@@ -1,8 +1,8 @@
 # Working on this repo
 
-This project provides both a standalone local Responses API proxy and an
-in-process OpenCode plugin. Jev selects reasoning effort; a shared upstream
-runs the requested GPT-6 model. `README.md` covers setup for both paths,
+This project provides a standalone local Responses/Messages API proxy and an
+in-process OpenCode plugin. Jev selects reasoning effort for GPT-6 or four
+supported Claude models. `README.md` covers setup for both paths,
 `docs/behavior.md` their wire behavior, and `examples/opencode.jsonc` the
 plugin configuration.
 
@@ -29,7 +29,7 @@ external services.
 
 ## Behavior to preserve
 
-- `src/models.ts` and `src/rewrite.ts`: Pin the outbound model to the resolved
+- `src/models.ts`, `src/wire*.ts`, and `src/rewrite.ts`: Pin the outbound model to the resolved
   request profile. Keep request-level `reasoning.effort` at the profile default
   or validated `BASE_EFFORT` override, preserve historical reasoning updates in
   their original positions, and insert Jev's selected update before the next user
@@ -37,7 +37,10 @@ external services.
   (never adjacent to another update). This follows OpenAI's reasoning
   continuation guidance and preserves an eligible prefix, not a guaranteed cache
   hit; the reported response effort is not the selected effort. Usage observation
-  must not alter streaming bytes or backpressure.
+  must not alter streaming bytes or backpressure. On Anthropic, keep top-level
+  `output_config.effort` fixed and insert an effort-only system message before
+  the newest user message, including tool-result-only user turns; pin thinking
+  to adaptive and preserve historical updates.
 - `src/validate.ts` and `src/server.ts`: Reject unsupported modes, truncation,
   and input shapes with a local 400 before calling Jev or the upstream.
 - `src/jev.ts` and `src/server.ts`: Jev timeout or failure may fall back to a
