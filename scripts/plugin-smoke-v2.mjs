@@ -63,16 +63,22 @@ try {
     HTTPS_PROXY: `http://127.0.0.1:${fake.port}`, HTTP_PROXY: `http://127.0.0.1:${fake.port}`,
     NODE_EXTRA_CA_CERTS: fake.cert, SSL_CERT_FILE: fake.cert,
     NPM_CONFIG_REGISTRY: fakeNpm.url, npm_config_registry: fakeNpm.url, BUN_CONFIG_REGISTRY: fakeNpm.url,
-    SMOKE_UPSTREAM_KEY: "fake-upstream-key", SMOKE_USER_KEY: "fake-user-key", SMOKE_ANTHROPIC_KEY: "fake-anthropic-key",
+    SMOKE_UPSTREAM_KEY: "fake-upstream-key", OPENAI_API_KEY: "fake-user-key", SMOKE_ANTHROPIC_KEY: "fake-anthropic-key",
     NO_PROXY: "127.0.0.1,localhost", no_proxy: "127.0.0.1,localhost",
     PATH: process.env.PATH, LANG: "C", TERM: "dumb",
   };
-  const plugins = [{ package: `${installed.name}@${installed.version}`, options: { jevApiKey: `{file:${jevKeyFile}}`, upstreamBaseURL: `http://127.0.0.1:${upstreamPort}/v1`, upstreamApiKey: "{env:SMOKE_UPSTREAM_KEY}", anthropicUpstreamBaseURL: `http://127.0.0.1:${anthropicPort}/v1`, anthropicUpstreamApiKey: "{env:SMOKE_ANTHROPIC_KEY}", decisionsLogPath } }];
+  const plugins = [{ package: `${installed.name}@${installed.version}`, options: { jevApiKey: `{file:${jevKeyFile}}`, wrap: { openai: ["gw/gpt-6-astra", "gw/gpt-6-luna", ...(VERSION === "2.0.4" ? [] : ["openai/gpt-6-sol"])], anthropic: ["claudegw/claude-opus-5-5"] }, decisionsLogPath } }];
+  const providers = {
+    "jev-router": { settings: { transport: "http" } },
+    gw: { package: "@opencode/ai/providers/openai/responses", settings: { baseURL: `http://127.0.0.1:${upstreamPort}/v1`, apiKey: "{env:SMOKE_UPSTREAM_KEY}" }, models: Object.fromEntries(["gpt-6-astra", "gpt-6-luna"].map((id) => [id, { name: id, limit: { context: 200000, output: 32000 } }])) },
+    openai: { package: "@opencode/ai/providers/openai/responses", settings: { baseURL: `http://127.0.0.1:${upstreamPort}/v1` }, models: { "gpt-6-sol": { name: "Sol", limit: { context: 200000, output: 32000 } } } },
+    claudegw: { package: "@opencode/ai/providers/anthropic", settings: { baseURL: `http://127.0.0.1:${anthropicPort}/v1`, apiKey: "{env:SMOKE_ANTHROPIC_KEY}" }, models: { "claude-opus-5-5": { name: "Opus", limit: { context: 200000, output: 32000 } } } },
+  };
 
   async function opencodeRun(model, config = {}) {
-    await writeFile(join(dirs.project, "opencode.json"), JSON.stringify({ plugins, autoupdate: false, share: "disabled", ...config }, null, 2));
+    await writeFile(join(dirs.project, "opencode.json"), JSON.stringify({ plugins, providers, autoupdate: false, share: "disabled", ...config }, null, 2));
     const before = observed.upstreamCount ?? 0;
-    child = spawn(opencode, ["run", "--standalone", "--format", "json", "--model", `jev-router/${model}`, "Reply with smoke."], { cwd: dirs.project, env, stdio: ["ignore", "pipe", "pipe"] });
+    child = spawn(opencode, ["run", "--standalone", "--format", "json", "--model", model.includes("/") ? model : `jev-router/${model}`, "Reply with smoke."], { cwd: dirs.project, env, stdio: ["ignore", "pipe", "pipe"] });
     let output = "";
     child.stdout.on("data", (chunk) => { output += chunk; });
     child.stderr.on("data", (chunk) => { output += chunk; });
@@ -94,28 +100,35 @@ try {
   assert.match(observed.jev.requestLine, /^POST /);
   assert.match(observed.jev.authorization ?? "", /fake-jev-key/, "the {file:} Jev key option was not resolved");
   assert.equal(observed.jev.body.questions.effort.type, "choice");
+  const primary = requests.filter((request) => request.body.input?.some((item) => item.type === "configuration_update"));
+  assert.ok(primary.length > 0, "no primary request received a Jev update");
+  assert.equal((await readFile(decisionsLogPath, "utf8")).trim().split("\n").length, primary.length, "title requests must not log decisions");
   for (const request of requests) {
     assert.equal(request.method, "POST");
     assert.equal(request.url, "/v1/responses");
     assert.equal(request.body.model, "gpt-6-astra");
-    assert.deepEqual(request.body.reasoning, { effort: "medium" });
-    assert.equal(request.body.input.at(-2)?.type, "configuration_update");
-    assert.equal(request.body.input.at(-2)?.reasoning?.effort, "high");
+    if (primary.includes(request)) {
+      assert.deepEqual(request.body.reasoning, { effort: "medium" });
+      assert.equal(request.body.input.at(-2)?.type, "configuration_update");
+      assert.equal(request.body.input.at(-2)?.reasoning?.effort, "high");
+    } else assert.ok(!request.body.input?.some((item) => item.type === "configuration_update"));
     assert.equal(request.headers.authorization, "Bearer fake-upstream-key");
   }
 
-  // User provider config overlays the plugin's settings; routing still applies.
-  const overridden = await opencodeRun("gpt-6-luna", { providers: { "jev-router": { settings: { apiKey: "{env:SMOKE_USER_KEY}" } } } });
-  for (const request of overridden) {
-    assert.equal(request.body.model, "gpt-6-luna");
-    assert.equal(request.headers.authorization, "Bearer fake-user-key");
-    assert.equal(request.body.input.at(-2)?.reasoning?.effort, "high");
+  // The built-in provider supplies its integration credential, without an alias key.
+  if (VERSION !== "2.0.4") {
+    const overridden = await opencodeRun("gpt-6-sol");
+    for (const request of overridden) {
+      assert.equal(request.body.model, "gpt-6-sol");
+      assert.equal(request.headers.authorization, "Bearer fake-user-key");
+      if (request.body.input?.some((item) => item.type === "configuration_update")) assert.equal(request.body.input.at(-2)?.reasoning?.effort, "high");
+    }
   }
 
   // V2 also normalizes the legacy tuple config and routes the same way.
-  for (const request of await opencodeRun("gpt-6-sol", { plugins: undefined, plugin: [[plugins[0].package, plugins[0].options]] })) {
-    assert.equal(request.body.model, "gpt-6-sol");
-    assert.equal(request.body.input.at(-2)?.reasoning?.effort, "high");
+  for (const request of await opencodeRun("gpt-6-luna", { plugins: undefined, plugin: [[plugins[0].package, plugins[0].options]] })) {
+    assert.equal(request.body.model, "gpt-6-luna");
+    if (request.body.input?.some((item) => item.type === "configuration_update")) assert.equal(request.body.input.at(-2)?.reasoning?.effort, "high");
   }
 
   await opencodeRun("claude-opus-5-5");
@@ -126,10 +139,16 @@ try {
   assert.match(observed.anthropic?.headers["anthropic-beta"] ?? "", /mid-conversation-output-config/);
   assert.ok(observed.anthropic?.body.messages.some((message) => message.role === "system" && message.output_config?.effort === "high"));
 
+  const beforeDirect = { jev: observed.jevCount, decisions: (await readFile(decisionsLogPath, "utf8")).trim().split("\n").length };
+  const direct = await opencodeRun("gw/gpt-6-astra");
+  assert.ok(direct.length > 0 && direct.every((request) => !request.body.input?.some((item) => item.type === "configuration_update")));
+  assert.equal(observed.jevCount, beforeDirect.jev, "the source model must not call Jev");
+  assert.equal((await readFile(decisionsLogPath, "utf8")).trim().split("\n").length, beforeDirect.decisions);
+
   assert.ok(observed.registryRequests?.includes(installed.name), "OpenCode did not install the plugin from the fake registry");
   assert.equal(observed.blocked, undefined, `blocked non-fake outbound hosts: ${observed.blocked}`);
   const decisions = (await readFile(decisionsLogPath, "utf8")).trim().split("\n");
-  assert.equal(decisions.length, observed.upstreamCount + observed.anthropicCount, "each request should produce one decision");
+  assert.ok(decisions.length > 0 && decisions.length < observed.upstreamCount + observed.anthropicCount, "only wrapped primary requests should produce decisions");
   const events = decisions.map((line) => JSON.parse(line));
   assert.equal(new Set(events.map((event) => event.request_id)).size, events.length);
   for (const decision of events) {

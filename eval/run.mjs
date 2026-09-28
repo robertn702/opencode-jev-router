@@ -71,9 +71,8 @@ try {
     $schema: "https://opencode.ai/config.json",
     plugin: [[containerImage ? "/router/dist/plugin.js" : join(root, "dist/plugin.js"), {
       ...(arm === "jev" ? { jevApiKey: "{env:JEV_API_KEY}", jevBaseUrl: process.env.JEV_BASE_URL ?? "https://ai-gateway.vercel.sh/typesafe", maxRetries: 3, fallbackMode: "error", jevTimeoutMs: 10_000 } : { fixedEffort: arm }),
-      upstreamBaseURL: process.env.JEV_ROUTER_UPSTREAM_BASE_URL ?? "http://127.0.0.1:8317/v1",
-      upstreamApiKey: "{env:CLIPROXY_KEY}", decisionsLogPath: join(dir, "decisions.jsonl"),
-    }]], model: `jev-router/${model}`,
+      wrap: { openai: [`cliproxy/${model}`] }, decisionsLogPath: join(dir, "decisions.jsonl"),
+    }]], providers: { cliproxy: { package: "@opencode/ai/providers/openai/responses", settings: { baseURL: process.env.JEV_ROUTER_UPSTREAM_BASE_URL ?? "http://127.0.0.1:8317/v1", apiKey: "{env:CLIPROXY_KEY}" }, models: { [model]: { name: model } } } }, model: `jev-router/${model}`,
   };
   await save("opencode.json", `${JSON.stringify(config, null, 2)}\n`);
   result.prepared = true;
