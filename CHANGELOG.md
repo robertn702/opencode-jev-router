@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+- **Breaking:** OpenCode V1 plugin support is removed. The default export has
+  `id`/`setup()` but no `server()`; the `./server` package export is removed.
+  OpenCode V2 2.0.4 is the minimum supported version (tested with 2.0.18).
+  0.5.x is the last V1-compatible release and receives no further fixes. V1
+  users can pin `@robertn702/opencode-jev-router@0.5` or use the standalone proxy.
+
 ## 0.5.0
 
 - **Breaking:** the Jev classifier credential is `JEV_API_KEY` and its endpoint
@@ -24,7 +32,7 @@
   registers `jev-router` through a provider transform on the native OpenAI
   Responses runtime and routes requests with provider-scoped HTTP hooks. Options,
   models, and decision events are unchanged. V2 users can use the object form of
-  `plugins` (`examples/opencode-v2.jsonc`); the V1 `plugin` tuple keeps working
+  `plugins` (the former V2 example); the V1 `plugin` tuple keeps working
   in both. Tested with OpenCode 1.18.32 and 2.0.18.
 - The plugin default export is now an object, not a function. OpenCode loads
   both forms; code that called the export directly should call `.server()`.

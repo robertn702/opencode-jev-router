@@ -27,9 +27,10 @@ let child;
 try {
   const tarball = process.argv[2] ?? join(temp, JSON.parse(run("npm", ["--silent", "pack", "--json", "--pack-destination", temp]))[0].filename);
   const paths = run("tar", ["-tzf", tarball]).trim().split("\n").map((path) => path.replace(/^package\//, ""));
-  for (const required of ["dist/index.js", "README.md", "LICENSE", "docs/cache-validation.md", "examples/opencode.jsonc", "examples/opencode-v2.jsonc", "dist/plugin.js", "dist/plugin-v1.js", "dist/plugin-v2.js", "dist/plugin-runtime.js"]) {
+  for (const required of ["dist/index.js", "README.md", "LICENSE", "docs/cache-validation.md", "examples/opencode.jsonc", "dist/plugin.js", "dist/plugin-v2.js", "dist/plugin-runtime.js"]) {
     assert.ok(paths.includes(required), `package is missing ${required}`);
   }
+  assert.ok(!paths.includes("dist/plugin-v1.js"), "package still includes the V1 adapter");
   assert.ok(paths.every((path) =>
     !path.startsWith("test/") && !path.startsWith("src/") && !path.startsWith("scripts/") &&
     !path.startsWith("dist/test/") && !path.endsWith(".ts")
@@ -60,6 +61,8 @@ try {
   }
   assert.ok(healthy, `installed CLI did not start and serve /health:\n${output}`);
   const installed = JSON.parse(await readFile(join(temp, "node_modules", "@robertn702", "opencode-jev-router", "package.json"), "utf8"));
+  assert.ok(!("@opencode/plugin" in (installed.dependencies ?? {})), "OpenCode SDK must not be a production dependency");
+  assert.ok(!("@opencode/plugin" in (installed.peerDependencies ?? {})), "OpenCode SDK must not be a peer dependency");
   console.log(`Packed and ran ${installed.name}@${installed.version} with production dependencies only.`);
 } finally {
   if (child && child.exitCode === null) {

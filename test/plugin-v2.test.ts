@@ -1,11 +1,13 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { createServer } from "node:http";
 
 import plugin from "../src/plugin.js";
-import type { V2Context, V2HttpRequest, V2HttpResponse, V2ProviderEditor } from "../src/plugin-v2.js";
+import type { Plugin } from "@opencode/plugin";
+import type { ProviderEditor } from "@opencode/plugin/promise/provider";
+import type { SessionHttpRequest, SessionHttpResponse } from "@opencode/plugin/promise/session";
 
 const originalFetch = globalThis.fetch;
 const request = {
@@ -22,13 +24,13 @@ const isJev = (input: RequestInfo | URL) => (input instanceof Request ? input.ur
 
 /** A minimal OpenCode V2 host: records registrations and replays a native HTTP exchange through them. */
 async function host(options: Record<string, unknown>) {
-  const added: Parameters<V2ProviderEditor["add"]>[0][] = [];
-  const hooks: { request?: (event: V2HttpRequest) => Promise<void> | void; response?: (event: V2HttpResponse) => Promise<void> | void } = {};
+  const added: Parameters<ProviderEditor["add"]>[0][] = [];
+  const hooks: { request?: (event: SessionHttpRequest) => Promise<void> | void; response?: (event: SessionHttpResponse) => Promise<void> | void } = {};
   const scopedHooks = new Map<string, typeof hooks>();
   const scopes: string[] = [];
-  const ctx: V2Context = {
+  const ctx = {
     options,
-    provider: { async transform(callback) { callback({ add: (input) => added.push(input) }); return {}; } },
+    provider: { async transform(callback: (editor: ProviderEditor) => void) { callback({ add: (input: Parameters<ProviderEditor["add"]>[0]) => { added.push(input); } } as unknown as ProviderEditor); return {}; } },
     session: {
       async hook(name: string, callback: (event: never) => Promise<void> | void, scope: { providerID: string }) {
         scopes.push(scope.providerID);
@@ -40,17 +42,17 @@ async function host(options: Record<string, unknown>) {
         return {};
       },
     },
-  };
+  } as unknown as Plugin.Context;
   const cleanup = await plugin.setup(ctx);
   /** Mirrors OpenCode: run the request hook, fetch the (possibly replaced) Request, then run the response hook. */
   const exchange = async (body: unknown, init: { signal?: AbortSignal; url?: string; sessionID?: string; headers?: Record<string, string> } = {}) => {
-    const event: V2HttpRequest = {
+    const event = {
       sessionID: init.sessionID ?? "ses_v2test", kind: "primary",
       request: new Request(init.url ?? upstreamURL, { method: "POST", headers: { authorization: "Bearer resolved", "content-type": "application/json", ...init.headers }, body: JSON.stringify(body), signal: init.signal }),
-    };
+    } as SessionHttpRequest;
     const selected = scopedHooks.get("jev-router")!;
     await selected.request!(event);
-    const response: V2HttpResponse = { sessionID: event.sessionID, kind: event.kind, request: event.request, response: await fetch(event.request) };
+    const response = { sessionID: event.sessionID, kind: event.kind, request: event.request, response: await fetch(event.request) } as SessionHttpResponse;
     await selected.response!(response);
     return { sent: event.request, response: response.response };
   };
@@ -69,10 +71,10 @@ const decisions = async (path: string) => {
 afterEach(() => { globalThis.fetch = originalFetch; vi.restoreAllMocks(); });
 
 describe("jev-router OpenCode V2 plugin", () => {
-  it("exposes one stable V2 definition beside the V1 server entrypoint", () => {
+  it("exposes only the V2 entrypoint", () => {
     expect(plugin.id).toBe("jev-router");
     expect(typeof plugin.setup).toBe("function");
-    expect(typeof plugin.server).toBe("function");
+    expect(plugin).not.toHaveProperty("server");
   });
 
   it("registers the provider, native Responses package, HTTP transport, and three model profiles", async () => {
@@ -230,6 +232,9 @@ describe("jev-router OpenCode V2 plugin", () => {
 
   it.each([
     [null, "request.model"],
+    [1, "request.model"],
+    [[], "request.model"],
+    ["request", "request.model"],
     [{ ...request, model: "gpt-5" }, "request.model"],
     [{ ...request, truncation: "auto" }, "truncation"],
     [{ ...request, reasoning: { mode: "pro" } }, "reasoning.mode"],
@@ -259,6 +264,14 @@ describe("jev-router OpenCode V2 plugin", () => {
     await expect(exchange(request)).rejects.toThrow("request_too_large (413)");
     expect(fetcher).not.toHaveBeenCalled();
     cleanup();
+  });
+
+  it("enforces declared body limits without classifying", async () => {
+    const fetcher = vi.fn(); globalThis.fetch = fetcher as typeof fetch;
+    const { hooks, cleanup } = await host({ jevApiKey: "jev", maxRequestBytes: 2, ...upstreamOptions });
+    const event = { sessionID: "ses_v2test", kind: "primary", request: new Request(upstreamURL, { method: "POST", headers: { "content-length": "999" }, body: "{}" }) } as SessionHttpRequest;
+    await expect(hooks.request!(event)).rejects.toThrow("request_too_large (413)");
+    expect(fetcher).not.toHaveBeenCalled(); cleanup();
   });
 
   it("falls back to a validated effort when Jev times out", async () => withLog(async (path) => {
@@ -323,6 +336,22 @@ describe("jev-router OpenCode V2 plugin", () => {
     expect(JSON.parse((await decisions(path))[0]!)).toMatchObject({ effort: "high", outcome: "failed" });
     cleanup();
   }));
+
+  it("preserves provider headers while dropping internal and hop-by-hop headers at a header timeout", async () => {
+    let received: Headers | undefined;
+    globalThis.fetch = vi.fn((input: RequestInfo | URL) => {
+      if (isJev(input)) return Promise.resolve(jevAnswer("high"));
+      received = (input as Request).headers;
+      return new Promise<Response>((_resolve, reject) => (input as Request).signal.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError"))));
+    }) as typeof fetch;
+    const { exchange, cleanup } = await host({ jevApiKey: "jev", upstreamHeaderTimeoutMs: 5, ...upstreamOptions });
+    await expect(exchange(request, { headers: { "openai-project": "project", "openai-organization": "org", "x-jev-session-id": "ses_secret", "x-opencode-session-id": "private", connection: "x-hop", "x-hop": "no", "x-random": "kept" } })).rejects.toThrow();
+    expect(received!.get("openai-project")).toBe("project");
+    expect(received!.get("openai-organization")).toBe("org");
+    expect(received!.get("x-random")).toBe("kept");
+    for (const header of ["x-jev-session-id", "x-opencode-session-id", "connection", "x-hop"]) expect(received!.get(header)).toBeNull();
+    cleanup();
+  });
 
   it("passes streaming bytes through incrementally and cancels upstream when the consumer cancels", async () => {
     let upstreamCancelled = false; let push!: (value: Uint8Array) => void;
@@ -399,7 +428,7 @@ describe("jev-router OpenCode V2 plugin", () => {
   it("ignores responses for requests it did not route", async () => {
     const { hooks, cleanup } = await host({ jevApiKey: "jev", ...upstreamOptions });
     const original = new Response("untouched");
-    const event: V2HttpResponse = { sessionID: "ses_other", kind: "primary", request: new Request(upstreamURL), response: original };
+    const event = { sessionID: "ses_other", kind: "primary", request: new Request(upstreamURL), response: original } as SessionHttpResponse;
     await hooks.response!(event);
     expect(event.response).toBe(original);
     cleanup();
@@ -409,11 +438,11 @@ describe("jev-router OpenCode V2 plugin", () => {
     let upstreamCancelled = false;
     globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => isJev(input) ? jevAnswer("high") : new Response(new ReadableStream({ cancel() { upstreamCancelled = true; } }), { headers: { "content-type": "text/event-stream" } })) as typeof fetch;
     const { hooks, cleanup } = await host({ jevApiKey: "jev", maxInFlight: 1, upstreamHeaderTimeoutMs: 5, decisionsLogPath: path, ...upstreamOptions });
-    const event: V2HttpRequest = { sessionID: "ses_v2test", kind: "primary", request: new Request(upstreamURL, { method: "POST", body: JSON.stringify(request) }) };
+    const event = { sessionID: "ses_v2test", kind: "primary", request: new Request(upstreamURL, { method: "POST", body: JSON.stringify(request) }) } as SessionHttpRequest;
     await hooks.request!(event);
     const late = await fetch(event.request);
     await new Promise((resolve) => setTimeout(resolve, 20));
-    await expect((async () => hooks.response!({ sessionID: event.sessionID, kind: event.kind, request: event.request, response: late }))()).rejects.toThrow("upstream_timeout (504)");
+    await expect((async () => hooks.response!({ ...event, response: late } as SessionHttpResponse))()).rejects.toThrow("upstream_timeout (504)");
     expect(upstreamCancelled).toBe(true);
     const lines = await decisions(path);
     expect(lines).toHaveLength(1);
@@ -431,7 +460,7 @@ describe("jev-router OpenCode V2 plugin", () => {
     const { hooks, cleanup, exchange } = await host({ jevApiKey: "jev", decisionsLogPath: path, ...upstreamOptions });
     await exchange(request);
     // A second exchange whose native fetch never produces a response event.
-    const pending: V2HttpRequest = { sessionID: "ses_v2test", kind: "primary", request: new Request(upstreamURL, { method: "POST", body: JSON.stringify(request) }) };
+    const pending = { sessionID: "ses_v2test", kind: "primary", request: new Request(upstreamURL, { method: "POST", body: JSON.stringify(request) }) } as SessionHttpRequest;
     await hooks.request!(pending);
     cleanup();
     expect(aborted).toBe(1);
@@ -439,5 +468,102 @@ describe("jev-router OpenCode V2 plugin", () => {
     await vi.waitFor(async () => expect((await readFile(path, "utf8")).trim().split("\n")).toHaveLength(2));
     expect((await readFile(path, "utf8")).trim().split("\n").map((line) => JSON.parse(line).outcome)).toEqual(["failed", "failed"]);
     await expect(exchange(request)).rejects.toThrow("unavailable (503)");
+  }));
+
+  it("routes fixed effort without Jev and logs usage after downstream reads", async () => withLog(async (path) => {
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      expect(isJev(input)).toBe(false);
+      const body = await (input as Request).json();
+      expect(body.reasoning).toEqual({ effort: "medium" });
+      expect(body.input[0]).toEqual({ type: "configuration_update", reasoning: { effort: "high" } });
+      return new Response(JSON.stringify({ status: "completed", usage: { input_tokens: 3, output_tokens: 2 } }), { headers: { "content-type": "application/json" } });
+    }) as typeof fetch;
+    const { exchange, cleanup } = await host({ fixedEffort: "high", decisionsLogPath: path, ...upstreamOptions });
+    const { response } = await exchange(request);
+    expect(await readFile(path, "utf8").catch(() => "")).toBe("");
+    await response.text();
+    expect(JSON.parse((await decisions(path))[0]!)).toMatchObject({ effort: "high", jev_latency_ms: 0, fallback: null, input_tokens: 3, output_tokens: 2 });
+    cleanup();
+  }));
+
+  it("isolates Anthropic lineage by key, beta, and version", async () => withLog(async (path) => {
+    globalThis.fetch = vi.fn(async () => new Response(JSON.stringify({ type: "message", stop_reason: "end_turn", usage: { input_tokens: 1, output_tokens: 1 } }), { headers: { "content-type": "application/json" } })) as typeof fetch;
+    const { exchange, cleanup } = await host({ fixedEffort: "high", decisionsLogPath: path, ...upstreamOptions, anthropicUpstreamBaseURL: "https://upstream.test/v1" });
+    const first = { role: "user", content: "first" };
+    const send = async (key: string, messages: unknown[], headers: Record<string, string> = {}) => {
+      const { response } = await exchange({ model: "claude-opus-5-5", messages }, { url: "https://upstream.test/v1/messages", headers: { "x-api-key": key, authorization: "Bearer shared", ...headers } });
+      await response.text();
+    };
+    await send("tenant-a", [first]);
+    const history = [first, { role: "assistant", content: "done" }, { role: "user", content: "next" }];
+    await send("tenant-a", history);
+    await send("tenant-b", history);
+    await send("tenant-a", history, { "anthropic-beta": "extra" });
+    await send("tenant-a", history, { "anthropic-version": "2024-01-01" });
+    await vi.waitFor(async () => expect((await readFile(path, "utf8")).trim().split("\n")).toHaveLength(5));
+    expect((await readFile(path, "utf8")).trim().split("\n").map((line) => JSON.parse(line).lineage_status)).toEqual(["new", "preserved", "new", "new", "new"]);
+    cleanup();
+  }));
+
+  it("rejects missing cross-origin Anthropic key and filters unrelated headers", async () => {
+    const fetcher = vi.fn(async () => new Response("{}", { headers: { "content-type": "application/json" } })); globalThis.fetch = fetcher as typeof fetch;
+    const body = { model: "claude-opus-5-5", messages: [{ role: "user", content: "hi" }] };
+    const without = await host({ fixedEffort: "high", ...upstreamOptions, anthropicUpstreamBaseURL: "https://api.anthropic.com/v1" });
+    await expect(without.exchange(body, { url: `${upstreamOptions.upstreamBaseURL}/messages` })).rejects.toThrow("anthropicUpstreamApiKey is required");
+    expect(fetcher).not.toHaveBeenCalled(); without.cleanup();
+    const withKey = await host({ fixedEffort: "high", ...upstreamOptions, anthropicUpstreamApiKey: "anthropic-key" });
+    const { sent } = await withKey.exchange(body, { url: `${upstreamOptions.upstreamBaseURL}/messages`, headers: { authorization: "Bearer openai-key", "x-gateway-secret": "s", cookie: "c=1", "x-api-key": "openai-key", "anthropic-version": "2023-06-01", "user-agent": "ai-sdk" } });
+    expect(sent.url).toBe("https://api.anthropic.com/v1/messages");
+    expect([...sent.headers.keys()].sort()).toEqual(["anthropic-beta", "anthropic-version", "content-type", "user-agent", "x-api-key"]);
+    expect(sent.headers.get("x-api-key")).toBe("anthropic-key"); withKey.cleanup();
+  });
+
+  it("discards failed attempts before routing a different-effort retry", async () => {
+    let effort = "high"; let attempts = 0;
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      if (isJev(input)) return jevAnswer(effort);
+      if (++attempts === 1) throw new Error("offline");
+      return new Response("{}", { headers: { "content-type": "application/json" } });
+    }) as typeof fetch;
+    const { exchange, cleanup } = await host({ jevApiKey: "jev", ...upstreamOptions });
+    await expect(exchange(request)).rejects.toThrow();
+    effort = "low";
+    expect((await exchange(request)).response.status).toBe(200);
+    cleanup();
+  });
+
+  it("records one fallback failure without logging raw upstream errors", async () => withLog(async (path) => {
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      if (isJev(input)) return jevAnswer("invalid");
+      throw new Error("secret upstream error");
+    }) as typeof fetch;
+    const { exchange, cleanup } = await host({ jevApiKey: "jev", upstreamHeaderTimeoutMs: 5, decisionsLogPath: path, ...upstreamOptions });
+    await expect(exchange(request)).rejects.toThrow();
+    const lines = await decisions(path);
+    expect(lines).toHaveLength(1);
+    expect(JSON.parse(lines[0]!)).toMatchObject({ effort: "high", fallback: "jev_invalid_output", outcome: "failed" });
+    expect(lines[0]).not.toContain("secret upstream error"); cleanup();
+  }));
+
+  it("does not interrupt generation when decision logging fails", async () => withLog(async (path) => {
+    const blocked = join(path, "decisions.jsonl");
+    await mkdir(dirname(path), { recursive: true });
+    await writeFile(path, "not a directory");
+    const diagnostic = vi.spyOn(console, "error").mockImplementation(() => {});
+    globalThis.fetch = vi.fn(async () => new Response("{}", { headers: { "content-type": "application/json" } })) as typeof fetch;
+    const { exchange, cleanup } = await host({ fixedEffort: "high", decisionsLogPath: blocked, ...upstreamOptions });
+    expect(await (await exchange(request)).response.text()).toBe("{}");
+    await vi.waitFor(() => expect(diagnostic).toHaveBeenCalledWith('{"event":"decision_log_failed"}'));
+    cleanup();
+  }));
+
+  it("records a cancelled stream only once even if cancelled twice", async () => withLog(async (path) => {
+    globalThis.fetch = vi.fn(async () => new Response(new ReadableStream<Uint8Array>({ start(controller) { controller.enqueue(new TextEncoder().encode("chunk")); } }), { headers: { "content-type": "text/event-stream" } })) as typeof fetch;
+    const { exchange, cleanup } = await host({ fixedEffort: "high", decisionsLogPath: path, ...upstreamOptions });
+    const reader = (await exchange(request)).response.body!.getReader();
+    await reader.read(); await reader.cancel(); await reader.cancel();
+    const lines = await decisions(path);
+    expect(lines).toHaveLength(1);
+    expect(JSON.parse(lines[0]!).outcome).toBe("completed"); cleanup();
   }));
 });
