@@ -74,12 +74,6 @@ for all projects, or `opencode.json` in a project root:
     "wrap": { "openai": ["openai/gpt-6-astra"] },
     "decisionsLogPath": "/tmp/jev-decisions.jsonl"
   }}],
-  "providers": {
-    "openai": {
-      "package": "@opencode/ai/providers/openai/responses",
-      "models": { "gpt-6-astra": { "name": "GPT-6 Astra" } }
-    }
-  },
   "model": "jev-router/gpt-6-astra"
 }
 ```
@@ -87,8 +81,9 @@ for all projects, or `opencode.json` in a project root:
 - **Using a direct TypeSafe key?** Delete the `jevBaseUrl` line. A key only
   works with its own endpoint.
 - **Source auth:** `OPENAI_API_KEY` or an API key saved with `opencode auth login`
-  supplies the wrapped OpenAI model. The explicit package and model definition
-  keep the example usable when the offline model catalog lacks GPT-6.
+  supplies the wrapped OpenAI model. If your OpenCode catalog lacks the model
+  (for example, offline or with 2.0.4's built-ins), declare it under
+  `providers.openai.models` without replacing the built-in provider package.
 - **Using another gateway?** Define it as an OpenCode provider and wrap its
   model. For example, alongside the plugin config:
 
@@ -129,9 +124,11 @@ A copy of this config is in [`examples/opencode.jsonc`](examples/opencode.jsonc)
 
 The plugin registers `jev-router/<profile>` only for profiles listed in `wrap`.
 Use `"anthropic": ["anthropic/claude-opus-5-5"]` for Claude. The source
-model must use the native Anthropic Messages package; OpenAI sources must use
-`@opencode/ai/providers/openai/responses` (set `providers.openai.package`
-explicitly if your OpenCode version defaults to another package). Source models
+model must use `@opencode/ai/providers/anthropic`; OpenAI sources may use
+`@opencode/ai/providers/openai` (the built-in) or
+`@opencode/ai/providers/openai/responses`. Primary requests must use the
+corresponding `/messages` or `/responses` route; other paths fail locally.
+Source models
 remain untouched; aliases inherit source route, settings, headers, limits and
 cost, but have no manual effort variants.
 

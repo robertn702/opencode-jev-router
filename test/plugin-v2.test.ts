@@ -121,6 +121,29 @@ describe("V2 wrap aliases", () => {
     expect([...resolved.aliases.keys()]).toEqual(["gpt-6-astra"]); resolved.cleanup();
   });
 
+  it("accepts the built-in OpenAI package without changing its source model", async () => {
+    const source = sources();
+    source.get("gw")!.provider.package = "@opencode/ai/providers/openai";
+    const h = await host(base, source);
+    expect(h.aliases.get("gpt-6-astra")?.package).toBe("@opencode/ai/providers/openai");
+    globalThis.fetch = vi.fn(async () => new Response("{}")) as typeof fetch;
+    expect((await h.exchange()).request.url).toBe("https://a.test/v1/responses"); h.cleanup();
+  });
+
+  it("rejects primary non-generation routes without forwarding or classifying", async () => {
+    const fetcher = vi.fn(); globalThis.fetch = fetcher as typeof fetch;
+    const h = await host();
+    await expect(h.exchange(body, { url: "https://a.test/v1/chat/completions" })).rejects.toThrow("alias requires /responses");
+    expect(fetcher).not.toHaveBeenCalled(); h.cleanup();
+  });
+
+  it("passes a non-generation route through for auxiliary calls", async () => {
+    globalThis.fetch = vi.fn(async () => new Response("{}")) as typeof fetch;
+    const h = await host();
+    const sent = await h.exchange(body, { kind: "title", url: "https://a.test/v1/chat/completions" });
+    expect(sent.request.url).toBe("https://a.test/v1/chat/completions"); h.cleanup();
+  });
+
   it("reports the typo, not a duplicate of a valid profile, and rejects every alias", async () => {
     const h = await host({ ...base, wrap: { openai: ["gw/typo", "gw/gpt-6-astra"], anthropic: ["claude/claude-opus-5-5"] } });
     await expect(h.exchange()).rejects.toThrow("source model gw/typo not found");
@@ -199,7 +222,7 @@ describe("V2 wrap aliases", () => {
   it("leaves compaction requests untouched", async () => {
     globalThis.fetch = vi.fn(async () => new Response("{}")) as typeof fetch;
     const h = await host();
-    const compact = await h.exchange(body, { url: "https://a.test/v1/responses/compact" });
+    const compact = await h.exchange(body, { kind: "compaction", url: "https://a.test/v1/responses/compact" });
     expect(await compact.request.clone().json()).toEqual(body); h.cleanup();
   });
 

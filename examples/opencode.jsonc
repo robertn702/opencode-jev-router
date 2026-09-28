@@ -12,11 +12,6 @@
     // "decisionsLogPath": "/absolute/path/to/jev-decisions.jsonl"
   }}],
   // Use OPENAI_API_KEY or an API key from opencode auth login.
-  "providers": {
-    "openai": {
-      "package": "@opencode/ai/providers/openai/responses",
-      "models": { "gpt-6-astra": { "name": "GPT-6 Astra" } }
-    }
-  },
+  // If the catalog lacks Astra, add it under providers.openai.models.
   "model": "jev-router/gpt-6-astra"
 }
