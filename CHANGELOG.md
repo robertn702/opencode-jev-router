@@ -1,13 +1,21 @@
 # Changelog
 
-## Unreleased
+## 0.5.0
 
 - **Breaking:** the Jev classifier credential is `JEV_API_KEY` and its endpoint
   is `JEV_BASE_URL`, for both the proxy and the plugin's environment fallback.
   `JEV_ROUTER_API_KEY` and `JEV_ROUTER_BASE_URL` are rejected with an error
   naming the replacement. Other `JEV_ROUTER_*` router settings are unchanged.
-- Optional Claude Messages support uses per-model SDK selection under the single
-  `jev-router` provider in both OpenCode majors.
+- Claude support for Fable 5.1, Mythos 5.1, Opus 5.5 and Opus 5 through the
+  Anthropic Messages API. The top-level `output_config.effort` stays fixed and
+  Jev's selection is sent as an effort-only system message before the newest
+  user message, so the prompt cache prefix is preserved. The proxy adds
+  `POST /v1/messages` (`JEV_ROUTER_ANTHROPIC_UPSTREAM_*`); the plugin adds the
+  Claude models to `jev-router` when `anthropicUpstreamBaseURL` or
+  `anthropicUpstreamApiKey` is set.
+- `npm run cache:validate` also checks the Anthropic path (offline by default;
+  live mode is separately opted in).
+- Redirect responses keep their `Location` header.
 
 ## 0.4.0
 

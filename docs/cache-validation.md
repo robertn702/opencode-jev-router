@@ -64,8 +64,15 @@ For ongoing monitoring, query metadata-only decision logs by request correlation
 
 ## Scope of the cache guarantee
 
-The Anthropic Messages path is implemented but its live cache behavior is
-unmeasured. Its offline fake-upstream checks do not establish Anthropic cache reuse or live tool-continuation acceptance.
+The Anthropic Messages path is implemented but its live cache behavior against
+the Anthropic API is unmeasured. On 2026-09-28 the live Anthropic arm ran through
+a local Meridian 1.76.5 proxy (Claude Agent SDK, not the raw Messages API) with
+`claude-opus-5-5`: eight requests, all HTTP 200, with placement, prefix, beta
+header, and tool-result-only continuation checks passing. Meridian rebuilds each
+request through Claude Code and uses the top-level `output_config.effort` when
+present, so that run shows wire compatibility only: its cache counts are
+Meridian's, the top-level control still read the cache, and the selected
+mid-conversation effort is not applied there. Its offline fake-upstream checks do not establish Anthropic cache reuse or live tool-continuation acceptance.
 It measures prefix eligibility for one OpenAI Responses upstream, and
 the result depends on how that upstream accepts an effort change. Here it works
 because OpenAI exposes a mid-conversation reasoning change as a
