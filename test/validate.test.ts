@@ -1,9 +1,7 @@
 import { describe, expect, it } from "vitest";
 
-import {
-  UnsupportedInputError,
-  validateResponsesRequest as validate,
-} from "../src/validate.js";
+import { UnsupportedInputError } from "../src/wire.js";
+import { validateResponsesRequest as validate } from "../src/wire-openai.js";
 import { findModel } from "../src/models.js";
 
 function validateResponsesRequest(body: unknown) {

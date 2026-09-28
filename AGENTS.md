@@ -1,8 +1,8 @@
 # Working on this repo
 
 This project provides a standalone local Responses/Messages API proxy and an
-in-process OpenCode plugin. Jev selects reasoning effort for GPT-6 or four
-supported Claude models. `README.md` covers setup for both paths,
+in-process OpenCode plugin. Jev selects reasoning effort for supported OpenAI
+and Anthropic models. `README.md` covers setup for both paths,
 `docs/behavior.md` their wire behavior, and `examples/opencode.jsonc` the
 plugin configuration.
 
@@ -41,7 +41,7 @@ external services.
   `output_config.effort` fixed and insert an effort-only system message before
   the newest user message, including tool-result-only user turns; pin thinking
   to adaptive and preserve historical updates.
-- `src/validate.ts` and `src/server.ts`: Reject unsupported modes, truncation,
+- `src/wire*.ts` and `src/server.ts`: Reject unsupported modes, truncation,
   and input shapes with a local 400 before calling Jev or the upstream.
 - `src/jev.ts` and `src/server.ts`: Jev timeout or failure may fall back to a
   validated effort. Client disconnect must instead abort work without starting
