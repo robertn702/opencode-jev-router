@@ -16,7 +16,7 @@ export interface V2Context {
     hook(name: "http.response", callback: (event: V2HttpResponse) => Promise<void> | void, options: { providerID: string }): Promise<unknown>;
   };
 }
-export interface V2ProviderEditor { add(input: { info: V2ProviderInfo; models: readonly V2ModelInfo[] }): void; get?(providerID: string): unknown }
+export interface V2ProviderEditor { add(input: { info: V2ProviderInfo; models: readonly V2ModelInfo[] }): void }
 export interface V2ProviderInfo { id: string; name: string; activation: "auto" | "enabled" | "disabled"; package: string; settings?: Record<string, unknown> }
 export interface V2ModelInfo {
   id: string; modelID: string; providerID: string; name: string;
@@ -66,10 +66,7 @@ export async function setupV2(ctx: V2Context): Promise<() => void> {
     settings: { baseURL, ...(apiKey === undefined ? {} : { apiKey }), transport: "http" },
   };
   await ctx.provider.transform((editor) => editor.add({ info, models }));
-  let registerAnthropic = anthropicEnabled;
-  await ctx.provider.transform((editor) => {
-    registerAnthropic ||= editor.get?.(ANTHROPIC_PROVIDER_ID) !== undefined;
-    if (!registerAnthropic) return;
+  if (anthropicEnabled) await ctx.provider.transform((editor) => {
     const models = modelsFor("anthropic").map((profile): V2ModelInfo => ({
       id: profile.id, modelID: profile.id, providerID: ANTHROPIC_PROVIDER_ID, name: profile.name,
       capabilities: { tools: true, input: ["text", "image"], output: ["text"] },
@@ -86,7 +83,7 @@ export async function setupV2(ctx: V2Context): Promise<() => void> {
     try { exchange = await runtime.start(incoming, { session: valid(event.sessionID, SESSION), turnId: randomUUID() }); } catch (cause) { throw rejection(cause); }
     const headers = new Headers(exchange.headers);
     headers.delete("content-length");
-    const request = new Request(exchange.url, { method: "POST", headers, body: exchange.body, signal: exchange.signal });
+    const request = new Request(exchange.url, { method: "POST", headers, body: exchange.body, signal: exchange.signal, ...(new URL(exchange.url).pathname.endsWith("/messages") ? { redirect: "manual" as const } : {}) });
     incoming.signal.addEventListener("abort", () => exchange.cancel(), { once: true });
     exchanges.set(request, exchange);
     event.request = request;
@@ -98,7 +95,7 @@ export async function setupV2(ctx: V2Context): Promise<() => void> {
     exchanges.delete(event.request);
     try { event.response = exchange.respond(event.response); } catch (cause) { throw rejection(cause); }
   };
-  for (const providerID of registerAnthropic ? [PROVIDER_ID, ANTHROPIC_PROVIDER_ID] : [PROVIDER_ID]) {
+  for (const providerID of anthropicEnabled ? [PROVIDER_ID, ANTHROPIC_PROVIDER_ID] : [PROVIDER_ID]) {
     await ctx.session.hook("http.request", onRequest, { providerID });
     await ctx.session.hook("http.response", onResponse, { providerID });
   }

@@ -79,7 +79,8 @@ export class LineageStore {
       .filter((update) => update.at <= currentAt)
       .sort((a, b) => a.at - b.at)
       .at(-1)?.effort;
-    const currentInjected = !suppliedAtCurrent && !conflictingCallerUpdate && historyEffort !== effort;
+    const applied = suppliedAtCurrent || (!conflictingCallerUpdate && historyEffort === effort);
+    const currentInjected = !suppliedAtCurrent && !conflictingCallerUpdate && historyEffort !== effort && (rules.tailUpdate || nextUser >= 0 || exact && prior.currentAt < hashes.length);
     if (currentInjected) updates.push({ at: currentAt, effort });
     updates.sort((a, b) => a.at - b.at);
 
@@ -133,6 +134,7 @@ export class LineageStore {
       status,
       replayed,
       unsafe: conflictingCallerUpdate,
+      applied: applied || currentInjected,
       commit: (): void => {
         discard();
         if (scope === null || hashes.length > 20_000) return;

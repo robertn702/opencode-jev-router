@@ -129,6 +129,7 @@ export function buildJevState(input: unknown[]): JevState {
 
 export const openaiWire: WireAdapter = {
   provider: "openai", path: "responses",
+  tailUpdate: true,
   items: (body) => body.input as unknown[],
   validate: validateResponsesRequest, rewrite: rewriteResponsesRequest,
   updateEffort(item) {
@@ -139,6 +140,7 @@ export const openaiWire: WireAdapter = {
   isUserMessage: (item) => isRecord(item) && (item.type === "message" || item.type === undefined) && item.role === "user",
   isToolOutput: (item) => isRecord(item) && (item.type === "function_call_output" || item.type === "custom_tool_call_output"),
   cacheKey: (body) => typeof body.prompt_cache_key === "string" && body.prompt_cache_key.trim().length > 0 ? body.prompt_cache_key : null,
+  lineageKey: (body) => typeof body.prompt_cache_key === "string" && body.prompt_cache_key.length > 0 ? body.prompt_cache_key : null,
   scopeParts: (body) => [body.instructions ?? null, body.tools ?? null],
   jevState: (body) => buildJevState(body.input as unknown[]),
 };

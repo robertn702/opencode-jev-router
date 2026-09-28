@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { createServer } from "node:http";
 
 import plugin from "../src/plugin.js";
 import type { V2Context, V2HttpRequest, V2HttpResponse, V2ProviderEditor } from "../src/plugin-v2.js";
@@ -27,7 +28,7 @@ async function host(options: Record<string, unknown>) {
   const scopes: string[] = [];
   const ctx: V2Context = {
     options,
-    provider: { async transform(callback) { callback({ add: (input) => added.push(input), get: (id) => options.providers && (options.providers as Record<string, unknown>)[id] }); return {}; } },
+    provider: { async transform(callback) { callback({ add: (input) => added.push(input) }); return {}; } },
     session: {
       async hook(name: string, callback: (event: never) => Promise<void> | void, scope: { providerID: string }) {
         scopes.push(scope.providerID);
@@ -90,7 +91,7 @@ describe("jev-router OpenCode V2 plugin", () => {
     cleanup();
   });
 
-  it("registers native Anthropic Messages only when opted in or already configured and routes both hooks", async () => {
+  it("registers native Anthropic Messages only when opted in through plugin options and routes both hooks", async () => {
     const options = { fixedEffort: "high", ...upstreamOptions, anthropicUpstreamApiKey: "anthropic" };
     const { added, scopes, exchange, cleanup } = await host(options);
     expect(added).toHaveLength(2);
@@ -112,8 +113,59 @@ describe("jev-router OpenCode V2 plugin", () => {
     expect(globalThis.fetch).toHaveBeenCalledTimes(1);
     cleanup();
     const configured = await host({ fixedEffort: "high", ...upstreamOptions, providers: { "jev-router-anthropic": { settings: { apiKey: "user" } } } });
-    expect(configured.added).toHaveLength(2);
+    expect(configured.added).toHaveLength(1);
+    expect(configured.scopes).toEqual(["jev-router", "jev-router"]);
     configured.cleanup();
+    const byURL = await host({ fixedEffort: "high", ...upstreamOptions, anthropicUpstreamBaseURL: "https://api.anthropic.com/v1" });
+    expect(byURL.added).toHaveLength(2);
+    byURL.cleanup();
+  });
+
+  it("rejects both cross-provider model/route mismatches before fetching", async () => {
+    const fetcher = vi.fn(); globalThis.fetch = fetcher as typeof fetch;
+    const { exchange, cleanup } = await host({ fixedEffort: "high", ...upstreamOptions, anthropicUpstreamApiKey: "key" });
+    await expect(exchange({ model: "claude-opus-5-5", messages: [{ role: "user", content: "hi" }] })).rejects.toThrow("invalid_request (400)");
+    await expect(exchange(request, { url: "https://api.anthropic.com/v1/messages" })).rejects.toThrow("invalid_request (400)");
+    expect(fetcher).not.toHaveBeenCalled();
+    cleanup();
+  });
+
+  it("keeps provider headers separate and normalizes a blank Anthropic version", async () => {
+    const sent: Request[] = [];
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      sent.push(input as Request);
+      return new Response("{}", { headers: { "content-type": "application/json" } });
+    }) as typeof fetch;
+    const { exchange, cleanup } = await host({ fixedEffort: "high", ...upstreamOptions, anthropicUpstreamApiKey: "key" });
+    await (await exchange(request, { headers: { "x-api-key": "wrong", "anthropic-version": "  ", "anthropic-beta": "other", "anthropic-extra": "no" } })).response.text();
+    expect(sent[0]!.headers.get("x-api-key")).toBeNull();
+    expect([...sent[0]!.headers.keys()].filter((name) => name.startsWith("anthropic-"))).toEqual([]);
+    await (await exchange({ model: "claude-opus-5-5", messages: [{ role: "user", content: "hi" }] }, { url: "https://api.anthropic.com/v1/messages", headers: { "x-api-key": "tenant", "anthropic-version": "  ", "anthropic-beta": "other", "openai-project": "no", "openai-beta": "no", "openai-extra": "no" } })).response.text();
+    expect(sent[1]!.headers.get("authorization")).toBe("Bearer resolved");
+    expect(sent[1]!.headers.get("x-api-key")).toBe("tenant");
+    expect(sent[1]!.headers.get("anthropic-version")).toBe("2023-06-01");
+    expect(sent[1]!.headers.get("anthropic-beta")).toBe("other,mid-conversation-output-config-2026-07-01");
+    expect([...sent[1]!.headers.keys()].filter((name) => name.startsWith("openai-"))).toEqual([]);
+    cleanup();
+  });
+
+  it("sets manual redirect mode for Anthropic without changing OpenAI", async () => {
+    const leaked: string[] = [];
+    const target = createServer((req, res) => { leaked.push(String(req.headers["x-api-key"] ?? "")); res.end(); });
+    await new Promise<void>((resolve) => target.listen(0, "127.0.0.1", resolve));
+    const targetURL = `http://127.0.0.1:${(target.address() as { port: number }).port}/v1/messages`;
+    const upstream = createServer((_req, res) => { res.writeHead(307, { location: targetURL }); res.end(); });
+    await new Promise<void>((resolve) => upstream.listen(0, "127.0.0.1", resolve));
+    const { exchange, cleanup } = await host({ fixedEffort: "high", ...upstreamOptions, anthropicUpstreamApiKey: "key" });
+    try {
+      const anthropic = await exchange({ model: "claude-opus-5-5", messages: [{ role: "user", content: "hi" }] }, { url: `http://127.0.0.1:${(upstream.address() as { port: number }).port}/v1/messages`, headers: { "x-api-key": "secret" } });
+      expect(anthropic.sent.redirect).toBe("manual");
+      expect(anthropic.response.status).toBe(307);
+      expect(leaked).toEqual([]);
+      globalThis.fetch = vi.fn(async () => new Response("{}")) as typeof fetch;
+      const openai = await exchange(request);
+      expect(openai.sent.redirect).toBe("follow");
+    } finally { cleanup(); upstream.close(); target.close(); }
   });
 
   it("leaves an omitted upstream key to OpenCode credential resolution", async () => {
@@ -291,6 +343,30 @@ describe("jev-router OpenCode V2 plugin", () => {
     await (await exchange({ ...request, input: history })).response.body!.cancel();
     // The committed turn keeps its update in place; the new selection precedes the new user message.
     expect(bodies[1]!.input).toEqual([{ type: "configuration_update", reasoning: { effort: "high" } }, history[0], history[1], { type: "configuration_update", reasoning: { effort: "low" } }, history[2]]);
+    cleanup();
+  }));
+
+  it("commits Anthropic lineage on message_stop followed by consumer cancellation", async () => withLog(async (path) => {
+    const bodies: Record<string, unknown>[] = [];
+    let effort = "high";
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (isJev(input)) return jevAnswer(effort);
+      bodies.push(await new Request(input, init).json());
+      return new Response(new ReadableStream<Uint8Array>({ start(controller) { controller.enqueue(new TextEncoder().encode('event: message_stop\ndata: {"type":"message_stop"}\n\n')); } }), { headers: { "content-type": "text/event-stream" } });
+    }) as typeof fetch;
+    const { exchange, cleanup } = await host({ jevApiKey: "jev", decisionsLogPath: path, ...upstreamOptions, anthropicUpstreamApiKey: "key" });
+    const url = "https://api.anthropic.com/v1/messages";
+    const first = { role: "user", content: "first" };
+    const body = { model: "claude-opus-5-5", messages: [first], stream: true };
+    const response = (await exchange(body, { url, headers: { "x-api-key": "tenant" } })).response;
+    const reader = response.body!.getReader();
+    expect(new TextDecoder().decode((await reader.read()).value)).toContain("message_stop");
+    await reader.cancel();
+    expect(JSON.parse((await decisions(path))[0]!)).toMatchObject({ effort: "high", outcome: "completed" });
+    effort = "low";
+    const history = [first, { role: "assistant", content: "done" }, { role: "user", content: "next" }];
+    await (await exchange({ ...body, messages: history }, { url, headers: { "x-api-key": "tenant" } })).response.body!.cancel();
+    expect(bodies[1]!.messages).toEqual([{ role: "system", content: [], output_config: { effort: "high" } }, first, history[1], { role: "system", content: [], output_config: { effort: "low" } }, history[2]]);
     cleanup();
   }));
 

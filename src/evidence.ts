@@ -25,6 +25,7 @@ export interface Evidence {
   previous_effort: string | null;
   lineage_status: string | null;
   history_updates_replayed: number;
+  effort_applied?: false;
   model: string;
   effort: string;
   jev_latency_ms: number;
@@ -43,6 +44,7 @@ export function buildEvidence(parts: {
   previousEffort?: string | null;
   lineageStatus?: string;
   historyUpdatesReplayed?: number;
+  effortApplied?: boolean;
   outboundModel: unknown;
   outboundEffort: unknown;
   jevLatencyMs: number;
@@ -69,6 +71,7 @@ export function buildEvidence(parts: {
     previous_effort: parts.previousEffort ?? null,
     lineage_status: parts.lineageStatus ?? null,
     history_updates_replayed: parts.historyUpdatesReplayed ?? 0,
+    ...(parts.effortApplied === false ? { effort_applied: false as const } : {}),
     model: typeof parts.outboundModel === "string" ? parts.outboundModel : "",
     effort: typeof parts.outboundEffort === "string" ? parts.outboundEffort : "",
     jev_latency_ms: Number.isFinite(parts.jevLatencyMs)
@@ -101,6 +104,7 @@ export function formatDecisionEvent(evidence: Evidence, now = new Date()): strin
     previous_effort: evidence.previous_effort,
     lineage_status: evidence.lineage_status,
     history_updates_replayed: evidence.history_updates_replayed,
+    ...(evidence.effort_applied === false ? { effort_applied: false } : {}),
     model: evidence.model,
     effort: evidence.effort,
     jev_latency_ms: evidence.jev_latency_ms,

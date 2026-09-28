@@ -9,7 +9,7 @@ import { MODELS, supportsEffort, type Effort, type Provider } from "./models.js"
 import { ResponsesRouter, type PreparedRequest } from "./router.js";
 import { UsageObserver } from "./usage.js";
 import { resolveModel, validateRequest, wireFor, UnsupportedInputError } from "./wire.js";
-import { ANTHROPIC_VERSION, mergeAnthropicBeta } from "./wire-anthropic.js";
+import { anthropicVersion, mergeAnthropicBeta } from "./wire-anthropic.js";
 
 /** Options shared by the OpenCode V1 and V2 plugin entrypoints. */
 export type PluginOptions = ClassificationPolicyOptions & { jevTimeoutMs?: number; jevApiKey?: string; jevBaseUrl?: string; jevModel?: string; baseEffort?: Effort; fixedEffort?: Effort; maxRequestBytes?: number; maxInFlight?: number; upstreamHeaderTimeoutMs?: number; upstreamIdleTimeoutMs?: number; upstreamBaseURL?: string; upstreamApiKey?: string; anthropicUpstreamBaseURL?: string; anthropicUpstreamApiKey?: string; decisionsLogPath?: string };
@@ -145,16 +145,21 @@ export function createPluginRuntime(options: PluginOptions): PluginRuntime {
       validateRequest(body, model, provider);
       const record = body as Record<string, unknown>;
       const credential = provider === "anthropic" ? request.headers.get("x-api-key") ?? request.headers.get("authorization") : request.headers.get("authorization");
-      const cacheKey = wireFor(provider).cacheKey(record);
+      const wire = wireFor(provider);
+      const headers = buildPluginUpstreamRequestHeaders(request.headers, "");
+      for (const name of [...headers.keys()]) {
+        if (provider === "openai" ? name === "x-api-key" || name.startsWith("anthropic-") : name.startsWith("openai-")) headers.delete(name);
+      }
+      if (provider === "anthropic") {
+        headers.set("anthropic-version", anthropicVersion(headers.get("anthropic-version")));
+        headers.set("anthropic-beta", mergeAnthropicBeta(headers.get("anthropic-beta")));
+      }
+      const lineageKey = wire.lineageKey(record);
       const { session, turnId } = correlation;
-      prepared = await router.prepare(body, { provider, signal, session, turnId, cacheScope: hash(credential), scope: session || cacheKey ? [`${url.origin}${url.pathname.replace(/\/(responses|messages)$/, "")}`, model.id, options.baseEffort ?? model.defaultBaseEffort, hash(credential), session ?? "", cacheKey ?? "", ...wireFor(provider).scopeParts(record)] : null });
+      prepared = await router.prepare(body, { provider, signal, session, turnId, cacheScope: hash(credential), scope: session || lineageKey ? [`${url.origin}${url.pathname.replace(/\/(responses|messages)$/, "")}`, model.id, options.baseEffort ?? model.defaultBaseEffort, hash(credential), session ?? "", lineageKey ?? "", ...wire.scopeParts(record), ...(provider === "anthropic" ? [headers.get("anthropic-beta"), headers.get("anthropic-version")] : [])] : null });
       if (prepared === null) throw new PluginRequestError(499, "cancelled", "request cancelled");
       const encoded = JSON.stringify(prepared.body);
-      const headers = buildPluginUpstreamRequestHeaders(request.headers, encoded);
-      if (provider === "anthropic") {
-        headers.set("anthropic-beta", mergeAnthropicBeta(headers.get("anthropic-beta")));
-        if (!headers.has("anthropic-version")) headers.set("anthropic-version", ANTHROPIC_VERSION);
-      }
+      headers.set("content-length", String(Buffer.byteLength(encoded)));
       timer = setTimeout(() => { timedOut = true; controller.abort(); settle("failed"); }, headerTimeoutMs);
       const exchange: Exchange = {
         url: request.url, headers, body: encoded, signal,

@@ -48,7 +48,7 @@ export async function serverV1(_input: unknown, options: PluginOptions = {}) {
       return error(502, "upstream_unavailable", "upstream_unavailable");
     }
     let upstream: Response;
-    try { upstream = await fetch(exchange.url, { method: "POST", headers: exchange.headers, body: exchange.body, signal: exchange.signal }); } catch (cause) {
+    try { upstream = await fetch(exchange.url, { method: "POST", headers: exchange.headers, body: exchange.body, signal: exchange.signal, ...(new URL(exchange.url).pathname.endsWith("/messages") ? { redirect: "manual" as const } : {}) }); } catch (cause) {
       const failure = exchange.fail(cause);
       return error(failure.status, failure.code, failure.message);
     }

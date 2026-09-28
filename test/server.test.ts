@@ -142,6 +142,74 @@ describe("forwarding lifecycle", () => {
     expect(response.status).toBe(200);
     await response.text();
     expect(upstream.requests[0]!.headers).toMatchObject({ "x-api-key": "client-key", authorization: "Bearer oauth", "anthropic-version": "2024-01-01", "anthropic-beta": "mid-conversation-output-config-2026-07-01" });
+    const blank = await fetch(`${app}/v1/messages`, { method: "POST", headers: { "anthropic-version": "  " }, body: JSON.stringify({ model: "claude-opus-5", messages: [{ role: "user", content: "hi" }] }) });
+    expect(blank.status).toBe(200);
+    await blank.text();
+    expect(upstream.requests[1]!.headers["anthropic-version"]).toBe("2023-06-01");
+  });
+
+  it("resets Anthropic lineage when format, MCP servers or beta changes", async () => {
+    const upstream = await startUpstream((_request, response) => response.end(JSON.stringify({ type: "message", stop_reason: "end_turn", usage: { input_tokens: 1 } })));
+    const records: Record<string, unknown>[] = [];
+    let calls = 0;
+    const app = await startLimitedApp(upstream.url, { anthropicUpstream: { baseUrl: upstream.url, auth: { policy: "forward" } },
+      selectEffort: async () => ({ effort: calls++ ? "high" : "low", jevLatencyMs: 0, fallback: null }), onEvidence: (entry) => records.push({ ...entry }) });
+    const messages = [{ role: "user", content: "one" }, { role: "assistant", content: "done" }, { role: "user", content: "two" }];
+    const cases = [
+      [{ output_config: { format: { type: "json_schema" } } }, {}],
+      [{ mcp_servers: [{ name: "a" }] }, {}],
+      [{}, { "anthropic-beta": "other-beta" }],
+    ] as const;
+    for (const [index, [patch, headers]] of cases.entries()) {
+      const send = async (body: object, extra: Record<string, string> = {}) => {
+        const response = await fetch(`${app}/v1/messages`, { method: "POST", headers: { "x-jev-session-id": `ses_scope${index}`, ...extra },
+          body: JSON.stringify({ model: "claude-opus-5", messages: body === patch ? [messages[0]] : messages, ...body }) });
+        expect(response.status).toBe(200);
+        await response.text();
+      };
+      await send(patch, headers);
+      await send({});
+      expect(records.at(-1)!.lineage_status).toBe("new");
+    }
+  });
+
+  it("observes Anthropic streaming usage and commits lineage for a follow-up", async () => {
+    const events = [
+      'event: message_start\ndata: {"type":"message_start","message":{"usage":{"input_tokens":10,"cache_read_input_tokens":20,"cache_creation_input_tokens":5,"output_tokens":1}}}\n\n',
+      'event: message_delta\ndata: {"type":"message_delta","usage":{"output_tokens":7}}\n\n',
+      'event: message_stop\ndata: {"type":"message_stop"}\n\n',
+    ];
+    const upstream = await startUpstream((_request, response) => { response.writeHead(200, { "content-type": "text/event-stream" }); response.end(events.join("")); });
+    const records: Record<string, unknown>[] = [];
+    let calls = 0;
+    const app = await startLimitedApp(upstream.url, { anthropicUpstream: { baseUrl: upstream.url, auth: { policy: "forward" } },
+      selectEffort: async () => ({ effort: calls++ ? "high" : "low", jevLatencyMs: 0, fallback: null }), onEvidence: (entry) => records.push({ ...entry }) });
+    const first = [{ role: "user", content: "one" }];
+    for (const messages of [first, [...first, { role: "assistant", content: "done" }, { role: "user", content: "two" }]]) {
+      const response = await fetch(`${app}/v1/messages`, { method: "POST", headers: { "x-jev-session-id": "ses_usage" },
+        body: JSON.stringify({ model: "claude-opus-5", stream: true, messages }) });
+      expect(response.status).toBe(200);
+      expect(await response.text()).toBe(events.join(""));
+    }
+    expect(records[0]).toMatchObject({ input_tokens: 35, cached_input_tokens: 20, cache_creation_input_tokens: 5, output_tokens: 7 });
+    expect(records[1]).toMatchObject({ lineage_status: "preserved", history_updates_replayed: 1 });
+    const firstOutbound = JSON.parse(upstream.requests[0]!.body).messages;
+    expect(JSON.parse(upstream.requests[1]!.body).messages.slice(0, firstOutbound.length)).toEqual(firstOutbound);
+  });
+
+  it("keeps whitespace-only OpenAI lineage keys while sending null to Jev", async () => {
+    const upstream = await startUpstream((_request, response) => response.end('{"status":"completed"}'));
+    const keys: (string | null | undefined)[] = [];
+    const records: Record<string, unknown>[] = [];
+    const app = await startLimitedApp(upstream.url, { selectEffort: async ({ cacheKey }) => { keys.push(cacheKey); return { effort: "low", jevLatencyMs: 0, fallback: null }; },
+      onEvidence: (entry) => records.push({ ...entry }) });
+    for (const input of [[{ role: "user", content: "one" }], [{ role: "user", content: "one" }, { role: "assistant", content: "done" }, { role: "user", content: "two" }]]) {
+      const response = await fetch(`${app}/v1/responses`, { method: "POST", body: JSON.stringify({ model: "gpt-6-astra", prompt_cache_key: "   ", input }) });
+      expect(response.status).toBe(200);
+      await response.text();
+    }
+    expect(keys).toEqual([null, null]);
+    expect(records[1]).toMatchObject({ lineage_status: "preserved", history_updates_replayed: 1 });
   });
 
   it("rejects unconfigured messages and both route/model mismatches before selection", async () => {

@@ -3,7 +3,7 @@ import { findModel } from "../src/models.js";
 import { LineageStore } from "../src/lineage.js";
 import { ResponsesRouter } from "../src/router.js";
 import { UnsupportedInputError, validateRequest, wireFor } from "../src/wire.js";
-import { ANTHROPIC_EFFORT_BETA, ANTHROPIC_VERSION, anthropicWire, buildAnthropicJevState, mergeAnthropicBeta, rewriteAnthropicRequest } from "../src/wire-anthropic.js";
+import { ANTHROPIC_EFFORT_BETA, ANTHROPIC_VERSION, anthropicVersion, anthropicWire, buildAnthropicJevState, mergeAnthropicBeta, rewriteAnthropicRequest } from "../src/wire-anthropic.js";
 
 const model = findModel("claude-fable-5-1")!;
 const user = (content: unknown) => ({ role: "user", content });
@@ -40,8 +40,12 @@ describe("Anthropic Messages wire", () => {
     expect(request.thinking.budget_tokens).toBe(8192);
     expect(rewriteAnthropicRequest({ ...body(), thinking: { type: "disabled", display: 123 } }, options).thinking).toEqual({ type: "adaptive" });
     expect(anthropicWire.scopeParts({ system: "rules", tools: [], tool_choice: "auto", speed: "fast", thinking: { display: "omitted" } }))
-      .toEqual(["rules", [], "auto", "fast", "omitted"]);
+      .toEqual(["rules", [], "auto", "fast", "omitted", null, null]);
+    expect(anthropicWire.scopeParts({ output_config: { effort: "max", format: { type: "json" } }, mcp_servers: [{ name: "server" }] }))
+      .toEqual([null, null, null, null, null, { format: { type: "json" } }, [{ name: "server" }]]);
+    expect(anthropicWire.scopeParts({ output_config: { effort: "low" } })[5]).toBeNull();
     expect(anthropicWire.cacheKey(body())).toBeNull();
+    expect(anthropicWire.lineageKey(body())).toBeNull();
     expect(anthropicWire.path).toBe("messages");
     expect(wireFor("openai").scopeParts({ instructions: "a", tools: [] })).toEqual(["a", []]);
   });
@@ -105,6 +109,8 @@ describe("Anthropic Messages wire", () => {
     expect(mergeAnthropicBeta(undefined)).toBe(ANTHROPIC_EFFORT_BETA);
     expect(mergeAnthropicBeta(" old , , new,old ")).toBe(`old,new,${ANTHROPIC_EFFORT_BETA}`);
     expect(mergeAnthropicBeta(` old , ${ANTHROPIC_EFFORT_BETA}, old, ${ANTHROPIC_EFFORT_BETA} `)).toBe(`old,${ANTHROPIC_EFFORT_BETA}`);
+    expect(anthropicVersion(" \t ")).toBe(ANTHROPIC_VERSION);
+    expect(anthropicVersion(" 2024-01-01 ")).toBe("2024-01-01");
   });
 
   it("rejects route mismatch before selection and rewrites Anthropic requests end to end", async () => {
@@ -123,5 +129,48 @@ describe("Anthropic Messages wire", () => {
     result?.finish("completed", 200, true);
     expect((await router.prepare(body(), request))?.body.messages).toEqual([update("low"), user("hi")]);
     expect(wireFor("openai").cacheKey({ prompt_cache_key: " cache " })).toBe(" cache ");
+  });
+
+  it("preserves the entire outbound prefix across un-echoed turns, tool results and retries", async () => {
+    const efforts = ["low", "medium", "high", "max", "max"] as const;
+    const records: Record<string, unknown>[] = [];
+    const router = new ResponsesRouter({ selectEffort: async () => ({ effort: efforts[records.length]!, jevLatencyMs: 0, fallback: null }),
+      onEvidence: (item) => records.push({ ...item }) });
+    const request = { signal: new AbortController().signal, scope, provider: "anthropic" as const };
+    const inputs = [
+      [user("one")],
+      [user("one"), assistant("a"), user("two")],
+      [user("one"), assistant("a"), user("two"), assistant("b"), user("three")],
+      [user("one"), assistant("a"), user("two"), assistant("b"), user("three"), assistant([{ type: "tool_use", id: "t", name: "read" }]), user([{ type: "tool_result", tool_use_id: "t", content: "ok" }])],
+    ];
+    const outbound: unknown[][] = [];
+    for (const messages of [...inputs, inputs.at(-1)!]) {
+      const prepared = (await router.prepare(body(messages), request))!;
+      const sent = prepared.body.messages as unknown[];
+      if (outbound.length) expect(sent.slice(0, outbound.at(-1)!.length)).toEqual(outbound.at(-1));
+      outbound.push(sent);
+      prepared.finish("completed", 200, true);
+    }
+    expect(JSON.stringify(outbound.at(-1))).toBe(JSON.stringify(outbound.at(-2)));
+    expect(outbound[3]!.at(-2)).toEqual(update("max"));
+    expect(records.slice(1).map((record) => record.lineage_status)).toEqual(["preserved", "preserved", "preserved", "preserved"]);
+  });
+
+  it("does not apply a new effort to an assistant prefill without a new user", async () => {
+    const records: Record<string, unknown>[] = [];
+    let calls = 0;
+    const router = new ResponsesRouter({ selectEffort: async () => ({ effort: calls++ ? "high" : "low", jevLatencyMs: 0, fallback: null }),
+      onEvidence: (item) => records.push({ ...item }) });
+    const request = { signal: new AbortController().signal, scope, provider: "anthropic" as const };
+    const first = (await router.prepare(body([user("one")]), request))!;
+    first.finish("completed", 200, true);
+    const messages = [user("one"), assistant("partial")];
+    const prefill = (await router.prepare(body(messages), request))!;
+    expect(prefill.body.messages).toEqual([update("low"), ...messages]);
+    prefill.finish("completed", 200, true);
+    expect(records[1]).toMatchObject({ effort: "high", effort_applied: false, lineage_status: "preserved" });
+    expect(rewriteAnthropicRequest(body([assistant("partial")]), options).messages).toEqual([assistant("partial")]);
+    expect(rewriteAnthropicRequest(body([user("one"), assistant("a"), user("two"), assistant("partial")]), options).messages)
+      .toEqual([user("one"), assistant("a"), update("low"), user("two"), assistant("partial")]);
   });
 });
