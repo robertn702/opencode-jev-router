@@ -138,8 +138,9 @@ describe("jev-router OpenCode V2 plugin", () => {
     }) as typeof fetch;
     const { exchange, cleanup } = await host({ fixedEffort: "high", ...upstreamOptions, anthropicUpstreamApiKey: "key" });
     await (await exchange(request, { headers: { "x-api-key": "wrong", "anthropic-version": "  ", "anthropic-beta": "other", "anthropic-extra": "no" } })).response.text();
-    expect(sent[0]!.headers.get("x-api-key")).toBeNull();
-    expect([...sent[0]!.headers.keys()].filter((name) => name.startsWith("anthropic-"))).toEqual([]);
+    // The OpenAI route forwards incoming headers unchanged, as before Anthropic support.
+    expect(sent[0]!.headers.get("x-api-key")).toBe("wrong");
+    expect(sent[0]!.headers.get("anthropic-beta")).toBe("other");
     await (await exchange({ model: "claude-opus-5-5", messages: [{ role: "user", content: "hi" }] }, { url: "https://api.anthropic.com/v1/messages", headers: { "x-api-key": "tenant", "anthropic-version": "  ", "anthropic-beta": "other", "openai-project": "no", "openai-beta": "no", "openai-extra": "no" } })).response.text();
     expect(sent[1]!.headers.get("authorization")).toBe("Bearer resolved");
     expect(sent[1]!.headers.get("x-api-key")).toBe("tenant");

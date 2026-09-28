@@ -82,6 +82,9 @@ change is an effort-only message in `messages`:
 Historical updates retain their positions; the next update goes before the
 newest user message, including a user message containing only `tool_result`
 blocks. Anthropic supports `low`, `medium`, `high`, `xhigh`, `max` (not `none`).
+A request whose new suffix has no user message (an assistant prefill) gets no
+update, because an update applies only from the next user turn; its decision
+event records `effort_applied: false`, and the field is absent otherwise.
 
 The in-memory lineage store reconstructs router-inserted updates when the client
 does not send them back. It matches the longest known input ancestor using item

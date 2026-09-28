@@ -173,4 +173,20 @@ describe("Anthropic Messages wire", () => {
     expect(rewriteAnthropicRequest(body([user("one"), assistant("a"), user("two"), assistant("partial")]), options).messages)
       .toEqual([user("one"), assistant("a"), update("low"), user("two"), assistant("partial")]);
   });
+
+  it("does not count a caller update after an assistant prefill as applied", async () => {
+    const records: Record<string, unknown>[] = [];
+    let calls = 0;
+    const router = new ResponsesRouter({ selectEffort: async () => ({ effort: calls++ ? "high" : "low", jevLatencyMs: 0, fallback: null }),
+      onEvidence: (item) => records.push({ ...item }) });
+    const request = { signal: new AbortController().signal, scope, provider: "anthropic" as const };
+    (await router.prepare(body([user("one")]), request))!.finish("completed", 200, true);
+    // The trailing caller update takes effect only from a later user turn, so it
+    // neither applies to this prefill nor conflicts with the selection.
+    const messages = [user("one"), assistant("partial"), update("high")];
+    const prefill = (await router.prepare(body(messages), request))!;
+    expect(prefill.body.messages).toEqual([update("low"), ...messages]);
+    prefill.finish("completed", 200, true);
+    expect(records[1]).toMatchObject({ effort: "high", effort_applied: false });
+  });
 });
