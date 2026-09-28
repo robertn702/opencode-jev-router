@@ -2,6 +2,23 @@
 
 Evidence behind the compatibility and cache claims in the [README](../README.md). Results describe the configuration used at the time.
 
+## Anthropic live check
+
+Anthropic cache and thinking-signature behavior has not been measured here.
+With a funded Anthropic key and access to a supported model, opt in locally
+(never in CI):
+
+```bash
+VERIFY_ANTHROPIC_LIVE=1 ANTHROPIC_API_KEY=… npm run verify:anthropic
+```
+
+`VERIFY_ANTHROPIC_MODEL` defaults to `claude-opus-5-5`; the script accepts only
+the four registered Claude IDs. It budgets at most 12 requests, prints only
+usage/status metadata, and compares warm-cache reuse against a top-level effort
+change, tool-result-only continuation at low/max, and lineage-loss replay.
+HTTP 400 on the lineage replay is reported, not masked. Results are
+observational, not an upstream cache guarantee.
+
 ## Cache preservation
 
 The 2026-09-23 controlled comparison on Node 24.21.0 made 42 live requests through
@@ -68,4 +85,3 @@ OpenAI request through the router with Jev classification completed on
 `gpt-6-astra` (HTTP 200, response status `completed`, one output item). This
 verifies the non-streaming direct path; live SSE and tool continuations in direct
 connection have only fake-upstream test coverage.
-

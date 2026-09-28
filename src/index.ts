@@ -20,6 +20,8 @@ Environment:
   JEV_ROUTER_UPSTREAM_BASE_URL  Required Responses API-compatible base URL, e.g. https://api.openai.com/v1
   JEV_ROUTER_UPSTREAM_AUTH      forward (default, loopback only) or bearer
   JEV_ROUTER_UPSTREAM_API_KEY   Required for bearer policy; replaces the client's bearer key
+  JEV_ROUTER_ANTHROPIC_UPSTREAM_BASE_URL  Optional Anthropic Messages API base URL, e.g. https://api.anthropic.com/v1
+  JEV_ROUTER_ANTHROPIC_UPSTREAM_API_KEY   Required with Anthropic base URL under bearer policy; sent as x-api-key
   JEV_ROUTER_BASE_EFFORT        Optional base effort override supported by every model
   JEV_ROUTER_CLASSIFICATION_TIMEOUT_MS     Jev timeout in milliseconds (default: 4000)
   JEV_ROUTER_MAX_RETRIES      Additional transient-error attempts (default: 1)
@@ -69,6 +71,7 @@ const logDecision = config.decisionsLogPath ? createDecisionLogger(config.decisi
 const server = createAppServer({
   upstreamBaseUrl: config.upstreamBaseUrl,
   upstreamAuth: config.upstreamAuth,
+  anthropicUpstream: config.anthropicUpstream,
   baseEffort: config.baseEffort,
   maxRequestBytes: config.maxRequestBytes,
   maxInFlight: config.maxInFlight,

@@ -69,6 +69,31 @@ describe("resource limit configuration", () => {
 });
 
 describe("upstream configuration", () => {
+  it("validates optional Anthropic transport and credentials without leaking values", () => {
+    expect(load({}).anthropicUpstream).toBeUndefined();
+    expect(load({ JEV_ROUTER_ANTHROPIC_UPSTREAM_BASE_URL: "http://localhost:8080/v1" }).anthropicUpstream)
+      .toEqual({ baseUrl: "http://localhost:8080/v1", auth: { policy: "forward" } });
+    expect(load({ JEV_ROUTER_UPSTREAM_AUTH: "bearer", JEV_ROUTER_UPSTREAM_API_KEY: "openai-key", JEV_ROUTER_ANTHROPIC_UPSTREAM_BASE_URL: "https://api.anthropic.com/v1", JEV_ROUTER_ANTHROPIC_UPSTREAM_API_KEY: " anthropic-key " }).anthropicUpstream)
+      .toEqual({ baseUrl: "https://api.anthropic.com/v1", auth: { policy: "key", apiKey: "anthropic-key" } });
+    const cases = [
+      { JEV_ROUTER_ANTHROPIC_UPSTREAM_API_KEY: "secret" },
+      { JEV_ROUTER_ANTHROPIC_UPSTREAM_BASE_URL: "" },
+      { JEV_ROUTER_ANTHROPIC_UPSTREAM_BASE_URL: "bad-secret" },
+      { JEV_ROUTER_ANTHROPIC_UPSTREAM_BASE_URL: "http://user:secret@localhost/v1" },
+      { JEV_ROUTER_ANTHROPIC_UPSTREAM_BASE_URL: "http://localhost/v1?secret=1" },
+      { JEV_ROUTER_ANTHROPIC_UPSTREAM_BASE_URL: "https://api.anthropic.com/v1" },
+      { JEV_ROUTER_ANTHROPIC_UPSTREAM_BASE_URL: "http://localhost/v1", JEV_ROUTER_ANTHROPIC_UPSTREAM_API_KEY: "secret" },
+      { JEV_ROUTER_UPSTREAM_AUTH: "bearer", JEV_ROUTER_UPSTREAM_API_KEY: "openai-key", JEV_ROUTER_ANTHROPIC_UPSTREAM_BASE_URL: "http://api.anthropic.com/v1", JEV_ROUTER_ANTHROPIC_UPSTREAM_API_KEY: "secret" },
+      { JEV_ROUTER_UPSTREAM_AUTH: "bearer", JEV_ROUTER_UPSTREAM_API_KEY: "openai-key", JEV_ROUTER_ANTHROPIC_UPSTREAM_BASE_URL: "https://api.anthropic.com/v1" },
+    ];
+    for (const env of cases) {
+      let message = "";
+      try { load(env); } catch (error) { message = (error as Error).message; }
+      expect(message).not.toBe("");
+      expect(message).not.toContain("secret");
+    }
+  });
+
   it("requires an upstream and defaults to forwarding the client credential", () => {
     for (const value of [undefined, "", " "]) {
       expect(() => loadConfig({ JEV_ROUTER_UPSTREAM_BASE_URL: value })).toThrow("JEV_ROUTER_UPSTREAM_BASE_URL is required");

@@ -4,6 +4,7 @@ import type { ServerResponse } from "node:http";
 
 import { upstreamHostname } from "./config.js";
 import { UsageObserver, type Usage } from "./usage.js";
+import type { Provider } from "./models.js";
 import {
   buildUpstreamRequestHeaders,
   pickResponseHeaders,
@@ -18,6 +19,8 @@ export interface UpstreamCall {
   method: string;
   url: URL;
   authorization: string | undefined;
+  provider?: Provider;
+  extraHeaders?: Record<string, string>;
   body: string | undefined;
   signal: AbortSignal;
   headerTimeoutMs?: number;
@@ -105,11 +108,11 @@ export function forwardUpstream(
         port: call.url.port,
         path: `${call.url.pathname}${call.url.search}`,
         method: call.method,
-        headers: buildUpstreamRequestHeaders(call.authorization, call.body),
+        headers: buildUpstreamRequestHeaders(call.authorization, call.body, call.extraHeaders),
       },
       (upstreamResponse) => {
         call.onResponseStatus?.(upstreamResponse.statusCode ?? 502);
-        const observer = call.onUsage ? new UsageObserver(String(upstreamResponse.headers["content-type"]).includes("text/event-stream")) : undefined;
+        const observer = call.onUsage ? new UsageObserver(String(upstreamResponse.headers["content-type"]).includes("text/event-stream"), call.provider ?? "openai") : undefined;
         headersForwarded = true;
         deadline(call.idleTimeoutMs);
         response.writeHead(

@@ -37,6 +37,7 @@ export function pickFetchResponseHeaders(headers: Headers): Headers {
 export function buildUpstreamRequestHeaders(
   authorization: string | undefined,
   body: string | undefined,
+  extraHeaders?: Record<string, string>,
 ): Record<string, string> {
   const headers: Record<string, string> = {
     accept: "*/*",
@@ -49,6 +50,7 @@ export function buildUpstreamRequestHeaders(
     headers["content-type"] = "application/json";
     headers["content-length"] = String(Buffer.byteLength(body));
   }
+  if (extraHeaders) Object.assign(headers, extraHeaders);
   return headers;
 }
 

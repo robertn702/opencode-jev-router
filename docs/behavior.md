@@ -4,7 +4,7 @@ Reference for the wire behavior shared by the OpenCode plugin and the standalone
 
 ## Scope
 
-- GPT-6 **standard, single-agent mode only** with either upstream connection. Requests
+- GPT-6 **standard, single-agent mode only** on `/v1/responses`. Requests
   with `reasoning.mode` other than `standard` (pro, multi-agent, etc.), pro model
   slugs, a missing or mismatched `model`, or `truncation: "auto"` are rejected with a local `400` before
   classification or generation. OpenCode reasoning-effort variants are ignored
@@ -22,13 +22,18 @@ Reference for the wire behavior shared by the OpenCode plugin and the standalone
   not a claim that every type is executable on every configured upstream.
   String input, non-object items, missing/invalid typed discriminators, and
   unsupported message roles receive a local `400`.
+- Anthropic requires array-form `messages` with user, assistant, or system
+  roles. Text, thinking, `tool_use`, and `tool_result` content passes through;
+  malformed effort-only system updates fail locally before Jev or upstream.
 - `configuration_update` is intentionally *not* opaque: only a model-valid
   `reasoning.effort` update with no extra fields is accepted. `reasoning.mode`
   must be `standard` if set; `truncation` must be `disabled` if set (`auto` can
   drop injected history). Conflicting caller updates at an insertion boundary
   receive a local `400`. No item fields are silently stripped to make these
   combinations work.
-- Exact registered IDs are `gpt-6-astra`, `gpt-6-luna`, and `gpt-6-sol`.
+- Exact registered OpenAI IDs are `gpt-6-astra`, `gpt-6-luna`, and `gpt-6-sol`;
+  Anthropic `/v1/messages` accepts `claude-fable-5-1`, `claude-mythos-5-1`,
+  `claude-opus-5-5`, and `claude-opus-5` only. Model/route mismatches are local `400`s.
   Missing, malformed, unknown, and pro IDs fail locally before classification.
   All registered models are available without model environment settings.
   `UPSTREAM_MODEL`, `UPSTREAM_MODELS`, and `ALLOWED_MODELS` are rejected at startup
@@ -41,7 +46,7 @@ Reference for the wire behavior shared by the OpenCode plugin and the standalone
 
 ## Effort updates and cache lineage
 
-Every execution request uses its resolved model with a stable request-level
+OpenAI execution requests use their resolved model with a stable request-level
 `reasoning.effort` (profile default `medium`). Optional `JEV_ROUTER_BASE_EFFORT` must be
 supported by every registered profile; fallback is independently configurable and defaults to fixed `high`.
 Astra supports `low`, `medium`, `high`, `xhigh`, and `max`; Luna and Sol also
@@ -63,10 +68,27 @@ positions. It aims to preserve an eligible reusable prefix, but cannot promise
 upstream cache availability, hits, or savings. The fallback-effort cache is
 independent of prompt caching.
 
+On Anthropic, top-level `output_config.effort` stays at the profile base
+(`medium` for Opus 5.5, `high` for Fable 5.1, Mythos 5.1, and Opus 5), since
+changing it invalidates the message cache. The router pins `thinking.type` to
+`adaptive` and preserves a caller string `thinking.display`. With
+`anthropic-beta: mid-conversation-output-config-2026-07-01`, a selected effort
+change is an effort-only message in `messages`:
+
+```json
+{ "role": "system", "content": [], "output_config": { "effort": "low" } }
+```
+
+Historical updates retain their positions; the next update goes before the
+newest user message, including a user message containing only `tool_result`
+blocks. Anthropic supports `low`, `medium`, `high`, `xhigh`, `max` (not `none`).
+
 The in-memory lineage store reconstructs router-inserted updates when the client
 does not send them back. It matches the longest known input ancestor using item
 hashes and update positions, scoped by upstream, model, base effort, authorization,
-session/cache identity, instructions, and tools. It retains up to 256 snapshots
+session/cache identity, instructions, and tools. Anthropic has no
+`prompt_cache_key`: its lineage is scoped to session plus top-level `system`,
+`tools`, `tool_choice`, `speed`, and `thinking.display`. It retains up to 256 snapshots
 for 10 minutes and does not store histories over 20,000 content items. These
 limits are independent of the configurable fallback-effort cache below.
 
@@ -78,6 +100,14 @@ and process restarts can lose lineage. Without a usable session ID or cache key,
 requests are untracked. Replaying history preserves cache eligibility, not a
 guaranteed cache hit.
 
+**Unverified Anthropic limitations:** Fable 5.1 and Opus 5.5 may reject a
+replayed thinking block (`Invalid signature in thinking block`) if restart,
+expiry, or eviction loses an earlier injected effort message. Effort-only
+messages reportedly render nothing at their position, but whether that avoids
+the signature failure is unverified. It is also unverified whether an update
+before a tool-result-only user turn governs the resumed generation. Use the
+opt-in [live check](verification.md#anthropic-live-check) before relying on either.
+
 Run the repeatable metadata-only comparison before drawing a cache conclusion;
 see [Cache validation](cache-validation.md). Prefix byte/item measurements
 are eligibility measurements, not rendered-token counts or cache-hit claims.
@@ -87,6 +117,9 @@ Decision telemetry includes `input_tokens`, `cached_input_tokens`, and
 `lineage_status`, and `history_updates_replayed`. Missing or oversized usage
 events yield null counts, not zero. These are request-level counters, not
 OpenCode's turn aggregates. The observer never logs response content.
+For Anthropic, normalized `input_tokens` includes uncached input, cache reads,
+and cache creation; `cached_input_tokens` is cache reads, and
+`cache_creation_input_tokens` records cache writes (Anthropic only).
 
 ## Classification
 
@@ -131,6 +164,7 @@ stdout; when configured, the CLI or plugin also appends a `JevDecision` event co
   unknown); it is null for other decisions. No error messages or response bodies
   are recorded.
 - `input_tokens`, `cached_input_tokens`, and `output_tokens` from upstream usage.
+- `cache_creation_input_tokens` for Anthropic usage only.
 - `previous_effort`, `lineage_status`, and `history_updates_replayed` for lineage.
 
 Prompt content, tool content, credentials, cache keys, raw SDK errors, and bodies
@@ -209,10 +243,16 @@ http://127.0.0.1:4320/ready` as a startup check, `Restart=on-failure`, and
 
 ## Forwarding
 
-- `POST /v1/responses` and `GET /v1/models` on localhost; the client's bearer
+- `POST /v1/responses`, optional `POST /v1/messages`, and `GET /v1/models` on localhost; the client's bearer
   credential is forwarded only under `JEV_ROUTER_UPSTREAM_AUTH=forward`. Under
   `JEV_ROUTER_UPSTREAM_AUTH=bearer`, the router sends its own API key instead. Neither
   credential is logged.
+- `/v1/messages` returns 404 unless `JEV_ROUTER_ANTHROPIC_UPSTREAM_BASE_URL`
+  is set. In forward mode a loopback Anthropic endpoint receives the client's
+  `x-api-key` and/or `authorization`; bearer mode sends
+  `JEV_ROUTER_ANTHROPIC_UPSTREAM_API_KEY` as `x-api-key` over HTTPS or loopback.
+  `anthropic-version` defaults to `2023-06-01`, and the mid-conversation beta
+  header is merged with caller betas.
 - Upstream HTTP statuses and bodies pass through unchanged, including errors.
 - SSE streams incrementally with write/drain backpressure: a slow client pauses
   upstream reads instead of buffering the completed response.
@@ -238,6 +278,10 @@ The package default export serves both OpenCode majors from one shared runtime
 - **V1** (`server()`, 1.18.29+) registers `provider["jev-router"]` with
   `@ai-sdk/openai`, `useResponses: true`, and a fetch adapter that performs the
   upstream request itself. `chat.headers` adds the internal correlation headers.
+- The optional `jev-router-anthropic` provider uses `@ai-sdk/anthropic` in V1
+  and the native Anthropic Messages package in V2. It registers when Anthropic
+  plugin options are supplied or that provider is configured; its default base
+  URL is `https://api.anthropic.com/v1`.
 - **V2** (`id: "jev-router"`, `setup()`) registers the provider through
   `ctx.provider.transform` on `@opencode/ai/providers/openai/responses` with
   `transport: "http"`, then scopes `http.request` and `http.response` session

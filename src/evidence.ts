@@ -1,3 +1,5 @@
+import type { Usage } from "./usage.js";
+
 const FALLBACK_CODES = new Set([
   "jev_timeout",
   "jev_error",
@@ -19,6 +21,7 @@ export interface Evidence {
   input_tokens: number | null;
   cached_input_tokens: number | null;
   output_tokens: number | null;
+  cache_creation_input_tokens?: number | null;
   previous_effort: string | null;
   lineage_status: string | null;
   history_updates_replayed: number;
@@ -36,7 +39,7 @@ export function buildEvidence(parts: {
   requestId: string;
   session?: string | null;
   turnId?: string | null;
-  usage?: { input_tokens: number | null; cached_input_tokens: number | null; output_tokens: number | null };
+  usage?: Usage;
   previousEffort?: string | null;
   lineageStatus?: string;
   historyUpdatesReplayed?: number;
@@ -62,6 +65,7 @@ export function buildEvidence(parts: {
     input_tokens: parts.usage?.input_tokens ?? null,
     cached_input_tokens: parts.usage?.cached_input_tokens ?? null,
     output_tokens: parts.usage?.output_tokens ?? null,
+    ...(parts.usage?.cache_creation_input_tokens === undefined ? {} : { cache_creation_input_tokens: parts.usage.cache_creation_input_tokens }),
     previous_effort: parts.previousEffort ?? null,
     lineage_status: parts.lineageStatus ?? null,
     history_updates_replayed: parts.historyUpdatesReplayed ?? 0,
@@ -93,6 +97,7 @@ export function formatDecisionEvent(evidence: Evidence, now = new Date()): strin
     input_tokens: evidence.input_tokens,
     cached_input_tokens: evidence.cached_input_tokens,
     output_tokens: evidence.output_tokens,
+    ...(evidence.cache_creation_input_tokens === undefined ? {} : { cache_creation_input_tokens: evidence.cache_creation_input_tokens }),
     previous_effort: evidence.previous_effort,
     lineage_status: evidence.lineage_status,
     history_updates_replayed: evidence.history_updates_replayed,

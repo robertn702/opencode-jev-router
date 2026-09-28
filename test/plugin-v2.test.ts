@@ -23,15 +23,19 @@ const isJev = (input: RequestInfo | URL) => (input instanceof Request ? input.ur
 async function host(options: Record<string, unknown>) {
   const added: Parameters<V2ProviderEditor["add"]>[0][] = [];
   const hooks: { request?: (event: V2HttpRequest) => Promise<void> | void; response?: (event: V2HttpResponse) => Promise<void> | void } = {};
+  const scopedHooks = new Map<string, typeof hooks>();
   const scopes: string[] = [];
   const ctx: V2Context = {
     options,
-    provider: { async transform(callback) { callback({ add: (input) => added.push(input) }); return {}; } },
+    provider: { async transform(callback) { callback({ add: (input) => added.push(input), get: (id) => options.providers && (options.providers as Record<string, unknown>)[id] }); return {}; } },
     session: {
       async hook(name: string, callback: (event: never) => Promise<void> | void, scope: { providerID: string }) {
         scopes.push(scope.providerID);
-        if (name === "http.request") hooks.request = callback as typeof hooks.request;
-        if (name === "http.response") hooks.response = callback as typeof hooks.response;
+        const selected = scopedHooks.get(scope.providerID) ?? {};
+        scopedHooks.set(scope.providerID, selected);
+        if (name === "http.request") selected.request = callback as typeof hooks.request;
+        if (name === "http.response") selected.response = callback as typeof hooks.response;
+        if (scope.providerID === "jev-router") Object.assign(hooks, selected);
         return {};
       },
     },
@@ -43,12 +47,13 @@ async function host(options: Record<string, unknown>) {
       sessionID: init.sessionID ?? "ses_v2test", kind: "primary",
       request: new Request(init.url ?? upstreamURL, { method: "POST", headers: { authorization: "Bearer resolved", "content-type": "application/json", ...init.headers }, body: JSON.stringify(body), signal: init.signal }),
     };
-    await hooks.request!(event);
+    const selected = scopedHooks.get(init.url?.endsWith("/messages") ? "jev-router-anthropic" : "jev-router")!;
+    await selected.request!(event);
     const response: V2HttpResponse = { sessionID: event.sessionID, kind: event.kind, request: event.request, response: await fetch(event.request) };
-    await hooks.response!(response);
+    await selected.response!(response);
     return { sent: event.request, response: response.response };
   };
-  return { added, hooks, scopes, cleanup, exchange };
+  return { added, hooks, scopedHooks, scopes, cleanup, exchange };
 }
 
 async function withLog<T>(run: (path: string) => Promise<T>): Promise<T> {
@@ -83,6 +88,32 @@ describe("jev-router OpenCode V2 plugin", () => {
     ]);
     expect(scopes).toEqual(["jev-router", "jev-router"]);
     cleanup();
+  });
+
+  it("registers native Anthropic Messages only when opted in or already configured and routes both hooks", async () => {
+    const options = { fixedEffort: "high", ...upstreamOptions, anthropicUpstreamApiKey: "anthropic" };
+    const { added, scopes, exchange, cleanup } = await host(options);
+    expect(added).toHaveLength(2);
+    expect(added[1]!.info).toEqual({ id: "jev-router-anthropic", name: "Jev Router Anthropic", activation: "enabled", package: "@opencode/ai/providers/anthropic", settings: { baseURL: "https://api.anthropic.com/v1", apiKey: "anthropic", transport: "http" } });
+    expect(added[1]!.models.map((model) => model.id)).toEqual(["claude-fable-5-1", "claude-mythos-5-1", "claude-opus-5-5", "claude-opus-5"]);
+    expect(scopes).toEqual(["jev-router", "jev-router", "jev-router-anthropic", "jev-router-anthropic"]);
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const sent = input as Request;
+      expect(sent.headers.get("anthropic-beta")).toContain("mid-conversation-output-config-2026-07-01");
+      expect(sent.headers.get("anthropic-version")).toBe("2023-06-01");
+      expect((await sent.json()).messages).toEqual([{ role: "system", content: [], output_config: { effort: "high" } }, { role: "user", content: "hi" }]);
+      return new Response('data: {"type":"message_stop"}\n\n', { headers: { "content-type": "text/event-stream" } });
+    }) as typeof fetch;
+    const body = { model: "claude-opus-5-5", messages: [{ role: "user", content: "hi" }], stream: true };
+    const url = "https://api.anthropic.com/v1/messages";
+    await expect(exchange(request, { url })).rejects.toThrow("invalid_request (400)");
+    const { response } = await exchange(body, { url, headers: { "x-api-key": "tenant" } });
+    expect(await response.text()).toContain("message_stop");
+    expect(globalThis.fetch).toHaveBeenCalledTimes(1);
+    cleanup();
+    const configured = await host({ fixedEffort: "high", ...upstreamOptions, providers: { "jev-router-anthropic": { settings: { apiKey: "user" } } } });
+    expect(configured.added).toHaveLength(2);
+    configured.cleanup();
   });
 
   it("leaves an omitted upstream key to OpenCode credential resolution", async () => {
@@ -144,7 +175,7 @@ describe("jev-router OpenCode V2 plugin", () => {
   });
 
   it.each([
-    ["http://127.0.0.1:8080/v1/chat/completions", "POST /v1/responses only"],
+    ["http://127.0.0.1:8080/v1/chat/completions", "POST /v1/responses or /v1/messages only"],
     ["http://upstream.example/v1/responses", "requires HTTPS"],
   ])("rejects a user override that bypasses the HTTPS Responses route: %s", async (url, message) => {
     const fetcher = vi.fn(); globalThis.fetch = fetcher as typeof fetch;

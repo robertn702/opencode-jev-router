@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 
-import { MODELS } from "./models.js";
+import { modelsFor } from "./models.js";
 import { createPluginRuntime, PluginRequestError, requiredString, SESSION, upstreamBaseURL, valid, type Exchange, type PluginOptions } from "./plugin-runtime.js";
 
 /**
@@ -16,7 +16,7 @@ export interface V2Context {
     hook(name: "http.response", callback: (event: V2HttpResponse) => Promise<void> | void, options: { providerID: string }): Promise<unknown>;
   };
 }
-export interface V2ProviderEditor { add(input: { info: V2ProviderInfo; models: readonly V2ModelInfo[] }): void }
+export interface V2ProviderEditor { add(input: { info: V2ProviderInfo; models: readonly V2ModelInfo[] }): void; get?(providerID: string): unknown }
 export interface V2ProviderInfo { id: string; name: string; activation: "auto" | "enabled" | "disabled"; package: string; settings?: Record<string, unknown> }
 export interface V2ModelInfo {
   id: string; modelID: string; providerID: string; name: string;
@@ -31,6 +31,9 @@ export interface V2HttpResponse { readonly sessionID: string; readonly kind: str
 export const PROVIDER_ID = "jev-router";
 /** Native OpenAI Responses runtime, the V2 counterpart of V1 `@ai-sdk/openai` with `useResponses`. */
 export const PROVIDER_PACKAGE = "@opencode/ai/providers/openai/responses";
+export const ANTHROPIC_PROVIDER_ID = "jev-router-anthropic";
+/** OpenCode 2.0.18 native Anthropic provider exports the Anthropic Messages route. */
+export const ANTHROPIC_PROVIDER_PACKAGE = "@opencode/ai/providers/anthropic";
 
 const rejection = (cause: unknown): Error => cause instanceof PluginRequestError
   ? new Error(`jev-router ${cause.code} (${cause.status}): ${cause.message}`)
@@ -45,10 +48,13 @@ export async function setupV2(ctx: V2Context): Promise<() => void> {
   const options = ctx.options as PluginOptions;
   const baseURL = upstreamBaseURL(options.upstreamBaseURL, "upstreamBaseURL");
   const apiKey = options.upstreamApiKey === undefined ? undefined : requiredString(options.upstreamApiKey, "upstreamApiKey");
+  const anthropicEnabled = options.anthropicUpstreamBaseURL !== undefined || options.anthropicUpstreamApiKey !== undefined;
+  const anthropicBaseURL = anthropicEnabled ? upstreamBaseURL(options.anthropicUpstreamBaseURL ?? "https://api.anthropic.com/v1") : undefined;
+  const anthropicApiKey = options.anthropicUpstreamApiKey === undefined ? undefined : requiredString(options.anthropicUpstreamApiKey, "anthropicUpstreamApiKey");
   const runtime = createPluginRuntime(options);
   const exchanges = new WeakMap<Request, Exchange>();
 
-  const models = MODELS.map((profile): V2ModelInfo => ({
+  const models = modelsFor("openai").map((profile): V2ModelInfo => ({
     id: profile.id, modelID: profile.id, providerID: PROVIDER_ID, name: profile.name,
     capabilities: { tools: true, input: ["text", "image"], output: ["text"] },
     variants: [], time: { released: 0 }, cost: [], status: "active", enabled: true,
@@ -60,8 +66,21 @@ export async function setupV2(ctx: V2Context): Promise<() => void> {
     settings: { baseURL, ...(apiKey === undefined ? {} : { apiKey }), transport: "http" },
   };
   await ctx.provider.transform((editor) => editor.add({ info, models }));
+  let registerAnthropic = anthropicEnabled;
+  await ctx.provider.transform((editor) => {
+    registerAnthropic ||= editor.get?.(ANTHROPIC_PROVIDER_ID) !== undefined;
+    if (!registerAnthropic) return;
+    const models = modelsFor("anthropic").map((profile): V2ModelInfo => ({
+      id: profile.id, modelID: profile.id, providerID: ANTHROPIC_PROVIDER_ID, name: profile.name,
+      capabilities: { tools: true, input: ["text", "image"], output: ["text"] },
+      variants: [], time: { released: 0 }, cost: [], status: "active", enabled: true,
+      limit: { context: 200_000, output: 32_000 },
+    }));
+    editor.add({ info: { id: ANTHROPIC_PROVIDER_ID, name: "Jev Router Anthropic", activation: "enabled", package: ANTHROPIC_PROVIDER_PACKAGE,
+      settings: { baseURL: anthropicBaseURL ?? "https://api.anthropic.com/v1", ...(anthropicApiKey === undefined ? {} : { apiKey: anthropicApiKey }), transport: "http" } }, models });
+  });
 
-  await ctx.session.hook("http.request", async (event) => {
+  const onRequest = async (event: V2HttpRequest) => {
     const incoming = event.request;
     let exchange: Exchange;
     try { exchange = await runtime.start(incoming, { session: valid(event.sessionID, SESSION), turnId: randomUUID() }); } catch (cause) { throw rejection(cause); }
@@ -71,14 +90,18 @@ export async function setupV2(ctx: V2Context): Promise<() => void> {
     incoming.signal.addEventListener("abort", () => exchange.cancel(), { once: true });
     exchanges.set(request, exchange);
     event.request = request;
-  }, { providerID: PROVIDER_ID });
+  };
 
-  await ctx.session.hook("http.response", (event) => {
+  const onResponse = (event: V2HttpResponse) => {
     const exchange = exchanges.get(event.request);
     if (exchange === undefined) return;
     exchanges.delete(event.request);
     try { event.response = exchange.respond(event.response); } catch (cause) { throw rejection(cause); }
-  }, { providerID: PROVIDER_ID });
+  };
+  for (const providerID of registerAnthropic ? [PROVIDER_ID, ANTHROPIC_PROVIDER_ID] : [PROVIDER_ID]) {
+    await ctx.session.hook("http.request", onRequest, { providerID });
+    await ctx.session.hook("http.response", onResponse, { providerID });
+  }
 
   return () => runtime.dispose();
 }

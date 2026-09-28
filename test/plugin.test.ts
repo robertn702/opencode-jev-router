@@ -80,6 +80,85 @@ describe("jev-router plugin", () => {
     hooks.dispose();
   });
 
+  it("registers Anthropic only on opt-in or existing provider config, with no Responses setting", async () => {
+    const hooks = await plugin.server({}, { fixedEffort: "high", ...upstreamOptions });
+    const config: any = {}; hooks.config(config);
+    expect(config.provider["jev-router-anthropic"]).toBeUndefined();
+    const existing: any = { provider: { "jev-router-anthropic": { options: { apiKey: "user" } } } };
+    hooks.config(existing);
+    expect(existing.provider["jev-router-anthropic"]).toMatchObject({ npm: "@ai-sdk/anthropic", options: { apiKey: "user", baseURL: "https://api.anthropic.com/v1" } });
+    expect(Object.keys(existing.provider["jev-router-anthropic"].models)).toEqual(["claude-fable-5-1", "claude-mythos-5-1", "claude-opus-5-5", "claude-opus-5"]);
+    expect(existing.provider["jev-router-anthropic"].models["claude-opus-5-5"].options.useResponses).toBeUndefined();
+    hooks.dispose();
+    const enabled = await plugin.server({}, { fixedEffort: "high", ...upstreamOptions, anthropicUpstreamApiKey: "anthropic" });
+    const configured: any = {}; enabled.config(configured);
+    expect(configured.provider["jev-router-anthropic"].options.apiKey).toBe("anthropic");
+    enabled.dispose();
+  });
+
+  it.each([
+    { provider: { "jev-router-anthropic": { npm: "@ai-sdk/openai" } } },
+    { provider: { "jev-router-anthropic": { options: { fetch: () => new Response() } } } },
+    { provider: { "jev-router-anthropic": { models: { alias: { provider: { npm: "@ai-sdk/openai" } } } } } },
+    { provider: { "jev-router-anthropic": { models: { alias: { provider: { options: { fetch: () => new Response() } } } } } } },
+  ])("rejects Anthropic provider and model bypass overrides", async (config: any) => {
+    const hooks = await plugin.server({}, { fixedEffort: "high", ...upstreamOptions });
+    expect(() => hooks.config(config)).toThrow(); hooks.dispose();
+  });
+
+  it("routes Messages with fixed base effort and merged beta, rejects mismatches before upstream", async () => {
+    const upstream = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const sent = new Request(input, init);
+      expect(sent.url).toBe("https://upstream.test/v1/messages");
+      expect(sent.headers.get("anthropic-beta")).toBe("prompt-caching-2024-07-31,mid-conversation-output-config-2026-07-01");
+      expect(sent.headers.get("anthropic-version")).toBe("2023-06-01");
+      expect(sent.headers.get("x-api-key")).toBe("tenant");
+      const body = await sent.json();
+      expect(body).toMatchObject({ model: "claude-opus-5-5", output_config: { effort: "medium" }, thinking: { type: "adaptive" } });
+      expect(body.messages).toEqual([{ role: "system", content: [], output_config: { effort: "high" } }, { role: "user", content: "hello" }]);
+      return new Response(JSON.stringify({ type: "message", stop_reason: "end_turn", usage: { input_tokens: 2, output_tokens: 1 } }), { headers: { "content-type": "application/json" } });
+    });
+    globalThis.fetch = upstream as typeof fetch;
+    const hooks = await plugin.server({}, { fixedEffort: "high", ...upstreamOptions, anthropicUpstreamApiKey: "default" });
+    const config: any = {}; hooks.config(config);
+    const adapter = config.provider["jev-router-anthropic"].options.fetch;
+    const body = { model: "claude-opus-5-5", messages: [{ role: "user", content: "hello" }] };
+    const send = (url: string, payload: unknown) => adapter(url, { method: "POST", headers: { "x-api-key": "tenant", "anthropic-beta": "prompt-caching-2024-07-31, prompt-caching-2024-07-31" }, body: JSON.stringify(payload) });
+    expect((await send("https://upstream.test/v1/responses", body)).status).toBe(400);
+    expect((await send("https://upstream.test/v1/messages", request)).status).toBe(400);
+    expect((await send("https://upstream.test/v1/chat/completions", body)).status).toBe(400);
+    expect(upstream).not.toHaveBeenCalled();
+    expect((await send("https://upstream.test/v1/messages", body)).status).toBe(200);
+    expect(upstream).toHaveBeenCalledTimes(1);
+    const output = { headers: {} as Record<string, string> };
+    await hooks["chat.headers"]({ sessionID: "ses_anthropic", model: { providerID: "jev-router-anthropic" }, provider: {} }, output);
+    expect(output.headers["x-jev-session-id"]).toBe("ses_anthropic");
+    hooks.dispose();
+  });
+
+  it("isolates Anthropic lineage by x-api-key even when authorization is unchanged", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "jev-anthropic-scope-"));
+    try {
+      const path = join(dir, "decisions.jsonl");
+      globalThis.fetch = vi.fn(async () => new Response(JSON.stringify({ type: "message", stop_reason: "end_turn", usage: { input_tokens: 1, output_tokens: 1 } }), { headers: { "content-type": "application/json" } })) as typeof fetch;
+      const hooks = await plugin.server({}, { fixedEffort: "high", decisionsLogPath: path, ...upstreamOptions, anthropicUpstreamApiKey: "default" });
+      const config: any = {}; hooks.config(config);
+      const send = async (key: string, messages: unknown[]) => {
+        const response = await config.provider["jev-router-anthropic"].options.fetch("https://upstream.test/v1/messages", {
+          method: "POST", headers: { "x-api-key": key, authorization: "Bearer shared", "x-jev-session-id": "ses_scope" }, body: JSON.stringify({ model: "claude-opus-5-5", messages }),
+        });
+        await response.text();
+      };
+      const first = { role: "user", content: "first" };
+      await send("tenant-a", [first]);
+      await send("tenant-a", [first, { role: "assistant", content: "done" }, { role: "user", content: "next" }]);
+      await send("tenant-b", [first, { role: "assistant", content: "done" }, { role: "user", content: "next" }]);
+      await vi.waitFor(async () => expect((await readFile(path, "utf8")).trim().split("\n")).toHaveLength(3));
+      expect((await readFile(path, "utf8")).trim().split("\n").map((line) => JSON.parse(line).lineage_status)).toEqual(["new", "preserved", "new"]);
+      hooks.dispose();
+    } finally { await rm(dir, { recursive: true, force: true }); }
+  });
+
   it("keeps explicit upstream and model metadata overrides while enforcing the Responses interceptor", async () => {
     const hooks = await plugin.server({}, { jevApiKey: "jev", upstreamBaseURL: "http://127.0.0.1:8080/v1", upstreamApiKey: "default" });
     const config: any = { provider: { "jev-router": { options: { baseURL: "http://127.0.0.1:8318/v1", apiKey: "custom" }, models: { "gpt-6-astra": { name: "Custom Astra", reasoning: false, options: {} }, "astra-alias": { provider: { npm: "@ai-sdk/openai" }, options: {} } } } } };

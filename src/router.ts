@@ -3,9 +3,8 @@ import { ClassificationFailedError } from "./classification-policy.js";
 
 import { buildEvidence, type Evidence } from "./evidence.js";
 import { LineageStore } from "./lineage.js";
-import type { ModelProfile } from "./models.js";
-import { rewriteResponsesRequest, UnsupportedInputError, type Effort } from "./rewrite.js";
-import { resolveModel, validateResponsesRequest } from "./validate.js";
+import type { ModelProfile, Provider, Effort } from "./models.js";
+import { resolveModel, validateRequest, wireFor, UnsupportedInputError } from "./wire.js";
 import type { Usage } from "./usage.js";
 
 export interface EffortDecision {
@@ -17,7 +16,7 @@ export interface EffortDecision {
   jevErrorCategory?: "http_auth" | "http_rate_limit" | "http_4xx" | "http_5xx" | "http_other" | "connection" | "sdk_timeout" | "sdk_abort" | "unknown";
 }
 
-export type EffortSelector = (args: { model: ModelProfile; body: Record<string, unknown>; signal: AbortSignal; cacheScope?: string }) => Promise<EffortDecision>;
+export type EffortSelector = (args: { model: ModelProfile; body: Record<string, unknown>; signal: AbortSignal; cacheScope?: string; cacheKey?: string | null }) => Promise<EffortDecision>;
 
 export interface RouterOptions {
   baseEffort?: Effort;
@@ -26,6 +25,7 @@ export interface RouterOptions {
 }
 
 export interface RouterRequest {
+  provider?: Provider;
   signal: AbortSignal;
   scope: unknown[] | null;
   session?: string | null;
@@ -47,11 +47,12 @@ export class ResponsesRouter {
 
   async prepare(value: unknown, request: RouterRequest): Promise<PreparedRequest | null> {
     const model = resolveModel(value);
-    validateResponsesRequest(value, model);
-    const body = value as Record<string, unknown>;
+    const body = validateRequest(value, model, request.provider);
+    const adapter = wireFor(model.provider);
     let decision: EffortDecision;
     try {
-      decision = await this.options.selectEffort({ model, body, signal: request.signal, cacheScope: request.cacheScope });
+      decision = await this.options.selectEffort({ model, body, signal: request.signal, cacheScope: request.cacheScope,
+        cacheKey: adapter.cacheKey(body) ?? (model.provider === "anthropic" ? request.session ?? null : null) });
     } catch (error) {
       if (request.signal.aborted) return null;
       if (error instanceof ClassificationFailedError) {
@@ -62,12 +63,12 @@ export class ResponsesRouter {
     }
     if (request.signal.aborted) return null;
 
-    const history = this.lineage.prepare(body.input as unknown[], request.scope, decision.effort);
+    const history = this.lineage.prepare(adapter.items(body), request.scope, decision.effort, adapter);
     if (history.unsafe) {
       history.discard();
       throw new UnsupportedInputError("request history has a conflicting reasoning configuration update at the selected boundary");
     }
-    const rewritten = rewriteResponsesRequest(value, {
+    const rewritten = adapter.rewrite(value, {
       model,
       baseEffort: this.options.baseEffort ?? model.defaultBaseEffort,
       effort: decision.effort,

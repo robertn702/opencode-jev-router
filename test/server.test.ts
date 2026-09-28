@@ -110,6 +110,70 @@ const simpleInput = JSON.stringify({
 });
 
 describe("forwarding lifecycle", () => {
+  it("routes Anthropic messages with pinned effort, merged beta and isolated configured credentials", async () => {
+    const openai = await startUpstream((_request, response) => response.end("{}"));
+    const anthropic = await startUpstream((_request, response, recorded) => response.end(recorded.body));
+    const app = await startLimitedApp(openai.url, {
+      anthropicUpstream: { baseUrl: `${anthropic.url}/v1`, auth: { policy: "key", apiKey: "server-key" } },
+      selectEffort: async () => ({ effort: "low", jevLatencyMs: 0, fallback: null }),
+    });
+    const input = { model: "claude-opus-5-5", messages: [{ role: "user", content: "hi" }] };
+    const response = await fetch(`${app}/v1/messages`, { method: "POST", headers: {
+      "x-api-key": "client-key", authorization: "Bearer client-token", "anthropic-beta": "custom-beta,custom-beta",
+      "x-jev-session-id": "ses_abc",
+    }, body: JSON.stringify(input) });
+    expect(response.status).toBe(200);
+    const rewritten = await response.json() as Record<string, any>;
+    expect(rewritten.model).toBe("claude-opus-5-5");
+    expect(rewritten.output_config.effort).toBe("medium");
+    expect(rewritten.thinking).toEqual({ type: "adaptive" });
+    expect(rewritten.messages).toEqual([{ role: "system", content: [], output_config: { effort: "low" } }, ...input.messages]);
+    expect(anthropic.requests[0]!.url).toBe("/v1/messages");
+    expect(anthropic.requests[0]!.headers).toMatchObject({ "x-api-key": "server-key", "anthropic-version": "2023-06-01", "anthropic-beta": "custom-beta,mid-conversation-output-config-2026-07-01" });
+    expect(anthropic.requests[0]!.headers.authorization).toBeUndefined();
+    expect(anthropic.requests[0]!.headers["x-jev-session-id"]).toBeUndefined();
+    expect(openai.requests).toHaveLength(0);
+  });
+
+  it("forwards client Anthropic credentials and version only in forward mode", async () => {
+    const upstream = await startUpstream((_request, response) => response.end("{}"));
+    const app = await startLimitedApp(upstream.url, { anthropicUpstream: { baseUrl: upstream.url, auth: { policy: "forward" } } });
+    const response = await fetch(`${app}/v1/messages`, { method: "POST", headers: { "x-api-key": "client-key", authorization: "Bearer oauth", "anthropic-version": "2024-01-01" }, body: JSON.stringify({ model: "claude-opus-5", messages: [{ role: "user", content: "hi" }] }) });
+    expect(response.status).toBe(200);
+    await response.text();
+    expect(upstream.requests[0]!.headers).toMatchObject({ "x-api-key": "client-key", authorization: "Bearer oauth", "anthropic-version": "2024-01-01", "anthropic-beta": "mid-conversation-output-config-2026-07-01" });
+  });
+
+  it("rejects unconfigured messages and both route/model mismatches before selection", async () => {
+    const upstream = await startUpstream((_request, response) => response.end("{}"));
+    let selected = 0;
+    const app = await startLimitedApp(upstream.url, { anthropicUpstream: { baseUrl: upstream.url, auth: { policy: "forward" } }, selectEffort: async () => { selected++; return { effort: "low", jevLatencyMs: 0, fallback: null }; } });
+    for (const [route, body] of [["responses", { model: "claude-opus-5", messages: [] }], ["messages", { model: "gpt-6-astra", input: [] }]] as const) {
+      const response = await fetch(`${app}/v1/${route}`, { method: "POST", body: JSON.stringify(body) });
+      expect(response.status).toBe(400);
+      expect((await response.json() as { error: string }).error).toBe("invalid_request");
+    }
+    const unconfigured = await startApp(upstream.url);
+    const missing = await fetch(`${unconfigured}/v1/messages`, { method: "POST", body: "{}" });
+    expect(missing.status).toBe(404);
+    expect((await missing.json() as { error: string }).error).toBe("not_found");
+    expect(selected).toBe(0);
+    expect(upstream.requests).toHaveLength(0);
+  });
+
+  it("streams Anthropic SSE bytes unchanged", async () => {
+    const chunks = ['event: message_start\ndata: {"type":"message_start"}\n\n', 'event: message_stop\ndata: {"type":"message_stop"}\n\n'];
+    const upstream = await startUpstream((_request, response) => {
+      response.writeHead(200, { "content-type": "text/event-stream" });
+      response.write(chunks[0]);
+      setTimeout(() => response.end(chunks[1]), 10);
+    });
+    const app = await startLimitedApp(upstream.url, { anthropicUpstream: { baseUrl: upstream.url, auth: { policy: "forward" } } });
+    const response = await fetch(`${app}/v1/messages`, { method: "POST", body: JSON.stringify({ model: "claude-opus-5", stream: true, messages: [{ role: "user", content: "hi" }] }) });
+    expect(response.status).toBe(200);
+    expect(await response.text()).toBe(chunks.join(""));
+  });
+
   it("forwards opaque computer, hosted-tool, reference and future items in order with all fields", async () => {
     const upstream = await startUpstream((_request, response, recorded) => response.end(recorded.body));
     const app = await startApp(upstream.url, async () => ({ effort: "high", jevLatencyMs: 0, fallback: null }));

@@ -68,4 +68,11 @@ describe("buildUpstreamRequestHeaders", () => {
 
     expect(headers["content-length"]).toBeUndefined();
   });
+
+  it("adds provider headers without changing OpenAI defaults or framing", () => {
+    const body = "{}";
+    expect(buildUpstreamRequestHeaders(undefined, body)).toEqual({ accept: "*/*", "accept-encoding": "identity", "content-type": "application/json", "content-length": "2" });
+    expect(buildUpstreamRequestHeaders(undefined, body, { "x-api-key": "anthropic-key", "anthropic-version": "2023-06-01" }))
+      .toMatchObject({ "x-api-key": "anthropic-key", "anthropic-version": "2023-06-01", "content-length": "2" });
+  });
 });
