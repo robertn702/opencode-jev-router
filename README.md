@@ -71,9 +71,16 @@ for all projects, or `opencode.json` in a project root:
   "plugins": [{ "package": "@robertn702/opencode-jev-router", "options": {
     "jevApiKey": "{env:JEV_API_KEY}",
     "jevBaseUrl": "https://ai-gateway.vercel.sh/typesafe",
-    "wrap": { "openai": ["openai/gpt-6-astra"] },
+    "wrap": { "openai": ["myopenai/gpt-6-astra"] },
     "decisionsLogPath": "/tmp/jev-decisions.jsonl"
   }}],
+  "providers": {
+    "myopenai": {
+      "package": "@opencode/ai/providers/openai/responses",
+      "settings": { "baseURL": "https://api.openai.com/v1", "apiKey": "{env:OPENAI_API_KEY}" },
+      "models": { "gpt-6-astra": { "name": "GPT-6 Astra" } }
+    }
+  },
   "model": "jev-router/gpt-6-astra"
 }
 ```
