@@ -6,10 +6,18 @@
     "jevApiKey": "{env:JEV_API_KEY}",
     "jevBaseUrl": "https://ai-gateway.vercel.sh/typesafe",
     // Wrap existing OpenCode models with API-key credentials.
-    "wrap": { "openai": ["openai/gpt-6-astra"] },
+    "wrap": { "openai": ["myopenai/gpt-6-astra"] },
     // Add "anthropic": ["anthropic/claude-opus-5-5"] for Messages.
     // Optional: an absolute path for metadata-only JevDecision JSONL events.
     // "decisionsLogPath": "/absolute/path/to/jev-decisions.jsonl"
   }}],
+  // Explicit source package and model also work on OpenCode 2.0.4.
+  "providers": {
+    "myopenai": {
+      "package": "@opencode/ai/providers/openai/responses",
+      "settings": { "baseURL": "https://api.openai.com/v1", "apiKey": "{env:OPENAI_API_KEY}" },
+      "models": { "gpt-6-astra": { "name": "GPT-6 Astra" } }
+    }
+  },
   "model": "jev-router/gpt-6-astra"
 }
