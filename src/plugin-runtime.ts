@@ -11,10 +11,10 @@ import { UsageObserver } from "./usage.js";
 import { resolveModel, validateRequest, wireFor, UnsupportedInputError } from "./wire.js";
 import { anthropicVersion, mergeAnthropicBeta } from "./wire-anthropic.js";
 
-/** Options shared by the OpenCode V1 and V2 plugin entrypoints. */
+/** Options for the OpenCode V2 plugin runtime. */
 export type PluginOptions = ClassificationPolicyOptions & { jevTimeoutMs?: number; jevApiKey?: string; jevBaseUrl?: string; jevModel?: string; baseEffort?: Effort; fixedEffort?: Effort; maxRequestBytes?: number; maxInFlight?: number; upstreamHeaderTimeoutMs?: number; upstreamIdleTimeoutMs?: number; upstreamBaseURL?: string; upstreamApiKey?: string; anthropicUpstreamBaseURL?: string; anthropicUpstreamApiKey?: string; decisionsLogPath?: string };
 
-/** A local rejection with the status the V1 fetch adapter returns to the SDK. */
+/** A local rejection with an HTTP status for the plugin request hook. */
 export class PluginRequestError extends Error {
   constructor(readonly status: number, readonly code: string, message: string) {
     super(message);

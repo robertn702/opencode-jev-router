@@ -54,7 +54,8 @@ Actual OpenCode-client acceptance of all three selections and additional explici
 multi-model edge-case assertions remain pending. Direct bearer-auth live checks
 were not run for this change.
 
-The following results are historical Astra checks, not new Luna/Sol evidence.
+The following results are historical Astra proxy checks with an OpenCode V1
+client, not evidence of current V1 plugin support or new Luna/Sol behavior.
 
 Ran on Node 24.x (`npm run check`: 51 tests) with **OpenCode 1.18.32** and
 a loopback Responses API-compatible gateway backed by a Codex subscription:

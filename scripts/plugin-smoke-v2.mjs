@@ -6,9 +6,9 @@ import { fileURLToPath } from "node:url";
 
 import { close, exists, fakeAnthropicUpstream, fakeJevProxy, fakeRegistry, fakeResponsesUpstream, listen, run, sleep } from "./smoke-helpers.mjs";
 
-// Pinned OpenCode V2 smoke for the packed plugin. Pass a tarball to test a
-// release artifact; set OPENCODE_V2_BIN to reuse an installed 2.0.18 binary.
-const VERSION = "2.0.18";
+// Pass a tarball to test a release artifact, or a version and binary to test
+// another V2 runtime. CI defaults to 2.0.18.
+const VERSION = process.env.OPENCODE_V2_VERSION ?? "2.0.18";
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
 const observed = {};
@@ -33,7 +33,7 @@ try {
     run("npm", ["install", "--prefix", dirs.cli, "--no-audit", "--no-fund", `@opencode/cli@${VERSION}`], { stdio: "ignore" });
     opencode = join(dirs.cli, "node_modules", ".bin", "opencode");
   }
-  assert.equal(run(opencode, ["--version"]).trim(), `opencode v${VERSION}`, `this smoke is pinned to OpenCode ${VERSION}`);
+  assert.equal(run(opencode, ["--version"]).trim(), `opencode v${VERSION}`, `expected OpenCode ${VERSION}`);
 
   // OpenCode installs package plugins by name with Bun. Serve the packed
   // plugin and its production dependencies from a loopback registry.
@@ -112,7 +112,7 @@ try {
     assert.equal(request.body.input.at(-2)?.reasoning?.effort, "high");
   }
 
-  // A shared V1 `plugin` tuple config is normalized by V2 and routes the same way.
+  // V2 also normalizes the legacy tuple config and routes the same way.
   for (const request of await opencodeRun("gpt-6-sol", { plugins: undefined, plugin: [[plugins[0].package, plugins[0].options]] })) {
     assert.equal(request.body.model, "gpt-6-sol");
     assert.equal(request.body.input.at(-2)?.reasoning?.effort, "high");

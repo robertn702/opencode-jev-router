@@ -22,12 +22,8 @@ jobs:
       - run: npm run smoke:package
 
   plugin-smoke:
-    name: plugin smoke (OpenCode ${{ matrix.opencode }})
+    name: plugin smoke (OpenCode 2.0.18)
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        opencode: ['1.18.32', '2.0.18']
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
@@ -36,12 +32,5 @@ jobs:
           cache: npm
       - run: npm ci
       - run: mkdir -p /tmp/opencode
-      - name: V1 smoke
-        if: startsWith(matrix.opencode, '1.')
-        run: |
-          npm install --prefix "$RUNNER_TEMP/opencode" --no-audit --no-fund "opencode-ai@${{ matrix.opencode }}"
-          npm run build
-          OPENCODE_BIN="$RUNNER_TEMP/opencode/node_modules/.bin/opencode" npm run smoke:plugin
       - name: V2 smoke
-        if: startsWith(matrix.opencode, '2.')
         run: npm run smoke:plugin:v2
