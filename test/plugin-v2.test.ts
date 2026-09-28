@@ -69,10 +69,10 @@ const decisions = async (path: string) => {
 afterEach(() => { globalThis.fetch = originalFetch; vi.restoreAllMocks(); });
 
 describe("jev-router OpenCode V2 plugin", () => {
-  it("exposes one stable V2 definition beside the V1 server entrypoint", () => {
+  it("exposes only the native V2 entrypoint", () => {
     expect(plugin.id).toBe("jev-router");
     expect(typeof plugin.setup).toBe("function");
-    expect(typeof plugin.server).toBe("function");
+    expect(Object.keys(plugin).sort()).toEqual(["id", "setup"]);
   });
 
   it("registers the provider, native Responses package, HTTP transport, and three model profiles", async () => {

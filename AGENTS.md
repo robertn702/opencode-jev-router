@@ -3,7 +3,7 @@
 This project provides a standalone local Responses/Messages API proxy and an
 in-process OpenCode plugin. Jev selects reasoning effort for supported OpenAI
 and Anthropic models. `README.md` covers setup for both paths,
-`docs/behavior.md` their wire behavior, and `examples/opencode.jsonc` the
+`docs/behavior.md` their wire behavior, and `examples/opencode-v2.jsonc` the
 plugin configuration.
 
 ## Commands
@@ -16,7 +16,6 @@ Use Node.js 24.x from the repo root.
 | Typecheck and run offline tests | `npm run check` |
 | Run a focused test | `npx vitest run test/rewrite.test.ts` |
 | Build the CLI in `dist/` | `npm run build` |
-| Smoke-test the plugin (V1 1.18.32 on `PATH`, after build) | `npm run smoke:plugin` |
 | Smoke-test the packed plugin in OpenCode V2 2.0.18 | `npm run smoke:plugin:v2` |
 | Watch source changes | `npm run dev` |
 
@@ -50,11 +49,9 @@ external services.
   incremental SSE with backpressure, and header filtering. `src/evidence.ts` logs
   metadata only: no prompts, tool output, credentials, or raw upstream errors.
 - `src/plugin.ts` and `src/router.ts`: The plugin shares classification and
-  rewriting with the proxy. `src/plugin.ts` default-exports one object for both
-  OpenCode majors: V1 `server()` (`src/plugin-v1.ts`) and V2 `id`/`setup()`
-  (`src/plugin-v2.ts`) are thin adapters over `src/plugin-runtime.ts`. Keep them
-  on their own host APIs, and keep V2 types structural so V1 never loads V2
-  modules. Optional plugin `decisionsLogPath` and CLI
+  rewriting with the proxy. `src/plugin.ts` default-exports the native OpenCode
+  V2 `id`/`setup()` definition in `src/plugin-v2.ts`, backed by
+  `src/plugin-runtime.ts`. Optional plugin `decisionsLogPath` and CLI
   `JEV_DECISIONS_LOG_PATH` both write metadata-only `JevDecision` events using
   shared formatting; the CLI also prints request evidence to stdout. Log failure
   must never affect generation. Do not infer a selected effort from OpenCode's

@@ -112,12 +112,6 @@ try {
     assert.equal(request.body.input.at(-2)?.reasoning?.effort, "high");
   }
 
-  // A shared V1 `plugin` tuple config is normalized by V2 and routes the same way.
-  for (const request of await opencodeRun("gpt-6-sol", { plugins: undefined, plugin: [[plugins[0].package, plugins[0].options]] })) {
-    assert.equal(request.body.model, "gpt-6-sol");
-    assert.equal(request.body.input.at(-2)?.reasoning?.effort, "high");
-  }
-
   await opencodeRun("claude-opus-5-5");
   assert.equal(observed.anthropic?.url, "/v1/messages", "Claude did not use the Messages endpoint");
   assert.equal(observed.anthropic?.method, "POST");

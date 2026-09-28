@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.6.0
+
+- **Breaking:** OpenCode V2 is now required. The package exports only the native
+  `id`/`setup()` plugin definition; the V1 `server()` adapter, tuple example,
+  and V1 smoke path have been removed. Use an object entry in `plugins` as shown
+  in `examples/opencode-v2.jsonc`.
+- The standalone Responses/Messages proxy and its command-line interface keep
+  their existing behavior.
+
 ## 0.5.0
 
 - **Breaking:** the Jev classifier credential is `JEV_API_KEY` and its endpoint

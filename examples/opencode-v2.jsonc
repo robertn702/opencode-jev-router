@@ -1,5 +1,5 @@
 {
-  // OpenCode V2 only. Use examples/opencode.jsonc if you also run V1.
+  // OpenCode V2 plugin configuration.
   "$schema": "https://opencode.ai/config.json",
   "plugins": [{
     "package": "@robertn702/opencode-jev-router",

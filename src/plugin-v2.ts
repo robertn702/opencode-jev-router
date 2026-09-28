@@ -6,7 +6,7 @@ import { createPluginRuntime, PluginRequestError, requiredString, SESSION, upstr
 /**
  * The subset of the OpenCode V2 `@opencode/plugin` context this plugin uses,
  * checked against OpenCode 2.0.18. It is declared structurally so the package
- * has no runtime or type dependency on the V2 SDK and still loads in V1.
+ * has no runtime or type dependency on the V2 SDK.
  */
 export interface V2Context {
   readonly options: Readonly<Record<string, unknown>>;
@@ -29,7 +29,7 @@ export interface V2HttpRequest { readonly sessionID: string; readonly kind: stri
 export interface V2HttpResponse { readonly sessionID: string; readonly kind: string; readonly request: Request; response: Response }
 
 export const PROVIDER_ID = "jev-router";
-/** Native OpenAI Responses runtime, the V2 counterpart of V1 `@ai-sdk/openai` with `useResponses`. */
+/** Native OpenAI Responses runtime used by the V2 plugin. */
 export const PROVIDER_PACKAGE = "@opencode/ai/providers/openai/responses";
 
 const rejection = (cause: unknown): Error => cause instanceof PluginRequestError

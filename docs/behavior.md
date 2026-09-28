@@ -278,17 +278,14 @@ http://127.0.0.1:4320/ready` as a startup check, `Restart=on-failure`, and
 - Native Node HTTP/fetch and stream primitives only — no proxy framework, no
   upstream retries.
 
-## OpenCode plugin adapters
+## OpenCode V2 plugin
 
-The package default export serves both OpenCode majors from one shared runtime
-(validation, Jev selection, rewrite, lineage, limits, and usage observation):
+The package default export uses a shared runtime for validation, Jev selection,
+rewrite, lineage, limits, and usage observation:
 
-- **V1** (`server()`, 1.18.29+) registers `provider["jev-router"]` with
-  `@ai-sdk/openai`, `useResponses: true`, and a fetch adapter that performs the
-  upstream request itself. `chat.headers` adds the internal correlation headers.
 - Claude models join `jev-router` when `anthropicUpstreamApiKey` or
   `anthropicUpstreamBaseURL` is set. Per-model SDK selection uses
-  `@ai-sdk/anthropic` in V1 and the native Anthropic Messages package in V2.
+  the native Anthropic Messages package.
   The shared interceptor routes `/messages` to the Anthropic base URL (default
   `https://api.anthropic.com/v1`); `/responses` keeps the OpenAI upstream.
   An explicit Anthropic key replaces `authorization` with `x-api-key`;
@@ -296,7 +293,7 @@ The package default export serves both OpenCode majors from one shared runtime
   and a different Anthropic origin is rejected with a local 400. A different
   origin with an explicit key receives only protocol headers (`anthropic-*`,
   `accept`, `content-type`, `user-agent`, `x-stainless-*`) plus `x-api-key`.
-- **V2** (`id: "jev-router"`, `setup()`) registers the provider through
+- The `id: "jev-router"`, `setup()` entrypoint registers the provider through
   `ctx.provider.transform` on `@opencode/ai/providers/openai/responses` with
   `transport: "http"`, then scopes `http.request` and `http.response` session
   hooks to that provider. OpenCode performs the fetch between them:
@@ -313,6 +310,3 @@ The package default export serves both OpenCode majors from one shared runtime
     settles it immediately. Plugin cleanup aborts and records every open
     exchange. A response that arrives after its exchange settled is cancelled
     and reported as an error rather than streamed.
-
-V1 and V2 each read `server()` or `setup()` and ignore the other, so a host
-never registers the provider twice.

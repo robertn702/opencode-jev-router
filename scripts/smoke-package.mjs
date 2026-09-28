@@ -27,9 +27,10 @@ let child;
 try {
   const tarball = process.argv[2] ?? join(temp, JSON.parse(run("npm", ["--silent", "pack", "--json", "--pack-destination", temp]))[0].filename);
   const paths = run("tar", ["-tzf", tarball]).trim().split("\n").map((path) => path.replace(/^package\//, ""));
-  for (const required of ["dist/index.js", "README.md", "LICENSE", "docs/cache-validation.md", "examples/opencode.jsonc", "examples/opencode-v2.jsonc", "dist/plugin.js", "dist/plugin-v1.js", "dist/plugin-v2.js", "dist/plugin-runtime.js"]) {
+  for (const required of ["dist/index.js", "README.md", "LICENSE", "docs/cache-validation.md", "examples/opencode-v2.jsonc", "dist/plugin.js", "dist/plugin-v2.js", "dist/plugin-runtime.js"]) {
     assert.ok(paths.includes(required), `package is missing ${required}`);
   }
+  assert.ok(!paths.includes("dist/plugin-v1.js"), "package still contains the V1 adapter");
   assert.ok(paths.every((path) =>
     !path.startsWith("test/") && !path.startsWith("src/") && !path.startsWith("scripts/") &&
     !path.startsWith("dist/test/") && !path.endsWith(".ts")

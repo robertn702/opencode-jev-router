@@ -34,9 +34,7 @@ If Jev is slow or unavailable, the request continues at a fallback effort
 
 ## Requirements
 
-- **OpenCode.** One package supports both majors: V1 1.18.29 or newer (tested
-  with 1.18.32) and V2 (tested with 2.0.18). V1 support continues through the
-  0.x releases; its removal will be announced in the changelog first.
+- **OpenCode V2** (tested with 2.0.18).
 - **A Jev key**, from either:
   - [TypeSafe](https://typesafe.ai/) (direct), or
   - [Vercel AI Gateway](https://vercel.com/docs/ai-gateway/sdks-and-apis/typesafe)
@@ -63,21 +61,23 @@ export JEV_API_KEY=...   # TypeSafe key or Vercel AI Gateway key
 export OPENAI_API_KEY=...       # key for your Responses API endpoint
 ```
 
-**2. Add the plugin** to your OpenCode config: `~/.config/opencode/opencode.json`
-for all projects, or `opencode.json` in a project root. This V1 `plugin` tuple
-also works in V2, which normalizes it; for a V2-only config, see
-[OpenCode V2](#opencode-v2).
+**2. Add the plugin** to `~/.config/opencode/opencode.json` for all projects,
+or to `opencode.json` in a project root. V2 reads plugin options from the
+object form of `plugins`:
 
 ```jsonc
 {
   "$schema": "https://opencode.ai/config.json",
-  "plugin": [["@robertn702/opencode-jev-router", {
-    "jevApiKey": "{env:JEV_API_KEY}",
-    "jevBaseUrl": "https://ai-gateway.vercel.sh/typesafe",
-    "upstreamBaseURL": "https://api.openai.com/v1",
-    "upstreamApiKey": "{env:OPENAI_API_KEY}",
-    "decisionsLogPath": "/tmp/jev-decisions.jsonl"
-  }]],
+  "plugins": [{
+    "package": "@robertn702/opencode-jev-router",
+    "options": {
+      "jevApiKey": "{env:JEV_API_KEY}",
+      "jevBaseUrl": "https://ai-gateway.vercel.sh/typesafe",
+      "upstreamBaseURL": "https://api.openai.com/v1",
+      "upstreamApiKey": "{env:OPENAI_API_KEY}",
+      "decisionsLogPath": "/tmp/jev-decisions.jsonl"
+    }
+  }],
   "model": "jev-router/gpt-6-astra"
 }
 ```
@@ -107,30 +107,7 @@ You should see a `JevDecision` event with `"effort"` set (for example
 reached; see [Troubleshooting](#troubleshooting). Remove `decisionsLogPath`
 once you're satisfied, or keep it for metrics.
 
-A copy of this config is in [`examples/opencode.jsonc`](examples/opencode.jsonc).
-
-### OpenCode V2
-
-V2 reads the same options from the object form of `plugins`:
-
-```jsonc
-{
-  "$schema": "https://opencode.ai/config.json",
-  "plugins": [{
-    "package": "@robertn702/opencode-jev-router",
-    "options": {
-      "jevApiKey": "{env:JEV_API_KEY}",
-      "jevBaseUrl": "https://ai-gateway.vercel.sh/typesafe",
-      "upstreamBaseURL": "https://api.openai.com/v1",
-      "upstreamApiKey": "{env:OPENAI_API_KEY}",
-      "decisionsLogPath": "/tmp/jev-decisions.jsonl"
-    }
-  }],
-  "model": "jev-router/gpt-6-astra"
-}
-```
-
-This config is V2-only; keep the `plugin` tuple above if you also run V1. A copy is in
+A copy is in
 [`examples/opencode-v2.jsonc`](examples/opencode-v2.jsonc). In V2 the plugin
 registers the provider on OpenCode's native OpenAI Responses runtime and routes
 its HTTP requests; the models, options, and decision log are the same.
@@ -139,8 +116,8 @@ its HTTP requests; the models, options, and decision log are the same.
 
 The plugin registers one `jev-router` provider. Claude models are enabled by
 setting `anthropicUpstreamBaseURL` or `anthropicUpstreamApiKey` in plugin options.
-They use V1 `@ai-sdk/anthropic` or V2's native Anthropic Messages package per
-model. The default Anthropic base URL is `https://api.anthropic.com/v1`.
+They use the native Anthropic Messages package per model. The default
+Anthropic base URL is `https://api.anthropic.com/v1`.
 
 To enable Claude with the standard Anthropic API, add
 `"anthropicUpstreamApiKey": "{env:ANTHROPIC_API_KEY}"` to the plugin options
@@ -195,8 +172,7 @@ Anthropic key, never headers configured for the `jev-router` endpoint.
 
 ## Configuration
 
-Plugin options go in the second element of the `plugin` tuple, or in `options`
-of a V2 `plugins` entry.
+Plugin options go in `options` of a V2 `plugins` entry.
 
 | Option | Default | Purpose |
 | --- | --- | --- |
@@ -224,14 +200,7 @@ detailed in
 <details>
 <summary>Customizing the generated provider</summary>
 
-**V1.** You may still declare `provider["jev-router"]` to override display names or
-model metadata. Provider `options.baseURL`/`options.apiKey` take precedence over
-`upstreamBaseURL`/`upstreamApiKey`. The plugin always uses `@ai-sdk/openai`, its
-own fetch adapter, and `useResponses: true`; a config that sets a different SDK,
-a custom fetch, or `useResponses: false` fails at startup rather than bypassing
-Jev.
-
-**V2.** `upstreamBaseURL` is required as a plugin option. A
+`upstreamBaseURL` is required as a plugin option. A
 `providers["jev-router"]` block overlays the generated provider: its
 `settings.baseURL`/`settings.apiKey`, `headers`, and model fields such as `name`
 or `limit` take precedence over the plugin's values. The plugin uses
@@ -326,15 +295,11 @@ npm ci
 npm run check           # typecheck + offline tests
 npm run build           # compile to dist/
 npm run smoke:package   # pack, install, and start the packaged CLI
-npm run smoke:plugin    # load the plugin in an isolated OpenCode 1.18.32 runtime
 npm run smoke:plugin:v2 # install the packed plugin in an isolated OpenCode 2.0.18
 ```
 
-The plugin smokes need `openssl` and an existing `/tmp/opencode`. The V1 smoke
-uses `opencode` on `PATH` (or `OPENCODE_BIN`) and a prior `npm run build`; the
-V2 smoke packs the plugin and installs `@opencode/cli@2.0.18` unless
-`OPENCODE_V2_BIN` is set. The V1 `@ai-sdk/anthropic` path is covered by offline
-tests only; the V1 smoke does not exercise Anthropic.
+The plugin smoke needs `openssl` and an existing `/tmp/opencode`. It packs the
+plugin and installs `@opencode/cli@2.0.18` unless `OPENCODE_V2_BIN` is set.
 
 Tests use a fake upstream and a mocked Jev; they need no keys. To run the proxy
 from source, `cp .env.example .env`, fill in the keys, then `npm run build &&
