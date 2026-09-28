@@ -123,10 +123,11 @@ export function createPluginRuntime(options: PluginOptions): PluginRuntime {
     if (inFlight >= maxInFlight) throw new PluginRequestError(503, "overloaded", "router overloaded");
     inFlight += 1;
     const controller = new AbortController(); controllers.add(controller); pending.add(request);
+    const pendingRef = new WeakRef(request);
     const signal = AbortSignal.any([request.signal, controller.signal]);
     let releaseDone = false; let prepared: PreparedRequest | null = null; let handedOff = false; let timedOut = false; let responded = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
-    const release = (): void => { if (!releaseDone) { releaseDone = true; clearTimeout(timer); controllers.delete(controller); pending.delete(request); abandons.delete(abandon); inFlight -= 1; } };
+    const release = (): void => { if (!releaseDone) { releaseDone = true; clearTimeout(timer); controllers.delete(controller); const retained = pendingRef.deref(); if (retained) pending.delete(retained); abandons.delete(abandon); inFlight -= 1; } };
     const discard = (outcome: string): void => prepared?.finish(outcome, 0, false);
     const abandon = (): void => { discard("failed"); release(); };
     abandons.add(abandon);

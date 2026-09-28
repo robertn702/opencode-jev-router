@@ -63,16 +63,15 @@ try {
     HTTPS_PROXY: `http://127.0.0.1:${fake.port}`, HTTP_PROXY: `http://127.0.0.1:${fake.port}`,
     NODE_EXTRA_CA_CERTS: fake.cert, SSL_CERT_FILE: fake.cert,
     NPM_CONFIG_REGISTRY: fakeNpm.url, npm_config_registry: fakeNpm.url, BUN_CONFIG_REGISTRY: fakeNpm.url,
-    SMOKE_UPSTREAM_KEY: "fake-upstream-key", OPENAI_API_KEY: "fake-user-key", SMOKE_ANTHROPIC_KEY: "fake-anthropic-key",
+    SMOKE_UPSTREAM_KEY: "fake-upstream-key", OPENAI_API_KEY: "fake-user-key", ANTHROPIC_API_KEY: "fake-anthropic-key",
     NO_PROXY: "127.0.0.1,localhost", no_proxy: "127.0.0.1,localhost",
     PATH: process.env.PATH, LANG: "C", TERM: "dumb",
   };
-  const plugins = [{ package: `${installed.name}@${installed.version}`, options: { jevApiKey: `{file:${jevKeyFile}}`, wrap: { openai: ["gw/gpt-6-astra", "gw/gpt-6-luna", ...(VERSION === "2.0.4" ? [] : ["openai/gpt-6-sol"])], anthropic: ["claudegw/claude-opus-5-5"] }, decisionsLogPath } }];
+  const plugins = [{ package: `${installed.name}@${installed.version}`, options: { jevApiKey: `{file:${jevKeyFile}}`, wrap: { openai: ["gw/gpt-6-astra", "gw/gpt-6-luna", "openai/gpt-6-sol"], anthropic: ["anthropic/claude-opus-5-5"] }, decisionsLogPath } }];
   const providers = {
-    "jev-router": { settings: { transport: "http" } },
     gw: { package: "@opencode/ai/providers/openai/responses", settings: { baseURL: `http://127.0.0.1:${upstreamPort}/v1`, apiKey: "{env:SMOKE_UPSTREAM_KEY}" }, models: Object.fromEntries(["gpt-6-astra", "gpt-6-luna"].map((id) => [id, { name: id, limit: { context: 200000, output: 32000 } }])) },
     openai: { package: "@opencode/ai/providers/openai/responses", settings: { baseURL: `http://127.0.0.1:${upstreamPort}/v1` }, models: { "gpt-6-sol": { name: "Sol", limit: { context: 200000, output: 32000 } } } },
-    claudegw: { package: "@opencode/ai/providers/anthropic", settings: { baseURL: `http://127.0.0.1:${anthropicPort}/v1`, apiKey: "{env:SMOKE_ANTHROPIC_KEY}" }, models: { "claude-opus-5-5": { name: "Opus", limit: { context: 200000, output: 32000 } } } },
+    anthropic: { package: "@opencode/ai/providers/anthropic", settings: { baseURL: `http://127.0.0.1:${anthropicPort}/v1` }, models: { "claude-opus-5-5": { name: "Opus", limit: { context: 200000, output: 32000 } } } },
   };
 
   async function opencodeRun(model, config = {}) {
@@ -116,13 +115,11 @@ try {
   }
 
   // The built-in provider supplies its integration credential, without an alias key.
-  if (VERSION !== "2.0.4") {
-    const overridden = await opencodeRun("gpt-6-sol");
-    for (const request of overridden) {
-      assert.equal(request.body.model, "gpt-6-sol");
-      assert.equal(request.headers.authorization, "Bearer fake-user-key");
-      if (request.body.input?.some((item) => item.type === "configuration_update")) assert.equal(request.body.input.at(-2)?.reasoning?.effort, "high");
-    }
+  const overridden = await opencodeRun("gpt-6-sol");
+  for (const request of overridden) {
+    assert.equal(request.body.model, "gpt-6-sol");
+    assert.equal(request.headers.authorization, "Bearer fake-user-key");
+    if (request.body.input?.some((item) => item.type === "configuration_update")) assert.equal(request.body.input.at(-2)?.reasoning?.effort, "high");
   }
 
   // V2 also normalizes the legacy tuple config and routes the same way.
