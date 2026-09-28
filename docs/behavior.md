@@ -291,8 +291,9 @@ rewrite, lineage, limits, and usage observation):
   Aliases under `jev-router/<profile>` inherit source model metadata and provider
   route, headers and API-key settings. The alias pins top-level model transport
   to HTTP (in addition to the provider setting) even if its source prefers
-  websocket. The source package must match the group's
-  Responses or Messages wire. Missing sources, unsupported profiles, wrong
+  websocket. OpenAI sources may use `@opencode/ai/providers/openai` or
+  `@opencode/ai/providers/openai/responses`; Anthropic sources must use
+  `@opencode/ai/providers/anthropic`. Missing sources, unsupported profiles, wrong
   packages and duplicate aliases reject every alias request with the list of
   invalid refs. OAuth sources are not supported; API keys from resolved settings
   pass through without resolving the integration, or
@@ -304,7 +305,8 @@ rewrite, lineage, limits, and usage observation):
   `transport: "http"`, then scopes `http.request` and `http.response` session
   hooks to that provider. OpenCode performs the fetch between them:
   - Only primary requests ending in `/responses` or `/messages` are classified.
-    Auxiliary calls and other paths pass through unchanged with source auth,
+     Auxiliary calls may use other paths and pass through with source auth;
+     primary calls on any path other than the group's generation route fail locally,
     without decision events. `http.request` reads and validates primary bodies,
     calls Jev, and replaces the
     one-shot request with the rewritten body. Its signal follows the session's,

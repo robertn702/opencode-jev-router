@@ -61,9 +61,11 @@ export async function setupV2(ctx: Plugin.Context): Promise<() => void> {
       const provider = editor.provider.get(providerID)?.provider;
       const apiID = source?.modelID ?? source?.id ?? modelID;
       const profile = MODELS.find((model) => model.id === apiID && model.provider === group);
+      const sourcePackage = source?.package ?? provider?.package;
+      const supported = group === "openai" ? sourcePackage === PROVIDER_PACKAGE || sourcePackage === "@opencode/ai/providers/openai" : sourcePackage === PACKAGES[group];
       const error = !source || !provider ? `jev-router: source model ${ref} not found; check wrap`
         : !profile ? `jev-router: ${ref} API model ${apiID} is not a registered ${group} profile`
-        : (source.package ?? provider.package) !== PACKAGES[group] ? `jev-router: ${ref} requires package ${PACKAGES[group]}`
+        : !supported ? `jev-router: ${ref} requires package ${PACKAGES[group]}${group === "openai" ? " or @opencode/ai/providers/openai" : ""}`
         : next.has(profile.id) ? `jev-router: duplicate wrap profile ${profile.id}` : undefined;
       if (error) errors.push(error);
       if (!profile) continue;
@@ -100,8 +102,7 @@ export async function setupV2(ctx: Plugin.Context): Promise<() => void> {
     if (!incoming.headers.get(authHeader)) throw new Error(`jev-router: ${alias.providerID} has no API key; configure a source provider API key`);
     if (event.kind !== "primary") return;
     const pathname = new URL(incoming.url).pathname;
-    if (pathname.endsWith(alias.group === "openai" ? "/messages" : "/responses")) throw new Error(`jev-router invalid_request (400): alias requires ${alias.group === "openai" ? "/responses" : "/messages"}`);
-    if (!pathname.endsWith(alias.group === "openai" ? "/responses" : "/messages")) return;
+    if (!pathname.endsWith(alias.group === "openai" ? "/responses" : "/messages")) throw new Error(`jev-router invalid_request (400): alias requires ${alias.group === "openai" ? "/responses" : "/messages"}`);
     let exchange: Exchange;
     try { exchange = await runtime.start(incoming, { session: valid(event.sessionID, SESSION), turnId: randomUUID() }, alias.group); } catch (cause) { throw rejection(cause); }
     const outgoing = new Headers(exchange.headers);

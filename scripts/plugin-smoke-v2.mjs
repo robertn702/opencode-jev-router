@@ -70,7 +70,7 @@ try {
   const plugins = [{ package: `${installed.name}@${installed.version}`, options: { jevApiKey: `{file:${jevKeyFile}}`, wrap: { openai: ["gw/gpt-6-astra", "gw/gpt-6-luna", "openai/gpt-6-sol"], anthropic: ["anthropic/claude-opus-5-5"] }, decisionsLogPath } }];
   const providers = {
     gw: { package: "@opencode/ai/providers/openai/responses", settings: { baseURL: `http://127.0.0.1:${upstreamPort}/v1`, apiKey: "{env:SMOKE_UPSTREAM_KEY}" }, models: Object.fromEntries(["gpt-6-astra", "gpt-6-luna"].map((id) => [id, { name: id, limit: { context: 200000, output: 32000 } }])) },
-    openai: { package: "@opencode/ai/providers/openai/responses", settings: { baseURL: `http://127.0.0.1:${upstreamPort}/v1` }, models: { "gpt-6-sol": { name: "Sol", limit: { context: 200000, output: 32000 } } } },
+    openai: { settings: { baseURL: `http://127.0.0.1:${upstreamPort}/v1` }, models: { "gpt-6-sol": { name: "Sol", limit: { context: 200000, output: 32000 } } } },
     anthropic: { package: "@opencode/ai/providers/anthropic", settings: { baseURL: `http://127.0.0.1:${anthropicPort}/v1` }, models: { "claude-opus-5-5": { name: "Opus", limit: { context: 200000, output: 32000 } } } },
   };
 
@@ -116,7 +116,9 @@ try {
 
   // The built-in provider supplies its integration credential, without an alias key.
   const overridden = await opencodeRun("gpt-6-sol");
+  assert.ok(overridden.some((request) => request.body.input?.some((item) => item.type === "configuration_update")), "built-in openai did not route a primary request through Jev");
   for (const request of overridden) {
+    assert.equal(request.url, "/v1/responses", "built-in openai did not use Responses");
     assert.equal(request.body.model, "gpt-6-sol");
     assert.equal(request.headers.authorization, "Bearer fake-user-key");
     if (request.body.input?.some((item) => item.type === "configuration_update")) assert.equal(request.body.input.at(-2)?.reasoning?.effort, "high");
