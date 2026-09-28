@@ -6,6 +6,10 @@ import type { JevState } from "./jev.js";
 export const ANTHROPIC_EFFORT_BETA = "mid-conversation-output-config-2026-07-01";
 export const ANTHROPIC_VERSION = "2023-06-01";
 
+export function anthropicVersion(value: string | null | undefined): string {
+  return value?.trim() || ANTHROPIC_VERSION;
+}
+
 export function mergeAnthropicBeta(value: string | null | undefined): string {
   return [...new Set([...(value ?? "").split(",").map((part) => part.trim()).filter(Boolean), ANTHROPIC_EFFORT_BETA])].join(",");
 }
@@ -38,8 +42,9 @@ export function rewriteAnthropicRequest(body: unknown, options: RewriteOptions):
     throw new UnsupportedInputError("unsupported reasoning effort or configuration update");
   }
   const input = record.messages as unknown[];
-  const user = input.findIndex((item) => anthropicWire.isUserMessage(item));
-  const messages = options.replayedInput ?? (user < 0 ? [...input, anthropicWire.makeUpdate(options.effort)] :
+  let user = -1;
+  for (let index = 0; index < input.length; index++) if (anthropicWire.isUserMessage(input[index])) user = index;
+  const messages = options.replayedInput ?? (user < 0 ? input :
     [...input.slice(0, user), anthropicWire.makeUpdate(options.effort), ...input.slice(user)]);
   const thinking = isRecord(record.thinking) && typeof record.thinking.display === "string" ? { type: "adaptive", display: record.thinking.display } : { type: "adaptive" };
   return { ...record, model: options.model.id, output_config: { ...(isRecord(record.output_config) ? record.output_config : {}), effort: options.baseEffort }, thinking, messages };
@@ -83,6 +88,7 @@ export function buildAnthropicJevState(messages: unknown[]): JevState {
 
 export const anthropicWire: WireAdapter = {
   provider: "anthropic", path: "messages",
+  tailUpdate: false,
   items: (body) => body.messages as unknown[],
   validate: validateAnthropicRequest, rewrite: rewriteAnthropicRequest,
   updateEffort,
@@ -90,7 +96,11 @@ export const anthropicWire: WireAdapter = {
   isUserMessage: (item) => isRecord(item) && item.role === "user",
   isToolOutput: () => false,
   cacheKey: () => null,
+  lineageKey: () => null,
   scopeParts: (body) => [body.system ?? null, body.tools ?? null, body.tool_choice ?? null, body.speed ?? null,
-    isRecord(body.thinking) && typeof body.thinking.display === "string" ? body.thinking.display : null],
+    isRecord(body.thinking) && typeof body.thinking.display === "string" ? body.thinking.display : null,
+    isRecord(body.output_config) && Object.keys(body.output_config).some((key) => key !== "effort")
+      ? Object.fromEntries(Object.entries(body.output_config).filter(([key]) => key !== "effort")) : null,
+    body.mcp_servers ?? null],
   jevState: (body) => buildAnthropicJevState(body.messages as unknown[]),
 };

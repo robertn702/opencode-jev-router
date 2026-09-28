@@ -18,6 +18,7 @@ export interface RewriteOptions {
 }
 
 export interface HistoryRules {
+  readonly tailUpdate: boolean;
   updateEffort(item: unknown): Effort | null;
   makeUpdate(effort: Effort): unknown;
   isUserMessage(item: unknown): boolean;
@@ -31,6 +32,7 @@ export interface WireAdapter extends HistoryRules {
   validate(body: unknown, model: ModelProfile): Record<string, unknown>;
   rewrite(body: unknown, options: RewriteOptions): Record<string, unknown>;
   cacheKey(body: Record<string, unknown>): string | null;
+  lineageKey(body: Record<string, unknown>): string | null;
   scopeParts(body: Record<string, unknown>): unknown[];
   jevState(body: Record<string, unknown>): JevState;
 }

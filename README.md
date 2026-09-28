@@ -137,11 +137,11 @@ its HTTP requests; the models, options, and decision log are the same.
 
 ## Models
 
-The plugin registers `jev-router` for GPT-6. When
-`anthropicUpstreamBaseURL` or `anthropicUpstreamApiKey` is set (or the
-`jev-router-anthropic` provider is configured), it also registers
-`jev-router-anthropic` for Claude (V1 `@ai-sdk/anthropic`; V2 native Anthropic
-Messages provider). The default Anthropic base URL is
+The plugin registers `jev-router` for GPT-6. Claude registration is explicit
+opt-in in V2: set `anthropicUpstreamBaseURL` or `anthropicUpstreamApiKey` in
+plugin options. In V1, either option **or** an existing
+`provider["jev-router-anthropic"]` config enables it. Claude uses V1
+`@ai-sdk/anthropic` or V2's native Anthropic Messages provider. The default Anthropic base URL is
 `https://api.anthropic.com/v1`.
 
 To enable Claude with the standard Anthropic API, add
@@ -174,6 +174,8 @@ the others; per-turn changes use the Anthropic beta header and an effort-only
 system message before the newest user message, including tool results. Thinking
 is pinned to adaptive (caller `display` is preserved). See
 [behavior and unverified limitations](docs/behavior.md#effort-updates-and-cache-lineage).
+Anthropic requests do not follow upstream redirects; a 3xx response is returned
+to the caller rather than forwarding credentials to a different origin.
 
 ## What is sent where
 
@@ -326,7 +328,8 @@ npm run smoke:plugin:v2 # install the packed plugin in an isolated OpenCode 2.0.
 The plugin smokes need `openssl` and an existing `/tmp/opencode`. The V1 smoke
 uses `opencode` on `PATH` (or `OPENCODE_BIN`) and a prior `npm run build`; the
 V2 smoke packs the plugin and installs `@opencode/cli@2.0.18` unless
-`OPENCODE_V2_BIN` is set.
+`OPENCODE_V2_BIN` is set. The V1 `@ai-sdk/anthropic` path is covered by offline
+tests only; the V1 smoke does not exercise Anthropic.
 
 Tests use a fake upstream and a mocked Jev; they need no keys. To run the proxy
 from source, `cp .env.example .env`, fill in the keys, then `npm run build &&

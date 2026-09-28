@@ -85,6 +85,7 @@ export class ResponsesRouter {
         this.options.onEvidence?.(buildEvidence({
           requestId: randomUUID(), usage, previousEffort: history.previousEffort,
           lineageStatus: history.status, historyUpdatesReplayed: history.replayed,
+          effortApplied: history.applied,
           session: request.session ?? null, turnId: request.turnId ?? null,
           outboundModel: rewritten.model, outboundEffort: decision.effort,
           jevLatencyMs: decision.jevLatencyMs, fallback: decision.fallback,

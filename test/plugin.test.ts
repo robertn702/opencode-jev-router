@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { createServer } from "node:http";
 
 import plugin from "../src/plugin.js";
 
@@ -136,6 +137,24 @@ describe("jev-router plugin", () => {
     hooks.dispose();
   });
 
+  it("passes Anthropic redirects through without following them with credentials", async () => {
+    const leaked: string[] = [];
+    const target = createServer((req, res) => { leaked.push(String(req.headers["x-api-key"] ?? "")); res.end(); });
+    await new Promise<void>((resolve) => target.listen(0, "127.0.0.1", resolve));
+    const targetURL = `http://127.0.0.1:${(target.address() as { port: number }).port}/v1/messages`;
+    const upstream = createServer((_req, res) => { res.writeHead(307, { location: targetURL }); res.end(); });
+    await new Promise<void>((resolve) => upstream.listen(0, "127.0.0.1", resolve));
+    const hooks = await plugin.server({}, { fixedEffort: "high", ...upstreamOptions, anthropicUpstreamApiKey: "key" });
+    try {
+      const config: any = {}; hooks.config(config);
+      const response = await config.provider["jev-router-anthropic"].options.fetch(`http://127.0.0.1:${(upstream.address() as { port: number }).port}/v1/messages`, {
+        method: "POST", headers: { "x-api-key": "secret" }, body: JSON.stringify({ model: "claude-opus-5-5", messages: [{ role: "user", content: "hi" }] }),
+      });
+      expect(response.status).toBe(307);
+      expect(leaked).toEqual([]);
+    } finally { hooks.dispose(); upstream.close(); target.close(); }
+  });
+
   it("isolates Anthropic lineage by x-api-key even when authorization is unchanged", async () => {
     const dir = await mkdtemp(join(tmpdir(), "jev-anthropic-scope-"));
     try {
@@ -143,9 +162,9 @@ describe("jev-router plugin", () => {
       globalThis.fetch = vi.fn(async () => new Response(JSON.stringify({ type: "message", stop_reason: "end_turn", usage: { input_tokens: 1, output_tokens: 1 } }), { headers: { "content-type": "application/json" } })) as typeof fetch;
       const hooks = await plugin.server({}, { fixedEffort: "high", decisionsLogPath: path, ...upstreamOptions, anthropicUpstreamApiKey: "default" });
       const config: any = {}; hooks.config(config);
-      const send = async (key: string, messages: unknown[]) => {
+      const send = async (key: string, messages: unknown[], headers: Record<string, string> = {}) => {
         const response = await config.provider["jev-router-anthropic"].options.fetch("https://upstream.test/v1/messages", {
-          method: "POST", headers: { "x-api-key": key, authorization: "Bearer shared", "x-jev-session-id": "ses_scope" }, body: JSON.stringify({ model: "claude-opus-5-5", messages }),
+          method: "POST", headers: { "x-api-key": key, authorization: "Bearer shared", "x-jev-session-id": "ses_scope", ...headers }, body: JSON.stringify({ model: "claude-opus-5-5", messages }),
         });
         await response.text();
       };
@@ -153,8 +172,10 @@ describe("jev-router plugin", () => {
       await send("tenant-a", [first]);
       await send("tenant-a", [first, { role: "assistant", content: "done" }, { role: "user", content: "next" }]);
       await send("tenant-b", [first, { role: "assistant", content: "done" }, { role: "user", content: "next" }]);
-      await vi.waitFor(async () => expect((await readFile(path, "utf8")).trim().split("\n")).toHaveLength(3));
-      expect((await readFile(path, "utf8")).trim().split("\n").map((line) => JSON.parse(line).lineage_status)).toEqual(["new", "preserved", "new"]);
+      await send("tenant-a", [first, { role: "assistant", content: "done" }, { role: "user", content: "next" }], { "anthropic-beta": "extra" });
+      await send("tenant-a", [first, { role: "assistant", content: "done" }, { role: "user", content: "next" }], { "anthropic-version": "2024-01-01" });
+      await vi.waitFor(async () => expect((await readFile(path, "utf8")).trim().split("\n")).toHaveLength(5));
+      expect((await readFile(path, "utf8")).trim().split("\n").map((line) => JSON.parse(line).lineage_status)).toEqual(["new", "preserved", "new", "new", "new"]);
       hooks.dispose();
     } finally { await rm(dir, { recursive: true, force: true }); }
   });

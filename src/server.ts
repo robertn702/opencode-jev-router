@@ -13,7 +13,7 @@ import { UnsupportedInputError, type Effort } from "./rewrite.js";
 import type { Provider } from "./models.js";
 import { ResponsesRouter, type EffortDecision, type EffortSelector } from "./router.js";
 import { resolveModel, validateRequest, wireFor } from "./wire.js";
-import { ANTHROPIC_VERSION, mergeAnthropicBeta } from "./wire-anthropic.js";
+import { anthropicVersion, mergeAnthropicBeta } from "./wire-anthropic.js";
 export type { EffortDecision, EffortSelector } from "./router.js";
 
 export interface AppServerOptions {
@@ -254,7 +254,7 @@ async function handle(
         ...(options.anthropicUpstream!.auth.policy === "key"
           ? { "x-api-key": options.anthropicUpstream!.auth.apiKey }
           : typeof request.headers["x-api-key"] === "string" ? { "x-api-key": request.headers["x-api-key"] } : {}),
-        "anthropic-version": typeof request.headers["anthropic-version"] === "string" ? request.headers["anthropic-version"] : ANTHROPIC_VERSION,
+        "anthropic-version": anthropicVersion(typeof request.headers["anthropic-version"] === "string" ? request.headers["anthropic-version"] : undefined),
         "anthropic-beta": mergeAnthropicBeta(typeof request.headers["anthropic-beta"] === "string" ? request.headers["anthropic-beta"] : undefined),
       } : undefined;
       if (Number(request.headers["content-length"]) > (options.maxRequestBytes ?? 1_048_576)) {
@@ -293,14 +293,14 @@ async function handle(
         const model = resolveModel(parsed);
          validateRequest(parsed, model, provider);
         const session = correlationId(request.headers["x-jev-session-id"], /^ses_[A-Za-z0-9]{1,128}$/);
-         const cacheKey = adapter.cacheKey(body);
+          const cacheKey = adapter.lineageKey(body);
          const credential = provider === "anthropic" ? extraHeaders?.["x-api-key"] ?? authorization : authorization;
          prepared = await router.prepare(parsed, {
            provider,
           signal: clientAbort.signal, session,
           turnId: correlationId(request.headers["x-jev-turn-id"], /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i),
            cacheScope: credentialScope(credential),
-           scope: session || cacheKey ? [baseUrl, body.model, options.baseEffort ?? model.defaultBaseEffort, credential ?? "", session ?? "", cacheKey ?? "", ...adapter.scopeParts(body)] : null,
+            scope: session || cacheKey ? [baseUrl, body.model, options.baseEffort ?? model.defaultBaseEffort, credential ?? "", session ?? "", cacheKey ?? "", ...adapter.scopeParts(body), ...(provider === "anthropic" ? [extraHeaders!["anthropic-beta"], extraHeaders!["anthropic-version"]] : [])] : null,
         });
       } catch (error) {
         if (error instanceof Error && error.message === "jev_classification_failed") {

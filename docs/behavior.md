@@ -88,7 +88,8 @@ does not send them back. It matches the longest known input ancestor using item
 hashes and update positions, scoped by upstream, model, base effort, authorization,
 session/cache identity, instructions, and tools. Anthropic has no
 `prompt_cache_key`: its lineage is scoped to session plus top-level `system`,
-`tools`, `tool_choice`, `speed`, and `thinking.display`. It retains up to 256 snapshots
+`tools`, `tool_choice`, `speed`, `thinking.display`, and the beta/version headers
+actually sent upstream. It retains up to 256 snapshots
 for 10 minutes and does not store histories over 20,000 content items. These
 limits are independent of the configurable fallback-effort cache below.
 
@@ -253,6 +254,9 @@ http://127.0.0.1:4320/ready` as a startup check, `Restart=on-failure`, and
   `JEV_ROUTER_ANTHROPIC_UPSTREAM_API_KEY` as `x-api-key` over HTTPS or loopback.
   `anthropic-version` defaults to `2023-06-01`, and the mid-conversation beta
   header is merged with caller betas.
+- Anthropic plugin requests do not follow redirects: a 3xx response is passed
+  through rather than sending credentials to a redirected origin. OpenAI plugin
+  redirect behavior is unchanged.
 - Upstream HTTP statuses and bodies pass through unchanged, including errors.
 - SSE streams incrementally with write/drain backpressure: a slow client pauses
   upstream reads instead of buffering the completed response.
@@ -279,9 +283,13 @@ The package default export serves both OpenCode majors from one shared runtime
   `@ai-sdk/openai`, `useResponses: true`, and a fetch adapter that performs the
   upstream request itself. `chat.headers` adds the internal correlation headers.
 - The optional `jev-router-anthropic` provider uses `@ai-sdk/anthropic` in V1
-  and the native Anthropic Messages package in V2. It registers when Anthropic
-  plugin options are supplied or that provider is configured; its default base
-  URL is `https://api.anthropic.com/v1`.
+  and the native Anthropic Messages package in V2. V1 registers it when either
+  Anthropic upstream plugin option is set **or** `provider["jev-router-anthropic"]`
+  already exists in the V1 config. V2 registers it **only** when
+  `anthropicUpstreamApiKey` or `anthropicUpstreamBaseURL` is set in plugin options;
+  a `providers` entry alone does not enable it. Its default base URL is
+  `https://api.anthropic.com/v1`. The V1 Anthropic SDK route has offline test
+  coverage, but is not exercised by the V1 smoke test.
 - **V2** (`id: "jev-router"`, `setup()`) registers the provider through
   `ctx.provider.transform` on `@opencode/ai/providers/openai/responses` with
   `transport: "http"`, then scopes `http.request` and `http.response` session
