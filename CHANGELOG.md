@@ -6,6 +6,8 @@
   is `JEV_BASE_URL`, for both the proxy and the plugin's environment fallback.
   `JEV_ROUTER_API_KEY` and `JEV_ROUTER_BASE_URL` are rejected with an error
   naming the replacement. Other `JEV_ROUTER_*` router settings are unchanged.
+- Optional Claude Messages support uses per-model SDK selection under the single
+  `jev-router` provider in both OpenCode majors.
 
 ## 0.4.0
 

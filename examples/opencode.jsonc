@@ -9,9 +9,8 @@
     // Any Responses API-compatible endpoint that serves GPT-6 models.
     "upstreamBaseURL": "https://api.openai.com/v1",
     "upstreamApiKey": "{env:OPENAI_API_KEY}",
-    // Optional Anthropic Messages provider: jev-router-anthropic/claude-opus-5-5.
-    // V2 requires one of these plugin options; a providers entry alone is not enough.
-    // V1 also enables it when provider["jev-router-anthropic"] already exists.
+    // Optional Claude models under jev-router, e.g. jev-router/claude-opus-5-5.
+    // Either option enables them in V1 and V2.
     // "anthropicUpstreamBaseURL": "https://api.anthropic.com/v1",
     // "anthropicUpstreamApiKey": "{env:ANTHROPIC_API_KEY}"
     // Optional: an absolute path for metadata-only JevDecision JSONL events.

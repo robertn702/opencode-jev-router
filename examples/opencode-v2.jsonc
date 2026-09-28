@@ -10,6 +10,10 @@
       // Any Responses API-compatible endpoint that serves GPT-6 models.
       "upstreamBaseURL": "https://api.openai.com/v1",
       "upstreamApiKey": "{env:OPENAI_API_KEY}"
+      // Optional Claude models under jev-router, e.g. jev-router/claude-opus-5-5.
+      // Either option enables them.
+      // "anthropicUpstreamBaseURL": "https://api.anthropic.com/v1",
+      // "anthropicUpstreamApiKey": "{env:ANTHROPIC_API_KEY}"
       // Optional: an absolute path for metadata-only JevDecision JSONL events.
       // "decisionsLogPath": "/absolute/path/to/jev-decisions.jsonl"
     }

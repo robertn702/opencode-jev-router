@@ -97,9 +97,14 @@ async function boundedBody(request: Request, maxBytes: number, signal: AbortSign
   return output;
 }
 
+const ANTHROPIC_HEADERS = /^(accept|content-type|user-agent|anthropic-.+|x-stainless-.+)$/i;
+
 /** Per-plugin-instance state, validation, Jev selection, rewrite, and usage observation. */
 export function createPluginRuntime(options: PluginOptions): PluginRuntime {
   const env = process.env;
+  const anthropicEnabled = options.anthropicUpstreamBaseURL !== undefined || options.anthropicUpstreamApiKey !== undefined;
+  const anthropicBaseURL = anthropicEnabled ? upstreamBaseURL(options.anthropicUpstreamBaseURL ?? "https://api.anthropic.com/v1", "anthropicUpstreamBaseURL") : undefined;
+  const anthropicApiKey = options.anthropicUpstreamApiKey === undefined ? undefined : requiredString(options.anthropicUpstreamApiKey, "anthropicUpstreamApiKey");
   const connection = options.fixedEffort === undefined ? resolveJevConnection(options.jevApiKey ?? env.JEV_API_KEY ?? "", options.jevBaseUrl ?? env.JEV_BASE_URL) : undefined;
   if (options.jevModel !== undefined && options.jevModel !== connection?.model) throw new Error("jevModel must match the configured Jev endpoint");
   if (options.baseEffort !== undefined && !["low", "medium", "high", "xhigh", "max"].includes(options.baseEffort)) throw new Error("baseEffort is unsupported");
@@ -121,7 +126,11 @@ export function createPluginRuntime(options: PluginOptions): PluginRuntime {
     const url = new URL(request.url);
     const provider: Provider | null = url.pathname.endsWith("/responses") ? "openai" : url.pathname.endsWith("/messages") ? "anthropic" : null;
     if (provider === null || request.method !== "POST") throw new PluginRequestError(400, "invalid_request", "jev-router supports POST /v1/responses or /v1/messages only");
+    if (provider === "anthropic" && !anthropicEnabled) throw new PluginRequestError(400, "invalid_request", "Anthropic Messages is not enabled");
     try { checkUpstreamURL(new URL(url.origin), "upstream URL"); } catch (cause) { throw new PluginRequestError(400, "invalid_request", (cause as Error).message); }
+    const target = provider === "anthropic" ? new URL(`${anthropicBaseURL!.replace(/\/$/, "")}/messages`) : url;
+    // Without an explicit Anthropic key the provider's credential is forwarded, so keep it on the same origin.
+    if (provider === "anthropic" && anthropicApiKey === undefined && target.origin !== url.origin) throw new PluginRequestError(400, "invalid_request", "anthropicUpstreamApiKey is required when anthropicUpstreamBaseURL is on a different origin");
     if (inFlight >= maxInFlight) throw new PluginRequestError(503, "overloaded", "router overloaded");
     inFlight += 1;
     const controller = new AbortController(); controllers.add(controller);
@@ -144,24 +153,28 @@ export function createPluginRuntime(options: PluginOptions): PluginRuntime {
       const model = resolveModel(body);
       validateRequest(body, model, provider);
       const record = body as Record<string, unknown>;
-      const credential = provider === "anthropic" ? request.headers.get("x-api-key") ?? request.headers.get("authorization") : request.headers.get("authorization");
+      const credential = provider === "anthropic" ? anthropicApiKey ?? request.headers.get("x-api-key") ?? request.headers.get("authorization") : request.headers.get("authorization");
       const wire = wireFor(provider);
       const headers = buildPluginUpstreamRequestHeaders(request.headers, "");
       // OpenAI headers stay as before; only Anthropic requests drop OpenAI-only headers.
       if (provider === "anthropic") {
         for (const name of [...headers.keys()]) if (name.startsWith("openai-")) headers.delete(name);
+        // A different origin gets only protocol headers, not headers configured for the jev-router upstream.
+        if (target.origin !== url.origin) for (const name of [...headers.keys()]) if (!ANTHROPIC_HEADERS.test(name)) headers.delete(name);
+        if (anthropicApiKey !== undefined) { headers.delete("authorization"); headers.set("x-api-key", anthropicApiKey); }
+        else if (!headers.has("x-api-key") && /^Bearer\s+\S+$/i.test(headers.get("authorization") ?? "")) { headers.set("x-api-key", headers.get("authorization")!.replace(/^Bearer\s+/i, "")); headers.delete("authorization"); }
         headers.set("anthropic-version", anthropicVersion(headers.get("anthropic-version")));
         headers.set("anthropic-beta", mergeAnthropicBeta(headers.get("anthropic-beta")));
       }
       const lineageKey = wire.lineageKey(record);
       const { session, turnId } = correlation;
-      prepared = await router.prepare(body, { provider, signal, session, turnId, cacheScope: hash(credential), scope: session || lineageKey ? [`${url.origin}${url.pathname.replace(/\/(responses|messages)$/, "")}`, model.id, options.baseEffort ?? model.defaultBaseEffort, hash(credential), session ?? "", lineageKey ?? "", ...wire.scopeParts(record), ...(provider === "anthropic" ? [headers.get("anthropic-beta"), headers.get("anthropic-version")] : [])] : null });
+      prepared = await router.prepare(body, { provider, signal, session, turnId, cacheScope: hash(credential), scope: session || lineageKey ? [`${target.origin}${target.pathname.replace(/\/(responses|messages)$/, "")}`, model.id, options.baseEffort ?? model.defaultBaseEffort, hash(credential), session ?? "", lineageKey ?? "", ...wire.scopeParts(record), ...(provider === "anthropic" ? [headers.get("anthropic-beta"), headers.get("anthropic-version")] : [])] : null });
       if (prepared === null) throw new PluginRequestError(499, "cancelled", "request cancelled");
       const encoded = JSON.stringify(prepared.body);
       headers.set("content-length", String(Buffer.byteLength(encoded)));
       timer = setTimeout(() => { timedOut = true; controller.abort(); settle("failed"); }, headerTimeoutMs);
       const exchange: Exchange = {
-        url: request.url, headers, body: encoded, signal,
+        url: provider === "anthropic" ? target.href : request.url, headers, body: encoded, signal,
         respond(upstream) {
           clearTimeout(timer);
           if (responded) throw new Error("exchange already responded");

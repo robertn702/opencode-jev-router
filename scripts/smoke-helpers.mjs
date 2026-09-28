@@ -50,6 +50,27 @@ export function fakeResponsesUpstream(observed) {
   });
 }
 
+/** A local Anthropic Messages SSE endpoint for both OpenCode plugin smokes. */
+export function fakeAnthropicUpstream(observed) {
+  return createServer(async (request, response) => {
+    let raw = "";
+    for await (const chunk of request) raw += chunk;
+    observed.anthropicCount = (observed.anthropicCount ?? 0) + 1;
+    observed.anthropic = { method: request.method, url: request.url, headers: request.headers, body: JSON.parse(raw) };
+    const events = [
+      { type: "message_start", message: { id: "msg_smoke", type: "message", role: "assistant", model: "claude-opus-5-5", content: [], stop_reason: null, stop_sequence: null, usage: { input_tokens: 1, output_tokens: 0 } } },
+      { type: "content_block_start", index: 0, content_block: { type: "text", text: "" } },
+      { type: "content_block_delta", index: 0, delta: { type: "text_delta", text: "smoke" } },
+      { type: "content_block_stop", index: 0 },
+      { type: "message_delta", delta: { stop_reason: "end_turn", stop_sequence: null }, usage: { output_tokens: 1 } },
+      { type: "message_stop" },
+    ];
+    response.writeHead(200, { "content-type": "text/event-stream" });
+    for (const event of events) response.write(`event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`);
+    response.end();
+  });
+}
+
 // OpenCode's plugin config only permits the production TypeSafe URLs.  This
 // CONNECT proxy terminates TLS for that exact hostname, so the SDK exercises
 // its actual wire protocol while every connection remains on loopback. Other

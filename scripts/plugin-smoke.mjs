@@ -4,7 +4,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
-import { close, exists, fakeJevProxy, fakeResponsesUpstream, listen, run, sleep } from "./smoke-helpers.mjs";
+import { close, exists, fakeAnthropicUpstream, fakeJevProxy, fakeResponsesUpstream, listen, run, sleep } from "./smoke-helpers.mjs";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const pluginPath = join(root, "dist", "plugin.js");
@@ -12,6 +12,7 @@ const opencode = process.env.OPENCODE_BIN ?? "opencode";
 
 const observed = {};
 let upstream;
+let anthropic;
 let proxy;
 let tls;
 let child;
@@ -36,6 +37,8 @@ try {
 
   upstream = fakeResponsesUpstream(observed);
   const upstreamPort = await listen(upstream);
+  anthropic = fakeAnthropicUpstream(observed);
+  const anthropicPort = await listen(anthropic);
   const fake = await fakeJevProxy(ca, observed);
   ({ proxy, tls } = fake);
   const jevKeyFile = join(temp, "jev-key");
@@ -43,7 +46,7 @@ try {
   await writeFile(jevKeyFile, "fake-jev-key");
 
   await writeFile(join(temp, "opencode.json"), JSON.stringify({
-    plugin: [[pluginPath, { jevApiKey: `{file:${jevKeyFile}}`, upstreamBaseURL: `http://127.0.0.1:${upstreamPort}/v1`, upstreamApiKey: "{env:SMOKE_UPSTREAM_KEY}", decisionsLogPath }]],
+    plugin: [[pluginPath, { jevApiKey: `{file:${jevKeyFile}}`, upstreamBaseURL: `http://127.0.0.1:${upstreamPort}/v1`, upstreamApiKey: "{env:SMOKE_UPSTREAM_KEY}", anthropicUpstreamBaseURL: `http://127.0.0.1:${anthropicPort}/v1`, anthropicUpstreamApiKey: "{env:SMOKE_ANTHROPIC_KEY}", decisionsLogPath }]],
     enabled_providers: ["jev-router"],
     autoupdate: false,
     share: "disabled",
@@ -53,7 +56,7 @@ try {
     HOME: home, XDG_CONFIG_HOME: config, XDG_DATA_HOME: data, XDG_CACHE_HOME: cache,
     OPENCODE_CONFIG: join(temp, "opencode.json"), OPENCODE_CONFIG_DIR: join(temp, "empty-config-dir"),
     HTTPS_PROXY: `http://127.0.0.1:${fake.port}`, HTTP_PROXY: `http://127.0.0.1:${fake.port}`,
-    NODE_EXTRA_CA_CERTS: fake.cert, SSL_CERT_FILE: fake.cert, SMOKE_UPSTREAM_KEY: "fake-upstream-key",
+    NODE_EXTRA_CA_CERTS: fake.cert, SSL_CERT_FILE: fake.cert, SMOKE_UPSTREAM_KEY: "fake-upstream-key", SMOKE_ANTHROPIC_KEY: "fake-anthropic-key",
     NO_PROXY: "127.0.0.1,localhost", no_proxy: "127.0.0.1,localhost",
     PATH: process.env.PATH, LANG: "C", TERM: "dumb",
   };
@@ -77,8 +80,20 @@ try {
   assert.equal(observed.upstream.headers["x-jev-session-id"], undefined);
   assert.equal(observed.upstream.headers["x-jev-turn-id"], undefined);
   assert.equal(observed.upstream.headers.authorization, "Bearer fake-upstream-key");
+  child = spawn(opencode, ["run", "--format", "json", "--model", "jev-router/claude-opus-5-5", "Reply with smoke."], { cwd: temp, env, stdio: ["ignore", "pipe", "pipe"] });
+  let claudeOutput = "";
+  child.stdout.on("data", (chunk) => { claudeOutput += chunk; });
+  child.stderr.on("data", (chunk) => { claudeOutput += chunk; });
+  assert.equal(await new Promise((resolve) => child.once("exit", resolve)), 0, `OpenCode Claude failed:\n${claudeOutput}`);
+  assert.match(claudeOutput, /smoke/);
+  assert.equal(observed.anthropic?.url, "/v1/messages");
+  assert.equal(observed.anthropic?.method, "POST");
+  assert.equal(observed.anthropic?.headers["x-api-key"], "fake-anthropic-key");
+  assert.equal(observed.anthropic?.headers.authorization, undefined);
+  assert.match(observed.anthropic?.headers["anthropic-beta"] ?? "", /mid-conversation-output-config/);
+  assert.ok(observed.anthropic?.body.messages.some((message) => message.role === "system" && message.output_config?.effort === "high"));
   const decisions = (await readFile(decisionsLogPath, "utf8")).trim().split("\n");
-  assert.equal(decisions.length, observed.upstreamCount, "each Responses request should produce one decision");
+  assert.equal(decisions.length, observed.upstreamCount + observed.anthropicCount, "each request should produce one decision");
   const events = decisions.map((line) => JSON.parse(line));
   assert.equal(new Set(events.map((event) => event.request_id)).size, events.length);
   for (const decision of events) {
@@ -93,11 +108,12 @@ try {
   }
   assert.ok(!decisions.join("\n").includes("fake-upstream-key"));
   assert.ok(!(await exists(join(data, "opencode", "auth.json"))), "smoke must not create an auth.json credential store");
-  console.log("PASS OpenCode 1.18.32 minimal plugin smoke: generated model, file/env options, fake Jev, rewritten Responses SSE, correlated JevDecision, and no auth.json.");
+  console.log("PASS OpenCode 1.18.32 plugin smoke: Responses and Claude Messages SSE, fake Jev, correlated JevDecision, and no auth.json.");
 } finally {
   if (child && child.exitCode === null) child.kill("SIGTERM");
   if (child && child.exitCode === null) await Promise.race([new Promise((resolve) => child.once("exit", resolve)), sleep(2_000)]);
   if (upstream) await close(upstream);
+  if (anthropic) await close(anthropic);
   if (proxy) await close(proxy);
   if (tls) await close(tls);
   if (temp) await rm(temp, { recursive: true, force: true });

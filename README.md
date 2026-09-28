@@ -137,16 +137,14 @@ its HTTP requests; the models, options, and decision log are the same.
 
 ## Models
 
-The plugin registers `jev-router` for GPT-6. Claude registration is explicit
-opt-in in V2: set `anthropicUpstreamBaseURL` or `anthropicUpstreamApiKey` in
-plugin options. In V1, either option **or** an existing
-`provider["jev-router-anthropic"]` config enables it. Claude uses V1
-`@ai-sdk/anthropic` or V2's native Anthropic Messages provider. The default Anthropic base URL is
-`https://api.anthropic.com/v1`.
+The plugin registers one `jev-router` provider. Claude models are enabled by
+setting `anthropicUpstreamBaseURL` or `anthropicUpstreamApiKey` in plugin options.
+They use V1 `@ai-sdk/anthropic` or V2's native Anthropic Messages package per
+model. The default Anthropic base URL is `https://api.anthropic.com/v1`.
 
 To enable Claude with the standard Anthropic API, add
 `"anthropicUpstreamApiKey": "{env:ANTHROPIC_API_KEY}"` to the plugin options
-above and select `jev-router-anthropic/claude-opus-5-5` (or another Claude model
+above and select `jev-router/claude-opus-5-5` (or another Claude model
 below). The GPT-6 endpoint remains configured separately.
 
 | OpenCode model | Efforts Jev can choose |
@@ -154,10 +152,10 @@ below). The GPT-6 endpoint remains configured separately.
 | `jev-router/gpt-6-astra` | `low`, `medium`, `high`, `xhigh`, `max` |
 | `jev-router/gpt-6-luna` | `none`, `low`, `medium`, `high`, `xhigh`, `max` |
 | `jev-router/gpt-6-sol` | `none`, `low`, `medium`, `high`, `xhigh`, `max` |
-| `jev-router-anthropic/claude-fable-5-1` | `low`, `medium`, `high`, `xhigh`, `max` |
-| `jev-router-anthropic/claude-mythos-5-1` | `low`, `medium`, `high`, `xhigh`, `max` |
-| `jev-router-anthropic/claude-opus-5-5` | `low`, `medium`, `high`, `xhigh`, `max` |
-| `jev-router-anthropic/claude-opus-5` | `low`, `medium`, `high`, `xhigh`, `max` |
+| `jev-router/claude-fable-5-1` | `low`, `medium`, `high`, `xhigh`, `max` |
+| `jev-router/claude-mythos-5-1` | `low`, `medium`, `high`, `xhigh`, `max` |
+| `jev-router/claude-opus-5-5` | `low`, `medium`, `high`, `xhigh`, `max` |
+| `jev-router/claude-opus-5` | `low`, `medium`, `high`, `xhigh`, `max` |
 
 See OpenAI's [Astra](https://developers.openai.com/api/docs/models/gpt-6-astra),
 [Luna](https://developers.openai.com/api/docs/models/gpt-6-luna), and
@@ -176,6 +174,13 @@ is pinned to adaptive (caller `display` is preserved). See
 [behavior and unverified limitations](docs/behavior.md#effort-updates-and-cache-lineage).
 Anthropic requests do not follow upstream redirects; a 3xx response is returned
 to the caller rather than forwarding credentials to a different origin.
+With `anthropicUpstreamApiKey`, Messages sends that key as `x-api-key` and drops
+`authorization`. Without it, the `jev-router` credential is forwarded (a Bearer
+token becomes `x-api-key`), which is allowed only when `anthropicUpstreamBaseURL`
+has the same origin as the `jev-router` base URL, such as one gateway serving
+both APIs. A different Anthropic origin receives only protocol headers
+(`anthropic-*`, `accept`, `content-type`, `user-agent`, `x-stainless-*`) and the
+Anthropic key, never headers configured for the `jev-router` endpoint.
 
 ## What is sent where
 
@@ -199,8 +204,8 @@ of a V2 `plugins` entry.
 | `jevBaseUrl` | `https://api.typesafe.ai` | Set to `https://ai-gateway.vercel.sh/typesafe` for a Vercel key. No other values are accepted. |
 | `upstreamBaseURL` | none | Responses API base URL. Required. |
 | `upstreamApiKey` | OpenCode provider auth | Key for the endpoint. |
-| `anthropicUpstreamBaseURL` | `https://api.anthropic.com/v1` when enabled | Anthropic Messages API base URL; enables Claude provider when set. |
-| `anthropicUpstreamApiKey` | OpenCode provider auth | Anthropic key; enables Claude provider when set. |
+| `anthropicUpstreamBaseURL` | `https://api.anthropic.com/v1` when enabled | Messages API base URL; enables Claude models when set. |
+| `anthropicUpstreamApiKey` | Incoming credential | Messages `x-api-key`; enables Claude models when set. |
 | `decisionsLogPath` | off | Absolute path for metadata-only `JevDecision` JSONL. |
 | `baseEffort` | `medium` | Request-level effort reported by responses. |
 | `jevTimeoutMs` | `4000` | Total classification budget, including retries. |
