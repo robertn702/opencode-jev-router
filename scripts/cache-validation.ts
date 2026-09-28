@@ -217,7 +217,8 @@ async function anthropicValidation(): Promise<void> {
           return;
         } finally { clearTimeout(timeout); }
       }
-      const tool = (body.tool_choice as { type?: string } | undefined)?.type === "tool";
+      const last = messages.at(-1);
+      const tool = Array.isArray(body.tools) && last?.role === "user" && typeof last.content === "string" && last.content.includes("stable_lookup");
       const signed = messages.flatMap((item, i) => item.role === "assistant" && JSON.stringify(item.content).includes('"signature":"offline-signature"') ? [i] : []);
       const missingLineage = signed.length >= 2 && !messages.slice(signed[0]! + 1, signed[1]).some((item) => item.role === "system" && item.output_config?.effort === "low") && !tool;
       status = missingLineage ? 400 : 200;
@@ -255,8 +256,8 @@ async function anthropicValidation(): Promise<void> {
       method: "POST", headers: { "content-type": "application/json", "x-jev-session-id": options.session ?? session },
       body: JSON.stringify({ model, system, cache_control: { type: "ephemeral" }, thinking: { type: "adaptive" },
         output_config: { effort: baseEffort }, max_tokens: 128,
-        ...(options.tool || options.tools ? { tools: [tool] } : {}),
-        ...(options.tool ? { tool_choice: { type: "tool", name: tool.name } } : {}), messages }),
+        // Claude models that support mid-conversation effort reject forced tool_choice, so ask for the call.
+        ...(options.tool || options.tools ? { tools: [tool], tool_choice: { type: "auto" } } : {}), messages }),
       signal: AbortSignal.timeout(120_000),
     });
     // A live error body is deliberately not parsed or logged.
@@ -292,12 +293,11 @@ async function anthropicValidation(): Promise<void> {
     checks.top_level_effort_change_misses_cache = records.at(-1)?.status === 200 && records.at(-1)?.cache_read_input_tokens === 0;
     const toolSession = `ses_${randomUUID().replaceAll("-", "")}`;
     selected = baseEffort as "medium" | "high";
-    const toolStart = requireReply(await request("forced_tool_use", [user("Call stable_lookup.")], { tool: true, session: toolSession }));
+    const toolStart = requireReply(await request("tool_use", [user("Call the stable_lookup tool now.")], { tool: true, session: toolSession }));
     const call = toolStart.content?.find((block) => typeof block === "object" && block !== null && (block as { type?: string }).type === "tool_use") as { id?: string } | undefined;
-    checks.forced_tool_use = typeof call?.id === "string";
-    if (!checks.forced_tool_use) throw new Error("CACHE_ANTHROPIC_LIVE missing tool_use");
-    // A forced tool_choice changes the router scope on continuation. Carry the
-    // actual historical effort update explicitly across that boundary.
+    checks.tool_use = typeof call?.id === "string";
+    if (!checks.tool_use) throw new Error("CACHE_ANTHROPIC_LIVE missing tool_use");
+    // Carry the actual outbound history, including its effort update, into the continuation.
     const toolHistory = [...outbound.at(-1)!.messages, assistant(toolStart)];
     for (const effort of ["low", "max"] as const) {
       selected = effort;
