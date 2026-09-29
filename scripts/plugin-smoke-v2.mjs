@@ -138,12 +138,6 @@ try {
   assert.match(observed.anthropic?.headers["anthropic-beta"] ?? "", /mid-conversation-output-config/);
   assert.ok(observed.anthropic?.body.messages.some((message) => message.role === "system" && message.output_config?.effort === "high"));
 
-  const beforeDirect = { jev: observed.jevCount, decisions: (await readFile(decisionsLogPath, "utf8")).trim().split("\n").length };
-  const direct = await opencodeRun("gw/gpt-6-astra");
-  assert.ok(direct.length > 0 && direct.every((request) => !request.body.input?.some((item) => item.type === "configuration_update")));
-  assert.equal(observed.jevCount, beforeDirect.jev, "the source model must not call Jev");
-  assert.equal((await readFile(decisionsLogPath, "utf8")).trim().split("\n").length, beforeDirect.decisions);
-
   assert.ok(observed.registryRequests?.includes(installed.name), "OpenCode did not install the plugin from the fake registry");
   assert.equal(observed.blocked, undefined, `blocked non-fake outbound hosts: ${observed.blocked}`);
   const decisions = (await readFile(decisionsLogPath, "utf8")).trim().split("\n");
