@@ -145,6 +145,7 @@ cost, but have no manual effort variants.
 | `jev-router/gpt-6-astra` | `low`, `medium`, `high`, `xhigh`, `max` |
 | `jev-router/gpt-6-luna` | `none`, `low`, `medium`, `high`, `xhigh`, `max` |
 | `jev-router/gpt-6-sol` | `none`, `low`, `medium`, `high`, `xhigh`, `max` |
+| `jev-router/gpt-6.1-sol` | `low`, `medium`, `high`, `xhigh`, `max` |
 | `jev-router/claude-fable-5-1` | `low`, `medium`, `high`, `xhigh`, `max` |
 | `jev-router/claude-mythos-5-1` | `low`, `medium`, `high`, `xhigh`, `max` |
 | `jev-router/claude-opus-5-5` | `low`, `medium`, `high`, `xhigh`, `max` |
@@ -152,8 +153,9 @@ cost, but have no manual effort variants.
 | `jev-router/claude-sonnet-5-5` | `low`, `medium`, `high`, `xhigh`, `max` |
 
 See OpenAI's [Astra](https://developers.openai.com/api/docs/models/gpt-6-astra),
-[Luna](https://developers.openai.com/api/docs/models/gpt-6-luna), and
-[Sol](https://developers.openai.com/api/docs/models/gpt-6-sol) pages to choose
+[Luna](https://developers.openai.com/api/docs/models/gpt-6-luna),
+[Sol](https://developers.openai.com/api/docs/models/gpt-6-sol), and
+[6.1 Sol](https://developers.openai.com/api/docs/models/gpt-6.1-sol) pages to choose
 between them. Your endpoint must grant access to the model you select.
 
 For GPT-6, only standard, single-agent mode is supported: pro models, other

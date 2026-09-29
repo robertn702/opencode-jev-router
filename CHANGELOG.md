@@ -2,7 +2,8 @@
 
 ## 0.6.2
 
-- Document Claude Sonnet 5.5 and add it to cache validation. No model behavior changes.
+- Add GPT-6.1 Sol (`gpt-6.1-sol`) to the OpenAI profiles, with `low` through `max` efforts (`none` is not supported).
+- Document Claude Sonnet 5.5 and add it to cache validation.
 
 ## 0.6.1
 
