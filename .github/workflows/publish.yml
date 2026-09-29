@@ -5,7 +5,7 @@ on:
     tags: ['v[0-9]*']
 
 permissions:
-  contents: read
+  contents: write
   id-token: write
 
 jobs:
@@ -41,3 +41,14 @@ jobs:
         run: npm publish --dry-run "$TARBALL"
       - if: steps.existing.outputs.already_published != 'true'
         run: npm publish --provenance --access public "$TARBALL"
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          awk -v heading="## ${GITHUB_REF_NAME#v}" '$0 == heading { found = 1; next } /^## / { found = 0 } found' CHANGELOG.md > "$RUNNER_TEMP/notes.md"
+          test -s "$RUNNER_TEMP/notes.md" || { echo "CHANGELOG.md has no ${GITHUB_REF_NAME#v} section"; exit 1; }
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            echo "Release $GITHUB_REF_NAME already exists"
+          else
+            gh release create "$GITHUB_REF_NAME" "$TARBALL" --verify-tag --title "$GITHUB_REF_NAME" --notes-file "$RUNNER_TEMP/notes.md"
+          fi
