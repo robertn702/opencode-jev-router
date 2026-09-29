@@ -171,13 +171,13 @@ type AnthropicMessage = { role: string; content: unknown; output_config?: { effo
 type AnthropicReply = { type?: string; content?: unknown[]; stop_reason?: string | null; usage?: {
   input_tokens?: number; cache_read_input_tokens?: number; cache_creation_input_tokens?: number; output_tokens?: number;
 } };
-const claudeModels = new Set(["claude-fable-5-1", "claude-mythos-5-1", "claude-opus-5-5", "claude-opus-5"]);
+const claudeModels = new Set(["claude-fable-5-1", "claude-mythos-5-1", "claude-opus-5-5", "claude-opus-5", "claude-sonnet-5-5"]);
 
 async function anthropicValidation(): Promise<void> {
   if (LIVE && (process.env.CI || process.env.CACHE_ANTHROPIC_LIVE !== "1")) throw new Error("CACHE_ANTHROPIC_LIVE=1 is required outside CI");
   const model = process.env.CACHE_ANTHROPIC_MODEL ?? "claude-opus-5-5";
   if (!claudeModels.has(model)) throw new Error("CACHE_ANTHROPIC_MODEL must be a registered Claude model");
-  const baseEffort = model === "claude-opus-5-5" ? "medium" : "high";
+  const baseEffort = model === "claude-opus-5-5" || model === "claude-sonnet-5-5" ? "medium" : "high";
   const key = process.env.JEV_ROUTER_ANTHROPIC_UPSTREAM_API_KEY?.trim();
   if (LIVE && !key) throw new Error("CACHE_ANTHROPIC_LIVE requires JEV_ROUTER_ANTHROPIC_UPSTREAM_API_KEY");
   const endpoint = process.env.JEV_ROUTER_ANTHROPIC_UPSTREAM_BASE_URL ?? "https://api.anthropic.com/v1";

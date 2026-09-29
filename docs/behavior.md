@@ -33,7 +33,7 @@ Reference for the wire behavior shared by the OpenCode plugin and the standalone
   combinations work.
 - Exact registered OpenAI IDs are `gpt-6-astra`, `gpt-6-luna`, and `gpt-6-sol`;
   Anthropic `/v1/messages` accepts `claude-fable-5-1`, `claude-mythos-5-1`,
-  `claude-opus-5-5`, and `claude-opus-5` only. Model/route mismatches are local `400`s.
+  `claude-opus-5-5`, `claude-opus-5`, and `claude-sonnet-5-5`. Model/route mismatches are local `400`s.
   Missing, malformed, unknown, and pro IDs fail locally before classification.
   The plugin exposes only wrapped models; the proxy accepts all registered models.
   `UPSTREAM_MODEL`, `UPSTREAM_MODELS`, and `ALLOWED_MODELS` are rejected at startup
