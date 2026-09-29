@@ -45,7 +45,9 @@ If Jev is slow or unavailable, the request continues at a fallback effort
 - **A Responses API-compatible endpoint** that serves GPT-6 Astra, Luna, or Sol
   and accepts `configuration_update` input items, plus its API key. The OpenAI
   API (`https://api.openai.com/v1`) works; so does any gateway that exposes the
-  same `POST /v1/responses` interface.
+  same `POST /v1/responses` interface, including a gateway such as
+  [CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI) that serves a
+  ChatGPT subscription (see [Quick start](#quick-start)).
 - **For Claude instead:** an Anthropic Messages API endpoint serving one of the
   five models below, with access to the mid-conversation output-config beta.
 
@@ -98,6 +100,12 @@ for all projects, or `opencode.json` in a project root:
   // Set "wrap": { "openai": ["mygateway/gpt-6-astra"] }.
   ```
   Plain `http://` is accepted only for loopback endpoints.
+- **Using a ChatGPT subscription?** Run
+  [CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI) with your Codex
+  login and set one of its client API keys. Define it as a gateway provider as
+  above, with CLIProxyAPI's `/v1` endpoint as `baseURL` and that client key as
+  `apiKey`, then wrap its GPT-6 model. Usage counts against your subscription;
+  Jev calls are billed separately.
 - `{env:NAME}` reads an environment variable; `{file:~/path}` reads a file
   instead, if you prefer to keep keys on disk.
 
@@ -164,8 +172,9 @@ Source credentials pass through unchanged. A resolved source `settings.apiKey`
 is inherited by the alias without resolving the integration; only when no wire
 auth header is present is a stored or environment-integration key
 injected as OpenAI `Authorization: Bearer` or Anthropic `x-api-key` before
-classification. ChatGPT and Claude subscription OAuth sources are unsupported:
-use an API key. Auxiliary title, compaction, and generate calls and non-generation
+classification. Built-in ChatGPT and Claude subscription OAuth sources are
+unsupported: use an API key, or a key-authenticated gateway such as CLIProxyAPI
+that serves a subscription. Auxiliary title, compaction, and generate calls and non-generation
 routes bypass Jev but still receive the source key. `jev-router` requires HTTP
 transport; do not override `providers["jev-router"].settings.transport` to websocket.
 
@@ -226,7 +235,7 @@ instead appears as `Model unavailable`.
 | Local 400 mentioning `reasoning.mode`, `truncation`, or the model | The request uses an unsupported mode or model; see [Models](#models). |
 | `alias requires /responses` or `/messages` | The source package and generation route do not match the alias group. |
 | V2: `Model unavailable: jev-router/...` | The plugin did not load. Check the `plugins` entry and the OpenCode log for a `jev-router` setup error. |
-| `uses OAuth` or `has no API key` | Use an API-key source provider; subscription OAuth is not supported. |
+| `uses OAuth` or `has no API key` | Use an API-key source provider or a key-authenticated gateway such as CLIProxyAPI; built-in subscription OAuth is not supported. |
 | Websocket provider error | Remove `providers["jev-router"].settings.transport` override. |
 | Config changes have no effect | Restart OpenCode; it loads plugins at startup. |
 
