@@ -24,6 +24,7 @@ export const MODELS: readonly ModelProfile[] = Object.freeze([
   profile("claude-mythos-5-1", "Claude Mythos 5.1", ["low", "medium", "high", "xhigh", "max"], "anthropic", "high"),
   profile("claude-opus-5-5", "Claude Opus 5.5", ["low", "medium", "high", "xhigh", "max"], "anthropic"),
   profile("claude-opus-5", "Claude Opus 5", ["low", "medium", "high", "xhigh", "max"], "anthropic", "high"),
+  profile("claude-sonnet-5-5", "Claude Sonnet 5.5", ["low", "medium", "high", "xhigh", "max"], "anthropic"),
 ]);
 
 export function modelsFor(provider: Provider): readonly ModelProfile[] {

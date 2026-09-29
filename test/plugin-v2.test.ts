@@ -18,7 +18,7 @@ const input = [{ type: "message", role: "user", content: [{ type: "input_text", 
 const body = { model: "gpt-6-astra", input, stream: true, prompt_cache_key: "ses_test" };
 const sources = () => new Map([
   ["gw", { provider: { id: "gw", package: OPENAI, integrationID: "gw", settings: { baseURL: "https://a.test/v1", apiKey: "config-key", transport: "websocket" }, headers: { "x-source": "provider" }, body: { top: true } }, models: new Map([["gpt-6-astra", { id: "gpt-6-astra", modelID: "gpt-6-astra", settings: { extra: 1 }, headers: { "x-model": "yes" }, body: { model: true }, limit: { context: 123 }, cost: [1], variants: ["high"] }]]) }],
-  ["claude", { provider: { id: "claude", package: ANTHROPIC, integrationID: "claude", settings: { baseURL: "https://claude.test/v1" } }, models: new Map([["claude-opus-5-5", { id: "claude-opus-5-5", modelID: "claude-opus-5-5", limit: { context: 456 } }]]) }],
+  ["claude", { provider: { id: "claude", package: ANTHROPIC, integrationID: "claude", settings: { baseURL: "https://claude.test/v1" } }, models: new Map([["claude-opus-5-5", { id: "claude-opus-5-5", modelID: "claude-opus-5-5", limit: { context: 456 } }], ["claude-sonnet-5-5", { id: "claude-sonnet-5-5", modelID: "claude-sonnet-5-5", limit: { context: 456 } }]]) }],
 ]);
 
 async function host(options: Record<string, unknown> = base, source = sources(), credentials: Record<string, unknown> = {}) {
@@ -90,12 +90,18 @@ describe("V2 wrap aliases", () => {
   it("registers placeholders, copies late source metadata, removes unused aliases and survives reload", async () => {
     const h = await host();
     expect((h.registrations[0] as any).info).toMatchObject({ id: "jev-router", settings: { transport: "http" } });
-    expect((h.registrations[0] as any).models).toHaveLength(7);
+    expect((h.registrations[0] as any).models).toHaveLength(8);
     expect([...h.aliases.keys()].sort()).toEqual(["claude-opus-5-5", "gpt-6-astra"]);
     expect(h.aliases.get("gpt-6-astra")).toMatchObject({ name: "GPT-6 Astra", modelID: "gpt-6-astra", limit: { context: 123 }, cost: [1], variants: [], settings: { baseURL: "https://a.test/v1", apiKey: "config-key", extra: 1 }, headers: { "x-source": "provider", "x-model": "yes" }, body: { top: true, model: true } });
     expect(h.aliases.get("gpt-6-astra")).toMatchObject({ transport: "http" });
     expect(h.aliases.get("gpt-6-astra")?.settings).not.toHaveProperty("transport");
     h.reload(); expect([...h.aliases.keys()].sort()).toEqual(["claude-opus-5-5", "gpt-6-astra"]); h.cleanup();
+  });
+
+  it("wraps Claude Sonnet 5.5 from a native Anthropic provider", async () => {
+    const h = await host({ wrap: { anthropic: ["claude/claude-sonnet-5-5"] } });
+    expect(h.aliases.get("claude-sonnet-5-5")).toMatchObject({ modelID: "claude-sonnet-5-5", name: "Claude Sonnet 5.5" });
+    h.cleanup();
   });
 
   it.each([
