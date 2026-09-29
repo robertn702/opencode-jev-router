@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.6.1
+
+- Add Claude Sonnet 5.5 (`claude-sonnet-5-5`) to the Anthropic profiles for OpenCode V2 wraps.
+
 ## 0.6.0
 
 - **Breaking:** OpenCode V1 plugin support is removed. The default export has
