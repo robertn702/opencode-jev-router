@@ -128,9 +128,9 @@ model must use `@opencode/ai/providers/anthropic`; OpenAI sources may use
 `@opencode/ai/providers/openai` (the built-in) or
 `@opencode/ai/providers/openai/responses`. Primary requests must use the
 corresponding `/messages` or `/responses` route; other paths fail locally.
-Wrapped source models are hidden from the available model catalog; aliases
-inherit source route, settings, headers, limits and cost, but have no manual
-effort variants.
+Source models
+remain untouched; aliases inherit source route, settings, headers, limits and
+cost, but have no manual effort variants.
 
 | OpenCode model | Efforts Jev can choose |
 | --- | --- |

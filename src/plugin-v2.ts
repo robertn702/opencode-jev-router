@@ -78,10 +78,9 @@ export async function setupV2(ctx: Plugin.Context): Promise<() => void> {
       delete settings.transport;
       editor.update(PROVIDER_ID, id, (alias) => Object.assign(alias, {
         ...source, id, modelID: apiID, providerID: PROVIDER_ID, package: source!.package ?? resolved.package,
-        name: profile!.name, enabled: true, transport: "http", settings, headers: { ...resolved.headers, ...source!.headers },
+        name: profile!.name, transport: "http", settings, headers: { ...resolved.headers, ...source!.headers },
         body: { ...resolved.body, ...source!.body }, variants: [],
       }));
-      editor.update(providerID, modelID, (model) => { model.enabled = false; });
     }
     if (!errors.length) for (const profile of MODELS) if (!next.has(profile.id)) editor.remove(PROVIDER_ID, profile.id);
     aliases = next;
