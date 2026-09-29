@@ -5,6 +5,7 @@
   "type": "module",
   "private": false,
   "license": "MIT",
+  "keywords": ["opencode-plugin", "opencode", "reasoning-effort", "jev", "typesafe"],
   "repository": {
     "type": "git",
     "url": "git+https://github.com/robertn702/opencode-jev-router.git"
