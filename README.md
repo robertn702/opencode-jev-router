@@ -47,7 +47,7 @@ If Jev is slow or unavailable, the request continues at a fallback effort
   API (`https://api.openai.com/v1`) works; so does any gateway that exposes the
   same `POST /v1/responses` interface.
 - **For Claude instead:** an Anthropic Messages API endpoint serving one of the
-  four models below, with access to the mid-conversation output-config beta.
+  five models below, with access to the mid-conversation output-config beta.
 
 Node.js 24.x is needed only for the [standalone proxy](#standalone-proxy-optional)
 and for development.
@@ -141,6 +141,7 @@ cost, but have no manual effort variants.
 | `jev-router/claude-mythos-5-1` | `low`, `medium`, `high`, `xhigh`, `max` |
 | `jev-router/claude-opus-5-5` | `low`, `medium`, `high`, `xhigh`, `max` |
 | `jev-router/claude-opus-5` | `low`, `medium`, `high`, `xhigh`, `max` |
+| `jev-router/claude-sonnet-5-5` | `low`, `medium`, `high`, `xhigh`, `max` |
 
 See OpenAI's [Astra](https://developers.openai.com/api/docs/models/gpt-6-astra),
 [Luna](https://developers.openai.com/api/docs/models/gpt-6-luna), and

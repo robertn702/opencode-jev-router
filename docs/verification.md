@@ -12,7 +12,7 @@ With a funded Anthropic key and access to a supported model, opt in locally
 CACHE_PROVIDER=anthropic CACHE_LIVE=1 CACHE_ANTHROPIC_LIVE=1 JEV_ROUTER_ANTHROPIC_UPSTREAM_API_KEY=… JEV_ROUTER_ANTHROPIC_UPSTREAM_BASE_URL=https://api.anthropic.com/v1 npm run cache:validate
 ```
 
-`CACHE_ANTHROPIC_MODEL` defaults to `claude-opus-5-5`; only the four registered
+`CACHE_ANTHROPIC_MODEL` defaults to `claude-opus-5-5`; only the five registered
 Claude IDs are accepted. The harness budgets at most 12 paid requests, prints
 only usage/status and structural metadata, and compares warm-cache reuse across
 low/high changes with a separate proxy's top-level effort control. It also checks

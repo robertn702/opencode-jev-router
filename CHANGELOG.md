@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.6.2
+
+- Document Claude Sonnet 5.5 and add it to cache validation. No model behavior changes.
+
 ## 0.6.1
 
 - Add Claude Sonnet 5.5 (`claude-sonnet-5-5`) to the Anthropic profiles for OpenCode V2 wraps.
