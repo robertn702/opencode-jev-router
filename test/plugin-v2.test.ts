@@ -90,7 +90,7 @@ describe("V2 wrap aliases", () => {
   it("registers placeholders, copies late source metadata, removes unused aliases and survives reload", async () => {
     const h = await host();
     expect((h.registrations[0] as any).info).toMatchObject({ id: "jev-router", settings: { transport: "http" } });
-    expect((h.registrations[0] as any).models).toHaveLength(8);
+    expect((h.registrations[0] as any).models).toHaveLength(9);
     expect([...h.aliases.keys()].sort()).toEqual(["claude-opus-5-5", "gpt-6-astra"]);
     expect(h.aliases.get("gpt-6-astra")).toMatchObject({ name: "GPT-6 Astra", modelID: "gpt-6-astra", limit: { context: 123 }, cost: [1], variants: [], settings: { baseURL: "https://a.test/v1", apiKey: "config-key", extra: 1 }, headers: { "x-source": "provider", "x-model": "yes" }, body: { top: true, model: true } });
     expect(h.aliases.get("gpt-6-astra")).toMatchObject({ transport: "http" });

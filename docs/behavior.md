@@ -31,7 +31,7 @@ Reference for the wire behavior shared by the OpenCode plugin and the standalone
   drop injected history). Conflicting caller updates at an insertion boundary
   receive a local `400`. No item fields are silently stripped to make these
   combinations work.
-- Exact registered OpenAI IDs are `gpt-6-astra`, `gpt-6-luna`, and `gpt-6-sol`;
+- Exact registered OpenAI IDs are `gpt-6-astra`, `gpt-6-luna`, `gpt-6-sol`, and `gpt-6.1-sol`;
   Anthropic `/v1/messages` accepts `claude-fable-5-1`, `claude-mythos-5-1`,
   `claude-opus-5-5`, `claude-opus-5`, and `claude-sonnet-5-5`. Model/route mismatches are local `400`s.
   Missing, malformed, unknown, and pro IDs fail locally before classification.
