@@ -153,10 +153,10 @@ For GPT-6, only standard, single-agent mode is supported: pro models, other
 OpenCode's own reasoning-effort variants are ignored for this provider, since
 Jev picks the effort. The response reports the base effort (`medium`), not
 the effort Jev selected; use the decision log to see the selection. Claude
-defaults to a fixed top-level effort of `medium` for Opus 5.5 and `high` for
-the others; per-turn changes use the Anthropic beta header and an effort-only
-system message before the newest user message, including tool results. Thinking
-is pinned to adaptive (caller `display` is preserved). See
+defaults to a fixed top-level effort of `medium` for Opus 5.5 and Sonnet 5.5,
+and `high` for the others; per-turn changes use the Anthropic beta header and
+an effort-only system message before the newest user message, including tool
+results. Thinking is pinned to adaptive (caller `display` is preserved). See
 [behavior and unverified limitations](docs/behavior.md#effort-updates-and-cache-lineage).
 Anthropic requests do not follow upstream redirects; a 3xx response is returned
 to the caller rather than forwarding credentials to a different origin.
