@@ -99,7 +99,7 @@ describe("V2 wrap aliases", () => {
   });
 
   it("wraps Claude Sonnet 5.5 from a native Anthropic provider", async () => {
-    const h = await host({ wrap: { anthropic: ["claude/claude-sonnet-5-5"] } });
+    const h = await host({ ...base, wrap: { anthropic: ["claude/claude-sonnet-5-5"] } });
     expect(h.aliases.get("claude-sonnet-5-5")).toMatchObject({ modelID: "claude-sonnet-5-5", name: "Claude Sonnet 5.5" });
     h.cleanup();
   });
