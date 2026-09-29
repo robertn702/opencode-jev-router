@@ -9,6 +9,7 @@ import type { ModelEditor } from "@opencode/plugin/promise/model";
 import type { SessionHttpRequest, SessionHttpResponse } from "@opencode/plugin/promise/session";
 
 import plugin from "../src/plugin.js";
+import { MODELS } from "../src/models.js";
 
 const originalFetch = globalThis.fetch;
 const OPENAI = "@opencode/ai/providers/openai/responses";
@@ -22,7 +23,7 @@ const sources = () => new Map([
 ]);
 
 async function host(options: Record<string, unknown> = base, source = sources(), credentials: Record<string, unknown> = {}) {
-  const registrations: unknown[] = [];
+  const registrations: Parameters<ProviderEditor["add"]>[0][] = [];
   const aliases = new Map<string, Record<string, unknown>>();
   const hooks = new Map<string, (event: any) => Promise<void> | void>();
   let providerTransform!: (editor: ProviderEditor) => void;
@@ -37,7 +38,7 @@ async function host(options: Record<string, unknown> = base, source = sources(),
   const cleanup = await plugin.setup(ctx);
   const providerPass = () => {
     aliases.clear();
-    providerTransform({ add(registration: any) { registrations.push(registration); for (const model of registration.models) aliases.set(model.id, { ...model }); } } as ProviderEditor);
+    providerTransform({ add(registration) { registrations.push(registration); for (const model of registration.models) aliases.set(model.id, { ...model }); } } as ProviderEditor);
   };
   const modelPass = () => {
     modelTransform({
@@ -89,8 +90,8 @@ describe("V2 wrap aliases", () => {
 
   it("registers placeholders, copies late source metadata, removes unused aliases and survives reload", async () => {
     const h = await host();
-    expect((h.registrations[0] as any).info).toMatchObject({ id: "jev-router", settings: { transport: "http" } });
-    expect((h.registrations[0] as any).models).toHaveLength(9);
+    expect(h.registrations[0]?.info).toMatchObject({ id: "jev-router", settings: { transport: "http" } });
+    expect(h.registrations[0]?.models.map((model) => model.id)).toEqual(MODELS.map((model) => model.id));
     expect([...h.aliases.keys()].sort()).toEqual(["claude-opus-5-5", "gpt-6-astra"]);
     expect(h.aliases.get("gpt-6-astra")).toMatchObject({ name: "GPT-6 Astra", modelID: "gpt-6-astra", limit: { context: 123 }, cost: [1], variants: [], settings: { baseURL: "https://a.test/v1", apiKey: "config-key", extra: 1 }, headers: { "x-source": "provider", "x-model": "yes" }, body: { top: true, model: true } });
     expect(h.aliases.get("gpt-6-astra")).toMatchObject({ transport: "http" });
