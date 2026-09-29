@@ -23,7 +23,7 @@ describe("registered model isolation", () => {
   it("registers only supported Anthropic profiles with model-specific base efforts", () => {
     expect(modelsFor("openai").map((model) => model.id)).toEqual(["gpt-6-astra", "gpt-6-luna", "gpt-6-sol"]);
     expect(modelsFor("anthropic").map((model) => [model.id, model.defaultBaseEffort])).toEqual([
-      ["claude-fable-5-1", "high"], ["claude-mythos-5-1", "high"], ["claude-opus-5-5", "medium"], ["claude-opus-5", "high"],
+      ["claude-fable-5-1", "high"], ["claude-mythos-5-1", "high"], ["claude-opus-5-5", "medium"], ["claude-opus-5", "high"], ["claude-sonnet-5-5", "medium"],
     ]);
     for (const model of MODELS) {
       expect(Object.isFrozen(model)).toBe(true);
