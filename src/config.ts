@@ -7,6 +7,9 @@ const EFFORTS: readonly string[] = ["low", "medium", "high", "xhigh", "max"];
 
 export interface AppConfig extends ClassificationPolicyOptions {
   port: number;
+  classifierBackend: "jev" | "laya";
+  layaModelDir?: string;
+  layaCacheDir?: string;
   upstreamBaseUrl: string;
   upstreamAuth: UpstreamAuth;
   anthropicUpstream?: { baseUrl: string; auth: { policy: "forward" } | { policy: "key"; apiKey: string } };
@@ -92,6 +95,13 @@ function parseEffort(raw: string | undefined): Effort | undefined {
 
 export function loadConfig(env: Record<string, string | undefined>): AppConfig {
   const jevPolicy = classificationPolicy({ maxRetries: env.JEV_ROUTER_MAX_RETRIES === undefined ? undefined : Number(env.JEV_ROUTER_MAX_RETRIES), fallbackMode: env.JEV_ROUTER_FALLBACK_MODE as ClassificationPolicyOptions["fallbackMode"], fallbackEffort: env.JEV_ROUTER_FALLBACK_EFFORT as Effort | undefined });
+  const classifierBackend = env.JEV_ROUTER_CLASSIFIER_BACKEND ?? "jev";
+  if (classifierBackend !== "jev" && classifierBackend !== "laya") {
+    throw new Error("JEV_ROUTER_CLASSIFIER_BACKEND must be jev or laya");
+  }
+  for (const name of ["JEV_ROUTER_LAYA_MODEL_DIR", "JEV_ROUTER_LAYA_CACHE_DIR"] as const) {
+    if (env[name] !== undefined && !env[name]?.trim()) throw new Error(`${name} must not be empty`);
+  }
   for (const name of ["UPSTREAM_MODEL", "UPSTREAM_MODELS", "ALLOWED_MODELS"]) {
     if (env[name] !== undefined) throw new Error(`${name} is unsupported; select a registered model through request.model`);
   }
@@ -171,6 +181,9 @@ export function loadConfig(env: Record<string, string | undefined>): AppConfig {
   return {
     ...jevPolicy,
     port: parsePort(env.JEV_ROUTER_PORT),
+    classifierBackend,
+    layaModelDir: env.JEV_ROUTER_LAYA_MODEL_DIR,
+    layaCacheDir: env.JEV_ROUTER_LAYA_CACHE_DIR,
     upstreamBaseUrl,
     anthropicUpstream,
     upstreamAuth: policy === "bearer"

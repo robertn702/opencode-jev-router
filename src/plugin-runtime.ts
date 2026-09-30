@@ -1,9 +1,9 @@
 import { createHash } from "node:crypto";
 
 import { resolveJevConnection, upstreamHostname } from "./config.js";
+import { createClassifierBackend, type ClassifierBackend } from "./classifier-backend.js";
 import { createDecisionLogger } from "./decision-log.js";
 import { buildPluginUpstreamRequestHeaders, pickFetchResponseHeaders } from "./headers.js";
-import { createJevClassifier } from "./jev.js";
 import type { ClassificationPolicyOptions } from "./classification-policy.js";
 import { MODELS, supportsEffort, type Effort, type Provider } from "./models.js";
 import { ResponsesRouter, type PreparedRequest } from "./router.js";
@@ -12,7 +12,7 @@ import { resolveModel, validateRequest, wireFor, UnsupportedInputError } from ".
 import { anthropicVersion, mergeAnthropicBeta } from "./wire-anthropic.js";
 
 /** Options for the OpenCode V2 plugin runtime. */
-export type PluginOptions = ClassificationPolicyOptions & { jevTimeoutMs?: number; jevApiKey?: string; jevBaseUrl?: string; jevModel?: string; baseEffort?: Effort; fixedEffort?: Effort; maxRequestBytes?: number; maxInFlight?: number; upstreamHeaderTimeoutMs?: number; upstreamIdleTimeoutMs?: number; decisionsLogPath?: string };
+export type PluginOptions = ClassificationPolicyOptions & { classifierBackend?: "jev" | "laya"; layaModelDir?: string; layaCacheDir?: string; jevTimeoutMs?: number; jevApiKey?: string; jevBaseUrl?: string; jevModel?: string; baseEffort?: Effort; fixedEffort?: Effort; maxRequestBytes?: number; maxInFlight?: number; upstreamHeaderTimeoutMs?: number; upstreamIdleTimeoutMs?: number; decisionsLogPath?: string };
 
 /** A local rejection with an HTTP status for the plugin request hook. */
 export class PluginRequestError extends Error {
@@ -93,7 +93,11 @@ async function boundedBody(request: Request, maxBytes: number, signal: AbortSign
 /** Per-plugin-instance state, validation, Jev selection, rewrite, and usage observation. */
 export function createPluginRuntime(options: PluginOptions): PluginRuntime {
   const env = process.env;
-  const connection = options.fixedEffort === undefined ? resolveJevConnection(options.jevApiKey ?? env.JEV_API_KEY ?? "", options.jevBaseUrl ?? env.JEV_BASE_URL) : undefined;
+  const backend = options.classifierBackend ?? "jev";
+  if (backend !== "jev" && backend !== "laya") throw new Error("classifierBackend must be jev or laya");
+  if (backend === "laya" && (options.jevApiKey !== undefined || options.jevBaseUrl !== undefined || options.jevModel !== undefined)) throw new Error("Jev options cannot be used with classifierBackend=laya");
+  if (backend === "jev" && (options.layaModelDir !== undefined || options.layaCacheDir !== undefined)) throw new Error("Laya options require classifierBackend=laya");
+  const connection = options.fixedEffort === undefined && backend === "jev" ? resolveJevConnection(options.jevApiKey ?? env.JEV_API_KEY ?? "", options.jevBaseUrl ?? env.JEV_BASE_URL) : undefined;
   if (options.jevModel !== undefined && options.jevModel !== connection?.model) throw new Error("jevModel must match the configured Jev endpoint");
   if (options.baseEffort !== undefined && !["low", "medium", "high", "xhigh", "max"].includes(options.baseEffort)) throw new Error("baseEffort is unsupported");
   if (options.fixedEffort !== undefined && !MODELS.every((model) => supportsEffort(model, options.fixedEffort))) throw new Error("fixedEffort must be supported by every model");
@@ -101,7 +105,12 @@ export function createPluginRuntime(options: PluginOptions): PluginRuntime {
   const maxInFlight = positive(options.maxInFlight, 32, "maxInFlight");
   const headerTimeoutMs = positive(options.upstreamHeaderTimeoutMs, 10_000, "upstreamHeaderTimeoutMs");
   const idleTimeoutMs = positive(options.upstreamIdleTimeoutMs, 60_000, "upstreamIdleTimeoutMs");
-  const selectEffort = connection ? createJevClassifier({ ...connection, maxRetries: options.maxRetries, fallbackMode: options.fallbackMode, fallbackEffort: options.fallbackEffort, timeoutMs: options.jevTimeoutMs ?? 4_000 }).select : async () => ({ effort: options.fixedEffort!, jevLatencyMs: 0, fallback: null });
+  let classifier: ClassifierBackend | undefined;
+  const selectEffort = options.fixedEffort !== undefined
+    ? async () => ({ effort: options.fixedEffort!, jevLatencyMs: 0, fallback: null })
+    : (classifier = backend === "jev"
+      ? createClassifierBackend({ backend, jev: connection!, maxRetries: options.maxRetries, fallbackMode: options.fallbackMode, fallbackEffort: options.fallbackEffort, timeoutMs: options.jevTimeoutMs ?? 4_000 })
+      : createClassifierBackend({ backend, modelDir: options.layaModelDir, cacheDir: options.layaCacheDir, maxRetries: options.maxRetries, fallbackMode: options.fallbackMode, fallbackEffort: options.fallbackEffort, timeoutMs: options.jevTimeoutMs ?? 4_000 })).select;
   const onEvidence = options.decisionsLogPath === undefined ? undefined : createDecisionLogger(options.decisionsLogPath);
   const router = new ResponsesRouter({ baseEffort: options.baseEffort, selectEffort, onEvidence });
   // Each open exchange's controller maps to its incoming request. Undici follows a
@@ -209,6 +218,6 @@ export function createPluginRuntime(options: PluginOptions): PluginRuntime {
 
   return {
     start,
-    dispose() { disposed = true; for (const controller of controllers.keys()) controller.abort(); for (const abandon of [...abandons]) abandon(); router.reset(); },
+    dispose() { disposed = true; for (const controller of controllers.keys()) controller.abort(); for (const abandon of [...abandons]) abandon(); router.reset(); void classifier?.close(); },
   };
 }

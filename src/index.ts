@@ -2,20 +2,23 @@
 import { existsSync } from "node:fs";
 import { connect } from "node:net";
 import { loadConfig, loadJevConnection, upstreamHostname } from "./config.js";
+import { createClassifierBackend } from "./classifier-backend.js";
 import { createDecisionLogger } from "./decision-log.js";
 import { formatEvidence } from "./evidence.js";
-import { createJevClassifier } from "./jev.js";
 import { createAppServer, shutdownAppServer } from "./server.js";
 
 if (process.argv.includes("--help") || process.argv.includes("-h")) {
   console.log(`Usage: opencode-jev-router [--help]
 
-Start the local Jev-powered Responses API proxy.
+Start the local adaptive-effort Responses API proxy.
 
 Environment:
-  JEV_API_KEY        Required Jev classifier key (separate from upstream/client keys)
+  JEV_ROUTER_CLASSIFIER_BACKEND  jev (default) or laya
+  JEV_API_KEY        Required only for the Jev backend (separate from upstream/client keys)
   JEV_BASE_URL       Jev API root (default: https://api.typesafe.ai)
                      Vercel: https://ai-gateway.vercel.sh/typesafe
+  JEV_ROUTER_LAYA_MODEL_DIR  Optional local ONNX bundle directory
+  JEV_ROUTER_LAYA_CACHE_DIR  Optional Laya download cache directory
   JEV_ROUTER_PORT     Listening port (default: 4320)
   JEV_ROUTER_UPSTREAM_BASE_URL  Required Responses API-compatible base URL, e.g. https://api.openai.com/v1
   JEV_ROUTER_UPSTREAM_AUTH      forward (default, loopback only) or bearer
@@ -48,24 +51,26 @@ if (existsSync(".env")) {
 }
 
 let config: ReturnType<typeof loadConfig>;
-let jev: ReturnType<typeof loadJevConnection>;
+let jev: ReturnType<typeof loadJevConnection> | undefined;
 try {
   config = loadConfig(process.env);
-  jev = loadJevConnection(process.env);
+  jev = config.classifierBackend === "jev" ? loadJevConnection(process.env) : undefined;
 } catch (error) {
   console.error(JSON.stringify({ event: "startup_failed", reason: "invalid_configuration", message: error instanceof Error ? error.message : "invalid configuration" }));
   process.exit(1);
 }
 
-const classifier = createJevClassifier({
-  ...jev,
+const classifierOptions = {
   timeoutMs: config.jevTimeoutMs,
   maxRetries: config.maxRetries,
   fallbackMode: config.fallbackMode,
   fallbackEffort: config.fallbackEffort,
   cacheEntries: config.effortCacheEntries,
   cacheTtlMs: config.effortCacheTtlMs,
-});
+};
+const classifier = config.classifierBackend === "jev"
+  ? createClassifierBackend({ ...classifierOptions, backend: "jev", jev: jev! })
+  : createClassifierBackend({ ...classifierOptions, backend: "laya", modelDir: config.layaModelDir, cacheDir: config.layaCacheDir });
 const logDecision = config.decisionsLogPath ? createDecisionLogger(config.decisionsLogPath) : undefined;
 
 const server = createAppServer({
@@ -104,7 +109,8 @@ const stop = (): void => {
   console.log(JSON.stringify({ event: "shutdown_started" }));
   void shutdownAppServer(server, config.shutdownGraceMs, () => {
     console.log(JSON.stringify({ event: "shutdown_deadline" }));
-  }).then(() => {
+  }).then(async () => {
+    await classifier.close();
     console.log(JSON.stringify({ event: "shutdown_complete" }));
   }, () => {
     console.error(JSON.stringify({ event: "shutdown_failed" }));
