@@ -228,10 +228,12 @@ listening, configured, not draining, and the upstream TCP port is reachable.
 Otherwise it returns `503 {"status":"not_ready","reason":"..."}` with one of
 `starting`, `missing_configuration`, `draining`, or `dependency_unavailable`.
 The upstream probe is bounded to 500 ms and cached for two seconds; it sends no
-model or Jev requests. The CLI validates configuration (including the required
-Jev key) before listening, so missing configuration normally prevents startup
-rather than serving an endpoint. The TCP check verifies connectivity, not
-upstream authentication or model availability.
+model or classifier requests. The CLI validates configuration (including the
+required Jev key when `JEV_ROUTER_CLASSIFIER_BACKEND=jev`) before listening, so
+missing configuration normally prevents startup rather than serving an
+endpoint. Laya model download and initialization are lazy on the first
+classified request. The TCP check verifies connectivity, not upstream
+authentication, classifier availability, or model availability.
 
 For a container orchestrator, use `/health` for liveness and `/ready` for
 readiness, for example:

@@ -1,9 +1,17 @@
 # Router environment namespace
 
 Use `JEV_ROUTER_*` variables for router configuration and `JEV_API_KEY` /
-`JEV_BASE_URL` for the Jev classifier; `.env.example` lists the supported
-names. `JEV_ROUTER_API_KEY` and `JEV_ROUTER_BASE_URL` are rejected. This beta migration
-is breaking: old environment names are no longer supported.
+`JEV_BASE_URL` for the default hosted Jev classifier; `.env.example` lists the
+supported names. `JEV_ROUTER_API_KEY` and `JEV_ROUTER_BASE_URL` are rejected.
+This beta migration is breaking: old environment names are no longer supported.
+
+`JEV_ROUTER_CLASSIFIER_BACKEND` is explicit and accepts `jev` (the default) or
+`laya`. The local Laya backend does not read or send a Jev credential. Optional
+`JEV_ROUTER_LAYA_MODEL_DIR` points to an existing ONNX bundle;
+`JEV_ROUTER_LAYA_CACHE_DIR` changes the download cache. Without a model directory,
+the first classified request downloads about 1.7 GB and caches it under
+`~/.cache/receptron-laya`; the loaded model needs roughly 2 GB RAM plus a few
+hundred MB per batch.
 
 `JEV_API_KEY` is a TypeSafe credential when the base URL is omitted
 (default `https://api.typesafe.ai`). A Vercel Gateway credential also requires

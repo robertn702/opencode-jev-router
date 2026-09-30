@@ -5,6 +5,10 @@
     // Jev classifier key. For a direct TypeSafe key, delete jevBaseUrl.
     "jevApiKey": "{env:JEV_API_KEY}",
     "jevBaseUrl": "https://ai-gateway.vercel.sh/typesafe",
+    // Local alternative: remove both Jev lines and use this instead.
+    // "classifierBackend": "laya",
+    // Optional: "layaCacheDir": "/var/cache/receptron-laya",
+    // Optional existing bundle: "layaModelDir": "/models/laya",
     // Wrap existing OpenCode models with API-key credentials.
     "wrap": { "openai": ["openai/gpt-6-astra"] },
     // Add "anthropic": ["anthropic/claude-opus-5-5"] for Messages.

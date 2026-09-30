@@ -20,8 +20,10 @@ may differ. [See the evaluation](eval/results/router-consolidated-2026-09-25.md)
 
 For each primary request to a wrapped model, the plugin:
 
-1. Sends a bounded summary of the recent conversation to Jev, which picks a
-   reasoning effort (for example `low` for a rename, `high` for a failing test).
+1. Sends a bounded summary of the recent conversation to the configured
+   classifier. Hosted Jev is the default; optional local Laya keeps the summary
+   on the machine. The classifier picks a reasoning effort (for example `low`
+   for a rename, `high` for a failing test).
 2. Adds that choice to the request as an OpenAI
    [`configuration_update`](https://developers.openai.com/api/docs/guides/reasoning#change-reasoning-mid-conversation)
    item, or as an Anthropic effort-only system message; earlier updates stay in
@@ -36,12 +38,15 @@ If Jev is slow or unavailable, the request continues at a fallback effort
 
 - **OpenCode V2 2.0.4 or newer** (tested with 2.0.4 and 2.0.18). V1 users can pin
   `@robertn702/opencode-jev-router@0.5` or use the standalone proxy.
-- **A Jev key**, from either:
-  - [TypeSafe](https://typesafe.ai/) (direct), or
-  - [Vercel AI Gateway](https://vercel.com/docs/ai-gateway/sdks-and-apis/typesafe)
-    (a Gateway key, used with Vercel's TypeSafe-compatible endpoint).
-
-  Each routed request makes one classification call, billed by that provider.
+- **A classification backend:**
+  - Hosted `jev` is the default. Use a [TypeSafe](https://typesafe.ai/) key, or a
+    [Vercel AI Gateway](https://vercel.com/docs/ai-gateway/sdks-and-apis/typesafe)
+    key with Vercel's TypeSafe-compatible endpoint. Each routed request makes
+    one classification call, billed by that provider.
+  - Local `laya` needs no classifier key and sends no conversation excerpts to
+    TypeSafe or Vercel. It downloads about 1.7 GB of ONNX weights on first use,
+    caches them under `~/.cache/receptron-laya` by default, and needs roughly
+    2 GB of RAM for the loaded model plus a few hundred MB per question batch.
 - **A Responses API-compatible endpoint** that serves GPT-6 Astra, Luna, or Sol
   and accepts `configuration_update` input items, plus its API key. The OpenAI
   API (`https://api.openai.com/v1`) works; so does any gateway that exposes the
@@ -82,6 +87,11 @@ for all projects, or `opencode.json` in a project root:
 
 - **Using a direct TypeSafe key?** Delete the `jevBaseUrl` line. A key only
   works with its own endpoint.
+- **Using local Laya instead?** Replace `jevApiKey` and `jevBaseUrl` with
+  `"classifierBackend": "laya"`. The first classified request downloads and
+  loads the model, so it can take several minutes. Set `layaCacheDir` to move
+  the cache or `layaModelDir` to use an already downloaded ONNX bundle. Laya
+  runs in this Node.js process; plan for the disk and memory listed above.
 - **Source auth:** `OPENAI_API_KEY` or an API key saved with `opencode auth login`
   supplies the wrapped OpenAI model. If your OpenCode catalog lacks the model
   (for example, offline or with 2.0.4's built-ins), declare it under
@@ -186,10 +196,13 @@ host nevertheless selects websocket, rather than silently bypassing Jev.
 
 ## What is sent where
 
-- **To Jev (TypeSafe or Vercel):** bounded excerpts of recent user and assistant
-  text, up to 8 recent tool results (with tool names and error flags), a short
-  failure summary, and the model ID. Hosted-tool and computer-use payloads are
-  not sent.
+- **To hosted Jev (TypeSafe or Vercel, `classifierBackend: "jev"`):** bounded
+  excerpts of recent user and assistant text, up to 8 recent tool results (with
+  tool names and error flags), a short failure summary, and the model ID.
+  Hosted-tool and computer-use payloads are not sent.
+- **To local Laya (`classifierBackend: "laya"`):** the same bounded classifier
+  state stays in-process. No classifier request is sent to TypeSafe, Vercel, or
+  another hosted Jev endpoint.
 - **To your endpoint:** the full OpenCode request, with the effort update added.
 - **Stored locally:** nothing by default. With `decisionsLogPath`, metadata
   only (IDs, model, effort, latency, token counts). Prompts, tool output,
@@ -201,8 +214,11 @@ Plugin options go in `options` of a `plugins` entry.
 
 | Option | Default | Purpose |
 | --- | --- | --- |
-| `jevApiKey` | `JEV_API_KEY` env | Jev classifier key. Required. |
+| `classifierBackend` | `jev` | `jev` for hosted TypeSafe-compatible classification or `laya` for local ONNX inference. |
+| `jevApiKey` | `JEV_API_KEY` env | Hosted Jev classifier key. Required only for `jev`. |
 | `jevBaseUrl` | `https://api.typesafe.ai` | Set to `https://ai-gateway.vercel.sh/typesafe` for a Vercel key. No other values are accepted. |
+| `layaModelDir` | download/cache | Existing Laya ONNX bundle; skips download when set. |
+| `layaCacheDir` | `~/.cache/receptron-laya` | First-run model download cache. |
 | `wrap` | none | Required nonempty object with `openai` and/or `anthropic` arrays of `provider/model` source refs. |
 | `decisionsLogPath` | off | Absolute path for metadata-only `JevDecision` JSONL. |
 | `baseEffort` | `medium` | Request-level effort reported by responses. |
@@ -231,7 +247,8 @@ instead appears as `Model unavailable`.
 | Symptom | Fix |
 | --- | --- |
 | `fallback` is `jev_error` with `jev_error_category: "http_auth"` | The Jev key doesn't match the endpoint. Vercel keys need `jevBaseUrl`; TypeSafe keys must omit it. |
-| `fallback` is `jev_timeout` | Jev was slow or unreachable; requests still ran at the fallback effort. Raise `jevTimeoutMs` if it happens often. |
+| `fallback` is `jev_timeout` | The selected classifier was slow; requests still ran at the fallback effort. Raise `jevTimeoutMs` if it happens often. Laya's first load can exceed a short timeout while its model continues loading. |
+| Laya first request falls back or uses substantial disk/RAM | Allow the initial ~1.7 GB download and model load to finish, verify cache permissions/free space, and budget roughly 2 GB RAM plus batch overhead. Reuse the cache on later starts. |
 | OpenCode log says `failed to load plugin` | Check `wrap` syntax and remove old plugin upstream options. |
 | 401/403/404 from the model | The endpoint's response is passed through unchanged. Check the source provider key and model. |
 | Local 400 mentioning `reasoning.mode`, `truncation`, or the model | The request uses an unsupported mode or model; see [Models](#models). |
@@ -253,8 +270,13 @@ needs Node.js 24.x.
 Create a `.env` in the directory you'll run from (or export the variables):
 
 ```dotenv
+# Hosted default:
 JEV_API_KEY=your-jev-key
 # JEV_BASE_URL=https://ai-gateway.vercel.sh/typesafe   # Vercel keys only
+# Or local classification (omit JEV_API_KEY/JEV_BASE_URL):
+# JEV_ROUTER_CLASSIFIER_BACKEND=laya
+# JEV_ROUTER_LAYA_CACHE_DIR=/var/cache/receptron-laya
+# JEV_ROUTER_LAYA_MODEL_DIR=/models/laya               # existing bundle; skips download
 JEV_ROUTER_UPSTREAM_BASE_URL=https://api.openai.com/v1
 JEV_ROUTER_UPSTREAM_AUTH=bearer
 JEV_ROUTER_UPSTREAM_API_KEY=your-endpoint-key

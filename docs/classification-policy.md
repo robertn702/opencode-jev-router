@@ -1,11 +1,17 @@
 # Classification retries and fallback
 
-Normal use defaults to one additional retry, then fixed **high** effort.
-The shared classifier retries connection failures, SDK timeouts, HTTP 429 and
-HTTP 5xx. Authentication errors, other 4xx responses, and invalid classifier
-output are not retried. SDK-level retries remain disabled to avoid multiplying
+Hosted Jev defaults to one additional retry, then fixed **high** effort. The
+hosted classifier retries connection failures, SDK timeouts, HTTP 429 and HTTP
+5xx. Authentication errors, other 4xx responses, and invalid classifier output
+are not retried. SDK-level retries remain disabled to avoid multiplying
 attempts. Exponential backoff with jitter starts at approximately 200 ms;
 Retry-After is respected within the total classification deadline.
+
+Local Laya performs one in-process inference attempt. Model-load failure,
+inference failure, invalid typed output, and timeout use the same fallback modes
+and decision metadata as hosted Jev. Client cancellation never falls back.
+Because the ONNX API cannot interrupt an inference already running, a timed-out
+or cancelled call's late result is ignored.
 
 | Plugin option | CLI environment | Default |
 | --- | --- | --- |
