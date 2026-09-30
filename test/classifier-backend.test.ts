@@ -2,8 +2,10 @@ import { describe, expect, it, vi } from "vitest";
 
 import { createClassifierBackend } from "../src/classifier-backend.js";
 import type { LayaInstance } from "../src/laya.js";
+import { findModel } from "../src/models.js";
 
 const common = { timeoutMs: 1_000, maxRetries: 0, fallbackMode: "fixed" as const, fallbackEffort: "high" as const };
+const model = findModel("gpt-6-astra")!;
 
 describe("classifier backend selection", () => {
   it("keeps hosted Jev as the default backend implementation", () => {
@@ -28,8 +30,14 @@ describe("classifier backend selection", () => {
     };
     const backend = createClassifierBackend({ ...common, backend: "laya", load: async () => local, createJev });
 
+    await expect(backend.select({
+      model,
+      body: { model: model.id, input: [{ role: "user", content: "local only" }] },
+      signal: new AbortController().signal,
+    })).resolves.toMatchObject({ effort: "low", fallback: null });
+    expect(local.systemOne).toHaveBeenCalledWith(expect.objectContaining({ recent_user_text: "local only" }), expect.anything());
     expect(createJev).not.toHaveBeenCalled();
     await backend.close();
-    expect(local.close).not.toHaveBeenCalled();
+    expect(local.close).toHaveBeenCalledOnce();
   });
 });

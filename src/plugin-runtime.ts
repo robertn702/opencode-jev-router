@@ -218,6 +218,6 @@ export function createPluginRuntime(options: PluginOptions): PluginRuntime {
 
   return {
     start,
-    dispose() { disposed = true; for (const controller of controllers.keys()) controller.abort(); for (const abandon of [...abandons]) abandon(); router.reset(); void classifier?.close(); },
+    dispose() { disposed = true; for (const controller of controllers.keys()) controller.abort(); for (const abandon of [...abandons]) abandon(); router.reset(); void classifier?.close().catch(() => undefined); },
   };
 }

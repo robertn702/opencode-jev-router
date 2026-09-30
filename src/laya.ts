@@ -52,7 +52,7 @@ export function mapLayaAnswer(answer: unknown, model: ModelProfile): Effort | nu
   }
   let position: number;
   if (typed.type === "score") {
-    if (typeof typed.score !== "number" || !Number.isFinite(typed.score)) return null;
+    if (typeof typed.score !== "number" || !Number.isFinite(typed.score) || typed.score < 0 || typed.score > model.supportedEfforts.length - 1) return null;
     position = typed.score;
   } else if (typed.type === "noul") {
     if (typeof typed.noul !== "number" || !Number.isFinite(typed.noul) || typed.noul < 0 || typed.noul > 1) return null;
@@ -82,9 +82,22 @@ export function createLayaClassifier(options: LayaClassifierOptions): LayaClassi
   const policy = classificationPolicy(options);
   const previousEfforts = new EffortCache(options.cacheEntries ?? 256, options.cacheTtlMs ?? 600_000);
   let loaded: Promise<LayaInstance> | undefined;
-  const load = (): Promise<LayaInstance> => loaded ??= (options.load ? options.load() : defaultLoad(options));
+  let closing: Promise<void> | undefined;
+  let closed = false;
+  const active = new Set<Promise<unknown>>();
+  const load = (): Promise<LayaInstance> => {
+    if (closed) return Promise.reject(new Error("Laya classifier is closed"));
+    if (loaded === undefined) {
+      loaded = Promise.resolve().then(() => options.load ? options.load() : defaultLoad(options)).catch((error: unknown) => {
+        loaded = undefined;
+        throw error;
+      });
+    }
+    return loaded;
+  };
 
   const select: EffortSelector = async ({ body, signal, model, cacheScope, cacheKey: selectedCacheKey }) => {
+    if (closed) throw new Error("Laya classifier is closed");
     if (signal.aborted) throw new ClassificationCancelledError();
     const startedAt = performance.now();
     const latency = (): number => Math.round(performance.now() - startedAt);
@@ -100,9 +113,10 @@ export function createLayaClassifier(options: LayaClassifierOptions): LayaClassi
     } as const;
 
     let timer: ReturnType<typeof setTimeout> | undefined;
+    let expired = false;
     let cancelListener: (() => void) | undefined;
     const timeout = new Promise<{ kind: "timeout" }>((resolve) => {
-      timer = setTimeout(() => resolve({ kind: "timeout" }), options.timeoutMs);
+      timer = setTimeout(() => { expired = true; resolve({ kind: "timeout" }); }, options.timeoutMs);
     });
     const cancelled = new Promise<{ kind: "cancelled" }>((resolve) => {
       cancelListener = () => resolve({ kind: "cancelled" });
@@ -110,8 +124,17 @@ export function createLayaClassifier(options: LayaClassifierOptions): LayaClassi
     });
     const inference = (async () => {
       try {
-        const result = await (await load()).systemOne(state, questions);
-        return { kind: "result" as const, result };
+        const instance = await load();
+        // ONNX inference cannot be interrupted once started. Never launch it for
+        // a request that expired, disconnected, or was disposed during loading.
+        if (expired || signal.aborted || closed) return { kind: "stale" as const };
+        const run = instance.systemOne(state, questions);
+        active.add(run);
+        try {
+          return { kind: "result" as const, result: await run };
+        } finally {
+          active.delete(run);
+        }
       } catch {
         return { kind: "error" as const };
       }
@@ -132,7 +155,8 @@ export function createLayaClassifier(options: LayaClassifierOptions): LayaClassi
           fallback: code,
         };
       };
-      if (outcome.kind === "timeout") return fallback("jev_timeout");
+      if (outcome.kind === "timeout" || expired) return fallback("jev_timeout");
+      if (outcome.kind === "stale") throw new ClassificationCancelledError();
       if (outcome.kind === "error") return { ...fallback("jev_error"), jevErrorCategory: "unknown" };
       const result = outcome.result;
       const effort = isRecord(result) && isRecord(result.answers) ? mapLayaAnswer(result.answers.effort, model) : null;
@@ -148,10 +172,16 @@ export function createLayaClassifier(options: LayaClassifierOptions): LayaClassi
   return {
     select,
     async close() {
-      if (loaded !== undefined) {
-        const instance = await loaded.catch(() => undefined);
+      if (closing !== undefined) return closing;
+      closed = true;
+      closing = (async () => {
+        // Loading is shared but inference is not abortable. Let it settle, then
+        // close the model only after every in-flight ONNX call has finished.
+        const instance = await loaded?.catch(() => undefined);
+        await Promise.allSettled([...active]);
         await instance?.close();
-      }
+      })();
+      return closing;
     },
   };
 }

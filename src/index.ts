@@ -112,7 +112,7 @@ const stop = (): void => {
   }).then(async () => {
     await classifier.close();
     console.log(JSON.stringify({ event: "shutdown_complete" }));
-  }, () => {
+  }).catch(() => {
     console.error(JSON.stringify({ event: "shutdown_failed" }));
     process.exitCode = 1;
   });
