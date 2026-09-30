@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- Add optional local Laya classification for the plugin and standalone proxy,
+  with explicit backend selection, shared timeout/fallback behavior, local-only
+  conversation state, lazy model loading, and documented cache/resource needs.
+
 ## 0.6.2
 
 - Add GPT-6.1 Sol (`gpt-6.1-sol`) to the OpenAI profiles, with `low` through `max` efforts (`none` is not supported).
