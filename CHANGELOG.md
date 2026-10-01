@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.6.3
+
+- Remove the plugin's default request-size limit (`maxRequestBytes` is opt-in), fixing `413 request_too_large` when pasting images.
+- Raise the proxy `JEV_ROUTER_MAX_REQUEST_BYTES` default from 1 MiB to 32 MiB.
+
 ## 0.6.2
 
 - Add GPT-6.1 Sol (`gpt-6.1-sol`) to the OpenAI profiles, with `low` through `max` efforts (`none` is not supported).
