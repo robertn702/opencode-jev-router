@@ -28,7 +28,7 @@ Environment:
   JEV_ROUTER_FALLBACK_MODE    fixed (default), previous, or error
   JEV_ROUTER_FALLBACK_EFFORT  Backup effort (default: high)
   JEV_ROUTER_DECISIONS_LOG_PATH  Optional absolute path for local decision JSONL
-  JEV_ROUTER_MAX_REQUEST_BYTES  Maximum POST body bytes (default: 1048576)
+  JEV_ROUTER_MAX_REQUEST_BYTES  Maximum POST body bytes (default: 33554432)
   JEV_ROUTER_MAX_IN_FLIGHT      Maximum active proxy requests (default: 32)
   JEV_ROUTER_UPSTREAM_HEADER_TIMEOUT_MS  Upstream header deadline (default: 10000)
   JEV_ROUTER_UPSTREAM_IDLE_TIMEOUT_MS    Upstream response idle deadline (default: 60000)

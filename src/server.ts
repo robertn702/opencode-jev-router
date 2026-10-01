@@ -257,7 +257,7 @@ async function handle(
         "anthropic-version": anthropicVersion(typeof request.headers["anthropic-version"] === "string" ? request.headers["anthropic-version"] : undefined),
         "anthropic-beta": mergeAnthropicBeta(typeof request.headers["anthropic-beta"] === "string" ? request.headers["anthropic-beta"] : undefined),
       } : undefined;
-      if (Number(request.headers["content-length"]) > (options.maxRequestBytes ?? 1_048_576)) {
+      if (Number(request.headers["content-length"]) > (options.maxRequestBytes ?? 33_554_432)) {
         request.pause();
         response.setHeader("connection", "close");
         writeJson(response, 413, { error: "request_too_large" });
@@ -267,7 +267,7 @@ async function handle(
       }
       let raw: string;
       try {
-        raw = await readBody(request, options.maxRequestBytes ?? 1_048_576);
+        raw = await readBody(request, options.maxRequestBytes ?? 33_554_432);
       } catch (error) {
         if (!(error instanceof BodyTooLargeError)) throw error;
         response.setHeader("connection", "close");

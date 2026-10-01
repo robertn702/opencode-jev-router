@@ -69,9 +69,9 @@ const checkUpstreamURL = (url: URL, name: string): void => {
   if (url.protocol !== "https:" && !loopback) throw new Error(`${name} requires HTTPS except for loopback endpoints`);
 };
 
-async function boundedBody(request: Request, maxBytes: number, signal: AbortSignal): Promise<Uint8Array> {
+async function boundedBody(request: Request, maxBytes: number | undefined, signal: AbortSignal): Promise<Uint8Array> {
   const declared = request.headers.get("content-length");
-  if (declared !== null && (!/^\d+$/.test(declared) || Number(declared) > maxBytes)) throw new RangeError("request_too_large");
+  if (maxBytes !== undefined && declared !== null && (!/^\d+$/.test(declared) || Number(declared) > maxBytes)) throw new RangeError("request_too_large");
   if (request.body === null) return new Uint8Array();
   const reader = request.body.getReader();
   const chunks: Uint8Array[] = []; let size = 0;
@@ -81,10 +81,10 @@ async function boundedBody(request: Request, maxBytes: number, signal: AbortSign
       const next = await Promise.race([reader.read(), aborted]);
       if (next.done) break;
       size += next.value.byteLength;
-      if (size > maxBytes) throw new RangeError("request_too_large");
+      if (maxBytes !== undefined && size > maxBytes) throw new RangeError("request_too_large");
       chunks.push(next.value);
     }
-  } finally { if (signal.aborted || size > maxBytes) await reader.cancel().catch(() => undefined); }
+  } finally { if (signal.aborted || (maxBytes !== undefined && size > maxBytes)) await reader.cancel().catch(() => undefined); }
   const output = new Uint8Array(size); let at = 0;
   for (const chunk of chunks) { output.set(chunk, at); at += chunk.byteLength; }
   return output;
@@ -97,7 +97,7 @@ export function createPluginRuntime(options: PluginOptions): PluginRuntime {
   if (options.jevModel !== undefined && options.jevModel !== connection?.model) throw new Error("jevModel must match the configured Jev endpoint");
   if (options.baseEffort !== undefined && !["low", "medium", "high", "xhigh", "max"].includes(options.baseEffort)) throw new Error("baseEffort is unsupported");
   if (options.fixedEffort !== undefined && !MODELS.every((model) => supportsEffort(model, options.fixedEffort))) throw new Error("fixedEffort must be supported by every model");
-  const maxBytes = positive(options.maxRequestBytes, 1_048_576, "maxRequestBytes");
+  const maxBytes = options.maxRequestBytes === undefined ? undefined : positive(options.maxRequestBytes, 1, "maxRequestBytes");
   const maxInFlight = positive(options.maxInFlight, 32, "maxInFlight");
   const headerTimeoutMs = positive(options.upstreamHeaderTimeoutMs, 10_000, "upstreamHeaderTimeoutMs");
   const idleTimeoutMs = positive(options.upstreamIdleTimeoutMs, 60_000, "upstreamIdleTimeoutMs");

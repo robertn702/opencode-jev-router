@@ -178,7 +178,7 @@ export function loadConfig(env: Record<string, string | undefined>): AppConfig {
       : { policy },
     baseEffort: parseEffort(env.JEV_ROUTER_BASE_EFFORT),
     jevTimeoutMs: parseTimeout(env.JEV_ROUTER_CLASSIFICATION_TIMEOUT_MS),
-    maxRequestBytes: positiveInteger(env.JEV_ROUTER_MAX_REQUEST_BYTES, 1_048_576, "JEV_ROUTER_MAX_REQUEST_BYTES"),
+    maxRequestBytes: positiveInteger(env.JEV_ROUTER_MAX_REQUEST_BYTES, 33_554_432, "JEV_ROUTER_MAX_REQUEST_BYTES"),
     maxInFlight: positiveInteger(env.JEV_ROUTER_MAX_IN_FLIGHT, 32, "JEV_ROUTER_MAX_IN_FLIGHT"),
     upstreamHeaderTimeoutMs: positiveInteger(env.JEV_ROUTER_UPSTREAM_HEADER_TIMEOUT_MS, 10_000, "JEV_ROUTER_UPSTREAM_HEADER_TIMEOUT_MS"),
     upstreamIdleTimeoutMs: positiveInteger(env.JEV_ROUTER_UPSTREAM_IDLE_TIMEOUT_MS, 60_000, "JEV_ROUTER_UPSTREAM_IDLE_TIMEOUT_MS"),

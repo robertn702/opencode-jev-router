@@ -283,6 +283,28 @@ describe("V2 wrap aliases", () => {
     await reader.cancel(); expect(cancelled).toBe(true); h.cleanup();
   });
 
+  it.each([undefined, 1_048_576])("handles bodies larger than 1 MiB with maxRequestBytes=%s", async (maxRequestBytes) => {
+    const text = "x".repeat(1_048_577);
+    const data = { ...body, input: [{ type: "message", role: "user", content: [{ type: "input_text", text }] }] };
+    const fetcher = vi.fn(async (request: Request) => {
+      expect((await request.json()).input.at(-1).content[0].text).toBe(text);
+      return new Response("{}", { headers: { "content-type": "application/json" } });
+    }); globalThis.fetch = fetcher as typeof fetch;
+    const h = await host({ ...base, maxRequestBytes });
+    if (maxRequestBytes === undefined) {
+      await (await h.exchange(data, { headers: { "content-length": String(Buffer.byteLength(JSON.stringify(data))) } })).response.text();
+      expect(fetcher).toHaveBeenCalledOnce();
+    } else {
+      await expect(h.exchange(data)).rejects.toThrow("request_too_large (413)");
+      expect(fetcher).not.toHaveBeenCalled();
+    }
+    h.cleanup();
+  });
+
+  it.each([0, -1, 1.5, Infinity, NaN])("rejects invalid maxRequestBytes=%s", async (maxRequestBytes) => {
+    await expect(host({ ...base, maxRequestBytes })).rejects.toThrow("maxRequestBytes");
+  });
+
   it("limits actual request bytes before classification", async () => {
     const fetcher = vi.fn(); globalThis.fetch = fetcher as typeof fetch;
     const h = await host({ ...base, maxRequestBytes: 16 });
