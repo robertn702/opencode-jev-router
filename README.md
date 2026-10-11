@@ -1,3 +1,7 @@
+> [!IMPORTANT]
+> This project is superseded by [reasoning-router](https://github.com/robertn702/reasoning-router).
+> The OpenCode plugin is now `@reasoning-router/opencode`.
+
 # opencode-jev-router
 
 [![CI](https://github.com/robertn702/opencode-jev-router/actions/workflows/ci.yml/badge.svg)](https://github.com/robertn702/opencode-jev-router/actions/workflows/ci.yml)
